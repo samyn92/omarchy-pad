@@ -1,0 +1,8 @@
+#!/bin/sh
+# Builds and installs every project's package.
+set -eu
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+for project in floatkey stage; do
+    echo "== $project"
+    "$ROOT/$project/bin/install" --noconfirm
+done
