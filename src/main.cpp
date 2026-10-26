@@ -1,0 +1,188 @@
+// floatkey — an iPad-style on-screen keyboard for Omarchy: docked along the
+// bottom, floating anywhere on the screen, or tucked into a corner.
+
+#include <QCoreApplication>
+#include <QGuiApplication>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QProcess>
+#include <QQmlApplicationEngine>
+#include <QQmlContext>
+#include <QQuickWindow>
+#include <QStandardPaths>
+#include <QUrl>
+#include <cstdio>
+
+#include "controller.h"
+#include "ipc.h"
+#include "theme.h"
+#include "translator.h"
+#include "virtualkeyboard.h"
+
+static const char *usage =
+    "Usage: floatkey [--hidden] [--mode docked|floating|left|right]\n"
+    "       floatkey <command>\n"
+    "\n"
+    "Starts the on-screen keyboard, or drives the running one:\n"
+    "  show, hide, toggle   show or hide the keyboard (show and toggle start it)\n"
+    "  dock                 dock it along the bottom of the screen\n"
+    "  float                float it, small, wherever it was last dragged\n"
+    "  left, right          tuck it into the bottom left or right corner\n"
+    "  status               print whether it is shown, its mode and layout\n"
+    "  type TEXT            type TEXT into the focused window\n"
+    "  key KEY              press a key, with modifiers: BackSpace, Return,\n"
+    "                       ctrl+c, super+space, shift+Left...\n"
+    "  quit                 stop the keyboard\n";
+
+static const QHash<QString, QString> startModes = {
+    {"show", {}}, {"toggle", {}}, {"dock", "docked"}, {"float", "floating"}, {"left", "left"}, {"right", "right"},
+};
+
+static int runCommand(int argc, char *argv[], const QStringList &args)
+{
+    QCoreApplication app(argc, argv);
+    const QString verb = args.first();
+    QString line = verb;
+    if (verb == "type" || verb == "key") {
+        if (args.size() < 2) {
+            std::fprintf(stderr, "floatkey %s needs an argument\n", qPrintable(verb));
+            return 1;
+        }
+        line += ' ' + Ipc::encode(args.mid(1).join(' '));
+    }
+
+    QString reply;
+    if (!Ipc::send(Ipc::socketPath(), line, &reply)) {
+        // Showing a keyboard that isn't running starts it.
+        if (startModes.contains(verb)) {
+            QStringList startArgs;
+            if (!startModes.value(verb).isEmpty())
+                startArgs << "--mode" << startModes.value(verb);
+            if (QProcess::startDetached(QCoreApplication::applicationFilePath(), startArgs))
+                return 0;
+            std::fputs("floatkey: could not start the keyboard\n", stderr);
+            return 1;
+        }
+        if (verb == "hide" || verb == "quit")
+            return 0;
+        std::fputs("floatkey is not running\n", stderr);
+        return 1;
+    }
+    if (reply.startsWith("error")) {
+        std::fprintf(stderr, "floatkey: %s\n", qPrintable(reply.mid(6)));
+        return 1;
+    }
+    if (verb == "status")
+        std::printf("%s\n", qPrintable(reply.mid(3)));
+    return 0;
+}
+
+// Hyprland's input:kb_layout, so the keyboard starts in the user's layout.
+static QStringList hyprlandLayouts()
+{
+    if (qEnvironmentVariableIsEmpty("HYPRLAND_INSTANCE_SIGNATURE"))
+        return {};
+    const QString hyprctl = QStandardPaths::findExecutable("hyprctl");
+    if (hyprctl.isEmpty())
+        return {};
+    QProcess process;
+    process.start(hyprctl, {"-j", "getoption", "input:kb_layout"});
+    if (!process.waitForFinished(1000)) {
+        process.kill();
+        return {};
+    }
+    const QString layouts = QJsonDocument::fromJson(process.readAllStandardOutput()).object().value("str").toString();
+    return layouts.split(',', Qt::SkipEmptyParts);
+}
+
+int main(int argc, char *argv[])
+{
+    QStringList args;
+    for (int i = 1; i < argc; ++i)
+        args << QString::fromLocal8Bit(argv[i]);
+
+    if (args.contains("-h") || args.contains("--help")) {
+        std::fputs(usage, stdout);
+        return 0;
+    }
+    if (args.contains("--version")) {
+        std::puts("floatkey 0.1.0");
+        return 0;
+    }
+    if (!args.isEmpty() && (startModes.contains(args.first()) || QStringList{"hide", "status", "type", "key", "quit"}.contains(args.first())))
+        return runCommand(argc, argv, args);
+
+    bool hidden = false;
+    QString mode;
+    for (int i = 0; i < args.size(); ++i) {
+        if (args.at(i) == "--hidden")
+            hidden = true;
+        else if (args.at(i) == "--mode" && i + 1 < args.size())
+            mode = args.at(++i);
+        else {
+            std::fprintf(stderr, "floatkey: unknown argument %s\n\n%s", qPrintable(args.at(i)), usage);
+            return 2;
+        }
+    }
+    if (!mode.isEmpty() && !Controller::modes().contains(mode)) {
+        std::fprintf(stderr, "floatkey: unknown mode %s\n", qPrintable(mode));
+        return 2;
+    }
+
+    // The overlay is see-through everywhere but the keys.
+    QQuickWindow::setDefaultAlphaBuffer(true);
+    QGuiApplication app(argc, argv);
+    app.setApplicationName("floatkey");
+    app.setApplicationVersion("0.1.0");
+    app.setDesktopFileName("floatkey");
+    if (QGuiApplication::platformName() != "wayland") {
+        std::fputs("floatkey needs a Wayland session\n", stderr);
+        return 1;
+    }
+
+    // One keyboard per Wayland display: starting another shows the first.
+    const QString socket = Ipc::socketPath();
+    if (Ipc::send(socket, "status", nullptr, 300)) {
+        static const QHash<QString, QString> placements = {
+            {"docked", "dock"}, {"floating", "float"}, {"left", "left"}, {"right", "right"},
+        };
+        if (!mode.isEmpty())
+            Ipc::send(socket, placements.value(mode), nullptr);
+        else if (!hidden)
+            Ipc::send(socket, "show", nullptr);
+        return 0;
+    }
+
+    // Installed before anything is translated, and every qsTr() binding is
+    // re-evaluated when the Omarchy language changes.
+    Translator translator;
+    app.installTranslator(&translator);
+
+    Theme theme;
+    const QStringList systemLayouts = hyprlandLayouts();
+    VirtualKeyboard keyboard(systemLayouts);
+    keyboard.connectToCompositor();
+    Controller controller(Controller::defaultSettingsPath(), systemLayouts);
+    if (!mode.isEmpty())
+        controller.setMode(mode);
+
+    QQmlApplicationEngine engine;
+    QObject::connect(&translator, &Translator::changed, &engine, &QQmlEngine::retranslate);
+    engine.rootContext()->setContextProperty("translator", &translator);
+    engine.rootContext()->setContextProperty("theme", &theme);
+    engine.rootContext()->setContextProperty("controller", &controller);
+    engine.rootContext()->setContextProperty("virtualKeyboard", &keyboard);
+    engine.load(QUrl("qrc:/Main.qml"));
+    auto *window = engine.rootObjects().isEmpty() ? nullptr : qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+    if (!window)
+        return 1;
+    controller.attach(window, &keyboard);
+
+    QString error;
+    if (!controller.listen(socket, &error))
+        qWarning("floatkey: no command socket at %s: %s", qPrintable(socket), qPrintable(error));
+    if (!hidden)
+        controller.show();
+
+    return app.exec();
+}

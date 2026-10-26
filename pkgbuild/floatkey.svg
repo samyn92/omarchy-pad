@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <rect width="64" height="64" rx="14" fill="#FFD60A"/>
+  <!-- a small floating keyboard with its grabber underneath -->
+  <rect x="11" y="16" width="42" height="27" rx="5" fill="#1c1c1e"/>
+  <g fill="#FFD60A">
+    <rect x="15" y="20" width="5" height="5" rx="1.2"/>
+    <rect x="22" y="20" width="5" height="5" rx="1.2"/>
+    <rect x="29" y="20" width="5" height="5" rx="1.2"/>
+    <rect x="36" y="20" width="5" height="5" rx="1.2"/>
+    <rect x="43" y="20" width="5" height="5" rx="1.2"/>
+    <rect x="18.5" y="27" width="5" height="5" rx="1.2"/>
+    <rect x="25.5" y="27" width="5" height="5" rx="1.2"/>
+    <rect x="32.5" y="27" width="5" height="5" rx="1.2"/>
+    <rect x="39.5" y="27" width="5" height="5" rx="1.2"/>
+    <rect x="22" y="34" width="20" height="5" rx="1.2"/>
+  </g>
+  <rect x="25" y="48" width="14" height="3" rx="1.5" fill="#1c1c1e"/>
+</svg>

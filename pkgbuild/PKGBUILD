@@ -1,0 +1,25 @@
+pkgname=floatkey
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='iPad-style on-screen keyboard for Omarchy: docked, floating, or tucked into a corner'
+arch=('x86_64' 'aarch64')
+license=('MIT')
+depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'layer-shell-qt' 'libxkbcommon' 'wayland' 'xkeyboard-config')
+makedepends=('gcc' 'make')
+optdepends=('noto-fonts-emoji: emoji page'
+            'adwaita-fonts: the key labels')
+source=()
+sha256sums=()
+
+build() {
+  cd "$startdir/.."
+  ./bin/build
+}
+
+package() {
+  cd "$startdir/.."
+  install -Dm755 build/floatkey "$pkgdir/usr/bin/floatkey"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 "$startdir/floatkey.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/floatkey.svg"
+  install -Dm644 "$startdir/floatkey.desktop" "$pkgdir/usr/share/applications/floatkey.desktop"
+}
