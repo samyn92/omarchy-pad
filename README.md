@@ -10,6 +10,27 @@ bottom left or right corner, for typing with one finger.
 
 ![The floating keyboard with shift on and a key held](docs/floating.png)
 
+## Showing up by itself
+
+Like an iPad's, the keyboard comes up when you tap into a text field and goes
+away when the field loses focus. Apps already tell fcitx5, Omarchy's input method,
+when a field takes focus: GTK and Electron apps over Wayland, Qt apps over
+D-Bus. floatkey ships a small fcitx5 addon that passes this on.
+
+- Moving from one field to the next keeps the keyboard up; it only goes once no
+  field has focus for a quarter of a second.
+- Hide it in a field and it stays hidden until the next field takes focus.
+  Swipe up from the bottom edge to bring it back sooner.
+- Open it yourself with no field focused, and it stays until you hide it.
+- Terminals always count as a text field, so the keyboard comes up whenever one
+  has focus. `autoShowInTerminals=false` turns that off.
+
+fcitx5 loads the addon when it starts, so after installing restart it once:
+
+```bash
+systemctl --user restart omarchy-fcitx5.service
+```
+
 ## Placements
 
 | Placement | How to get there |
@@ -49,6 +70,7 @@ floatkey dock            # also float, left, right
 floatkey status          # shown docked de
 floatkey type "Grüße 👋"  # type into the focused window
 floatkey key ctrl+c      # press a key: BackSpace, Return, super+space, shift+Left...
+floatkey focus url       # a field took focus (the fcitx5 addon sends these); also blur
 floatkey quit
 ```
 
@@ -62,6 +84,8 @@ dockedScale=1.0         ; 0.6–1.6, height of the docked keyboard
 compactScale=1.0        ; 0.6–1.8, size of the floating keyboard
 autoCapitalize=false    ; capitalise after . ! ? and return
 doubleSpacePeriod=true
+autoShow=true           ; come up when a text field takes focus
+autoShowInTerminals=true
 ```
 
 Without `layouts`, floatkey uses Hyprland's `input:kb_layout`. Colors follow
@@ -100,10 +124,13 @@ A character not yet in the keymap brings a fresh virtual keyboard with a new
 keymap, because Hyprland and input methods such as fcitx5 only pick up a
 keymap when a keyboard first becomes active.
 
-Limits: X11 apps under Xwayland only receive the first 26 such characters (the
-umlauts, ß and € among them); Wayland apps receive all of them. floatkey
-doesn't yet pop up by itself when a text field gets focus, because that
-needs the input-method protocol, which fcitx5 holds.
+The fcitx5 addon (`fcitx5/`) watches fcitx5's focus events. Once each burst of
+focus changes settles, it sends floatkey one line over its socket: `focus
+url`, `focus text` or `blur`. The type comes from the field's hints (password,
+terminal, url, email, number), for keyboards that fit the field later.
+
+Limit: X11 apps under Xwayland only receive the first 26 such characters (the
+umlauts, ß and € among them); Wayland apps receive all of them.
 
 ## Development
 

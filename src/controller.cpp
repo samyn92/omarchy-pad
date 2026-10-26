@@ -55,6 +55,19 @@ Controller::Controller(const QString &settingsPath, const QStringList &systemLay
     m_autoCapitalize = m_settings.value("autoCapitalize", false).toBool();
     m_doubleSpacePeriod = m_settings.value("doubleSpacePeriod", true).toBool();
     m_recentEmoji = m_settings.value("recentEmoji").toStringList();
+    m_autoShow = m_settings.value("autoShow", true).toBool();
+    m_autoShowInTerminals = m_settings.value("autoShowInTerminals", true).toBool();
+
+    // Leaving one field for the next comes as a blur and a focus in quick
+    // succession; waiting a moment keeps the keyboard from flickering.
+    m_autoHide.setSingleShot(true);
+    m_autoHide.setInterval(250);
+    connect(&m_autoHide, &QTimer::timeout, this, [this] {
+        if (!m_autoShown)
+            return;
+        m_autoShown = false;
+        setShown(false);
+    });
 }
 
 Controller::~Controller()
@@ -108,14 +121,24 @@ bool Controller::listen(const QString &socketPath, QString *error)
     m_socketPath = socketPath;
     connect(m_server, &QLocalServer::newConnection, this, [this] {
         while (QLocalSocket *socket = m_server->nextPendingConnection()) {
-            connect(socket, &QLocalSocket::disconnected, socket, &QObject::deleteLater);
-            connect(socket, &QLocalSocket::readyRead, socket, [this, socket] {
+            // fcitx5's addon writes its line and hangs up without waiting
+            // for the reply, so read whatever is there before it goes.
+            auto answer = [this, socket] {
                 while (socket->canReadLine()) {
                     const QString line = QString::fromUtf8(socket->readLine()).trimmed();
-                    socket->write(command(line).toUtf8() + '\n');
+                    if (socket->state() == QLocalSocket::ConnectedState)
+                        socket->write(command(line).toUtf8() + '\n');
+                    else
+                        command(line);
                 }
                 socket->flush();
+            };
+            connect(socket, &QLocalSocket::readyRead, socket, answer);
+            connect(socket, &QLocalSocket::disconnected, socket, [socket, answer] {
+                answer();
+                socket->deleteLater();
             });
+            answer();
         }
     });
     return true;
@@ -135,6 +158,11 @@ QString Controller::command(const QString &line)
         hide();
     else if (verb == "toggle")
         toggle();
+    else if (verb == "focus") {
+        static const QStringList kinds = {"text", "terminal", "url", "email", "number", "password"};
+        focusChanged(kinds.contains(argument) ? argument : "text");
+    } else if (verb == "blur")
+        focusChanged({});
     else if (placements.contains(verb)) {
         setMode(placements.value(verb));
         show();
@@ -211,22 +239,50 @@ void Controller::setDockedHeight(int height)
     applyReservation();
 }
 
+// Shown by hand while a field has focus, the keyboard belongs to that field
+// and goes with it; shown with nothing focused, it stays until hidden.
 void Controller::show()
 {
-    if (m_visible)
+    m_autoHide.stop();
+    m_autoShown = !m_fieldType.isEmpty();
+    setShown(true);
+}
+
+// Hidden by hand, it stays hidden until a field takes focus again.
+void Controller::hide()
+{
+    m_autoHide.stop();
+    m_autoShown = false;
+    setShown(false);
+}
+
+void Controller::setShown(bool shown)
+{
+    if (shown == m_visible)
         return;
-    m_visible = true;
+    m_visible = shown;
     emit visibleChanged();
     applyReservation();
 }
 
-void Controller::hide()
+// From fcitx5's floatkey addon: a field took focus, or none has it any more.
+void Controller::focusChanged(const QString &fieldType)
 {
-    if (!m_visible)
+    if (fieldType != m_fieldType) {
+        m_fieldType = fieldType;
+        emit fieldTypeChanged();
+    }
+    if (fieldType.isEmpty()) {
+        if (m_autoShown)
+            m_autoHide.start();
         return;
-    m_visible = false;
-    emit visibleChanged();
-    applyReservation();
+    }
+    m_autoHide.stop();
+    const bool wanted = m_autoShow && (fieldType != "terminal" || m_autoShowInTerminals);
+    if (!wanted || m_visible)
+        return;
+    m_autoShown = true;
+    setShown(true);
 }
 
 void Controller::toggle()

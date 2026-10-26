@@ -7,10 +7,15 @@
 #include <QQuickWindow>
 #include <QTemporaryDir>
 #include <QtTest>
+#include <cstring>
 #include <linux/input-event-codes.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
 #include <xkbcommon/xkbcommon.h>
 
 #include "controller.h"
+#include "fieldtype.h"
 #include "keymap.h"
 #include "theme.h"
 #include "translator.h"
@@ -267,6 +272,128 @@ private slots:
         settings.write("layouts=us, de\n");
         settings.close();
         QCOMPARE(Controller(dir.path() + "/c.conf", {"fr"}).layouts(), (QStringList{"us", "de"}));
+    }
+
+    // ---- showing up for text fields ----
+
+    void focusShowsAndBlurHides()
+    {
+        QTemporaryDir dir;
+        Controller controller(dir.path() + "/floatkey.conf");
+        QCOMPARE(controller.command("focus url"), QString("ok"));
+        QVERIFY(controller.isVisible());
+        QCOMPARE(controller.fieldType(), QString("url"));
+        controller.command("blur");
+        QVERIFY(controller.isVisible());   // not at once: the next field may be on its way
+        QTRY_VERIFY(!controller.isVisible());
+        QCOMPARE(controller.fieldType(), QString());
+    }
+
+    void movingBetweenFieldsDoesntFlicker()
+    {
+        QTemporaryDir dir;
+        Controller controller(dir.path() + "/floatkey.conf");
+        QSignalSpy changes(&controller, &Controller::visibleChanged);
+        controller.command("focus text");
+        controller.command("blur");
+        QTest::qWait(50);
+        controller.command("focus text");
+        QTest::qWait(400);
+        QVERIFY(controller.isVisible());
+        QCOMPARE(changes.count(), 1);
+    }
+
+    void keyboardOpenedByHandStays()
+    {
+        QTemporaryDir dir;
+        Controller controller(dir.path() + "/floatkey.conf");
+        controller.show();
+        controller.command("focus text");
+        controller.command("blur");
+        QTest::qWait(400);
+        QVERIFY(controller.isVisible());
+    }
+
+    void keyboardOpenedByHandInAFieldGoesWithIt()
+    {
+        QTemporaryDir dir;
+        Controller controller(dir.path() + "/floatkey.conf");
+        controller.command("focus text");
+        controller.hide();
+        controller.show();
+        controller.command("blur");
+        QTRY_VERIFY(!controller.isVisible());
+    }
+
+    void swipedAwayStaysAwayUntilTheNextField()
+    {
+        QTemporaryDir dir;
+        Controller controller(dir.path() + "/floatkey.conf");
+        controller.command("focus text");
+        controller.hide();
+        QTest::qWait(300);
+        QVERIFY(!controller.isVisible());
+        controller.command("focus text");
+        QVERIFY(controller.isVisible());
+    }
+
+    void autoShowFollowsSettings()
+    {
+        QTemporaryDir dir;
+        QFile settings(dir.path() + "/floatkey.conf");
+        QVERIFY(settings.open(QIODevice::WriteOnly));
+        settings.write("autoShowInTerminals=false\n");
+        settings.close();
+        {
+            Controller controller(dir.path() + "/floatkey.conf");
+            controller.command("focus terminal");
+            QVERIFY(!controller.isVisible());
+            QCOMPARE(controller.fieldType(), QString("terminal"));
+            controller.command("focus whatever");
+            QCOMPARE(controller.fieldType(), QString("text"));
+            QVERIFY(controller.isVisible());
+        }
+        QVERIFY(settings.open(QIODevice::WriteOnly));
+        settings.write("autoShow=false\n");
+        settings.close();
+        Controller controller(dir.path() + "/floatkey.conf");
+        controller.command("focus text");
+        QVERIFY(!controller.isVisible());
+    }
+
+    void addonLinesArriveThroughTheSocket()
+    {
+        // Written and hung up on at once, the way fcitx5's addon does it.
+        QTemporaryDir dir;
+        Controller controller(dir.path() + "/floatkey.conf");
+        const QString path = dir.path() + "/floatkey.sock";
+        QVERIFY(controller.listen(path, nullptr));
+        sockaddr_un address{};
+        address.sun_family = AF_UNIX;
+        const QByteArray native = path.toLocal8Bit();
+        std::memcpy(address.sun_path, native.constData(), qMin<size_t>(native.size(), sizeof address.sun_path - 1));
+        const int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+        QCOMPARE(::connect(fd, reinterpret_cast<sockaddr *>(&address), sizeof address), 0);
+        const char line[] = "focus email\n";
+        QCOMPARE(::send(fd, line, sizeof line - 1, MSG_NOSIGNAL), qsizetype(sizeof line - 1));
+        ::close(fd);
+        QTRY_VERIFY(controller.isVisible());
+        QCOMPARE(controller.fieldType(), QString("email"));
+    }
+
+    void addonNamesFieldsByTheirHints()
+    {
+        using fcitx::CapabilityFlag;
+        using Flags = fcitx::CapabilityFlags;
+        QCOMPARE(floatkey::fieldType(Flags{CapabilityFlag::Preedit}), "text");
+        QCOMPARE(floatkey::fieldType(Flags{CapabilityFlag::Terminal}), "terminal");
+        QCOMPARE(floatkey::fieldType(Flags{CapabilityFlag::Url, CapabilityFlag::SurroundingText}), "url");
+        QCOMPARE(floatkey::fieldType(Flags{CapabilityFlag::Email}), "email");
+        QCOMPARE(floatkey::fieldType(Flags{CapabilityFlag::Dialable}), "number");
+        QCOMPARE(floatkey::fieldType(Flags{CapabilityFlag::Sensitive, CapabilityFlag::Url}), "password");
+        QVERIFY(floatkey::wantsKeyboard(Flags{CapabilityFlag::Preedit}));
+        QVERIFY(!floatkey::wantsKeyboard(Flags{CapabilityFlag::NoOnScreenKeyboard}));
+        QVERIFY(!floatkey::wantsKeyboard(Flags{CapabilityFlag::Disable}));
     }
 
     // ---- theme and translator ----

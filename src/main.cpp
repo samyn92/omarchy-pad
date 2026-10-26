@@ -32,6 +32,9 @@ static const char *usage =
     "  type TEXT            type TEXT into the focused window\n"
     "  key KEY              press a key, with modifiers: BackSpace, Return,\n"
     "                       ctrl+c, super+space, shift+Left...\n"
+    "  focus TYPE, blur     a text field took or lost focus (sent by the fcitx5\n"
+    "                       addon; TYPE is text, terminal, url, email, number\n"
+    "                       or password)\n"
     "  quit                 stop the keyboard\n";
 
 static const QHash<QString, QString> startModes = {
@@ -49,6 +52,8 @@ static int runCommand(int argc, char *argv[], const QStringList &args)
             return 1;
         }
         line += ' ' + Ipc::encode(args.mid(1).join(' '));
+    } else if (verb == "focus" && args.size() > 1) {
+        line += ' ' + Ipc::encode(args.at(1));
     }
 
     QString reply;
@@ -106,10 +111,10 @@ int main(int argc, char *argv[])
         return 0;
     }
     if (args.contains("--version")) {
-        std::puts("floatkey 0.1.0");
+        std::puts("floatkey 0.2.0");
         return 0;
     }
-    if (!args.isEmpty() && (startModes.contains(args.first()) || QStringList{"hide", "status", "type", "key", "quit"}.contains(args.first())))
+    if (!args.isEmpty() && (startModes.contains(args.first()) || QStringList{"hide", "status", "type", "key", "focus", "blur", "quit"}.contains(args.first())))
         return runCommand(argc, argv, args);
 
     bool hidden = false;
@@ -133,7 +138,7 @@ int main(int argc, char *argv[])
     QQuickWindow::setDefaultAlphaBuffer(true);
     QGuiApplication app(argc, argv);
     app.setApplicationName("floatkey");
-    app.setApplicationVersion("0.1.0");
+    app.setApplicationVersion("0.2.0");
     app.setDesktopFileName("floatkey");
     if (QGuiApplication::platformName() != "wayland") {
         std::fputs("floatkey needs a Wayland session\n", stderr);

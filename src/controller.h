@@ -6,6 +6,7 @@
 #include <QRect>
 #include <QSettings>
 #include <QStringList>
+#include <QTimer>
 
 class QLocalServer;
 class QWindow;
@@ -18,7 +19,8 @@ class Window;
 // a corner), which layout it shows, and the user's settings. It also tells the
 // compositor which part of the transparent overlay takes touches, and reserves
 // space at the bottom of the screen while the keyboard is docked so windows
-// move up instead of hiding behind it.
+// move up instead of hiding behind it. With fcitx5's floatkey addon it comes
+// up by itself when a text field takes focus, and goes when it loses it.
 class Controller : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool visible READ isVisible NOTIFY visibleChanged)
@@ -32,6 +34,9 @@ class Controller : public QObject {
     Q_PROPERTY(bool autoCapitalize READ autoCapitalize CONSTANT)
     Q_PROPERTY(bool doubleSpacePeriod READ doubleSpacePeriod CONSTANT)
     Q_PROPERTY(QStringList recentEmoji READ recentEmoji NOTIFY recentEmojiChanged)
+    // The kind of field that has focus (text, terminal, url, email, number,
+    // password), or empty when none does.
+    Q_PROPERTY(QString fieldType READ fieldType NOTIFY fieldTypeChanged)
 
 public:
     // systemLayouts is the compositor's keyboard layout list (Hyprland's
@@ -66,6 +71,8 @@ public:
     bool autoCapitalize() const { return m_autoCapitalize; }
     bool doubleSpacePeriod() const { return m_doubleSpacePeriod; }
     QStringList recentEmoji() const { return m_recentEmoji; }
+    QString fieldType() const { return m_fieldType; }
+    bool autoShow() const { return m_autoShow; }
 
     Q_INVOKABLE void show();
     Q_INVOKABLE void hide();
@@ -80,8 +87,11 @@ signals:
     void layoutIndexChanged();
     void dockedHeightChanged();
     void recentEmojiChanged();
+    void fieldTypeChanged();
 
 private:
+    void setShown(bool shown);
+    void focusChanged(const QString &fieldType);
     void applyReservation();
     void applyInputRegion(bool force);
 
@@ -104,4 +114,11 @@ private:
     bool m_doubleSpacePeriod = true;
     QStringList m_recentEmoji;
     QRect m_inputRegion;
+
+    bool m_autoShow = true;
+    bool m_autoShowInTerminals = true;
+    QString m_fieldType;
+    // Shown for the focused field, so it goes when the field loses focus.
+    bool m_autoShown = false;
+    QTimer m_autoHide;
 };

@@ -1,13 +1,13 @@
 QT += core gui qml quick testlib network
-CONFIG += c++17 testcase link_pkgconfig
-PKGCONFIG += wayland-client xkbcommon
+CONFIG += c++20 testcase link_pkgconfig
+PKGCONFIG += wayland-client xkbcommon Fcitx5Utils
 LIBS += -lLayerShellQtInterface
 TARGET = floatkey_tests
 TEMPLATE = app
 
 include(../protocols.pri)
 
-INCLUDEPATH += ../src
+INCLUDEPATH += ../src ../fcitx5
 
 HEADERS += \
     ../src/controller.h \
