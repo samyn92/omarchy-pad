@@ -1,0 +1,7 @@
+<RCC>
+    <qresource prefix="/">
+        <file alias="Main.qml">Main.qml</file>
+        <file alias="Style.qml">Style.qml</file>
+        <file alias="Launcher.qml">Launcher.qml</file>
+    </qresource>
+</RCC>
