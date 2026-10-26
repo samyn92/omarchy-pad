@@ -9,6 +9,8 @@ the same the other way. Pull the scratchpad console down from the top.
 
 ![Let go: two thirds stay with the window, the launcher takes the rest](docs/split.png)
 
+![Up from the bottom edge, the same the other way](docs/bottom.png)
+
 ## Gestures
 
 | Gesture | What it does |
@@ -19,8 +21,11 @@ the same the other way. Pull the scratchpad console down from the top.
 | Tap or push up on the dimmed screen | Sends the console back up |
 | Three fingers sideways | Next or previous workspace (lisgd, from the tablet session) |
 
-While you drag, a picture of the window follows your finger; when you let go
-it lands on a third, a half or two thirds, whichever is nearest. A short, quick
+While you drag, the window keeps its border at your finger, the wallpaper
+shows through the gap, and the launcher arrives as a window of its own, with
+Hyprland's gaps, border colors and rounding, so it already looks like the
+layout it will become. When you let go it lands on a third, a half or two
+thirds, whichever is nearest. A short, quick
 flick makes halves; a short or slow pull springs back. Tap an app and its window
 opens where the launcher was; tap beside the launcher to put things back.
 
@@ -41,6 +46,8 @@ stage status                   # console=closed apps=55
 stage launch foot right 0.66   # what the launcher does: foot beside the focused window
 stage launch firefox console   # ...or in the console
 stage console open             # bring the console down; also close
+stage simulate drag 1693 600 1200 600   # a finger without a hand, still held;
+stage simulate release                  # then release, pick APP or cancel
 stage quit
 ```
 
@@ -48,9 +55,12 @@ stage quit
 
 stage is one transparent layer-shell overlay over the whole screen that only
 takes touches in strips along the edges, so a finger landing there reaches
-stage instead of the app underneath. When it does, stage captures the screen
-(ext-image-copy-capture) and moves that picture under the finger; the real
-windows don't relayout on every frame, which is what keeps it smooth.
+stage instead of the app underneath. The real window never resizes while the
+finger moves, which is what keeps it smooth: stage draws over the part it
+gives up, with the wallpaper as Omarchy shows it and a new window frame, at
+the places dwindle will put the two windows (the split line, minus half a gap
+and a border on each side). The console's windows are hidden until it comes
+down, so for those stage takes pictures (ext-image-copy-capture) to move.
 
 Letting go on an app tells Hyprland, over its socket, to focus the window that
 made room, put the next window beside or under it (dwindle's preselect),

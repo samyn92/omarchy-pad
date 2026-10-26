@@ -3,5 +3,6 @@
         <file alias="Main.qml">Main.qml</file>
         <file alias="Style.qml">Style.qml</file>
         <file alias="Launcher.qml">Launcher.qml</file>
+        <file alias="WindowFrame.qml">WindowFrame.qml</file>
     </qresource>
 </RCC>

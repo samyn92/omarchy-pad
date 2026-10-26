@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QProcess>
 #include <QTimer>
+#include <QUrl>
 
 // Follows the Omarchy theme live: the accent for active keys, and the
 // background, foreground and light or dark mode the key colors are mixed from.
@@ -16,6 +17,8 @@ class Theme : public QObject {
     Q_PROPERTY(QString foreground READ foreground NOTIFY changed)
     Q_PROPERTY(bool dark READ isDark NOTIFY changed)
     Q_PROPERTY(int radius READ radius NOTIFY changed)
+    // The wallpaper Omarchy shows, so gaps between windows can show it too.
+    Q_PROPERTY(QUrl wallpaper READ wallpaper NOTIFY changed)
 
 public:
     explicit Theme(const QString &currentDirectory = {}, QObject *parent = nullptr, const QString &hyprctl = {});
@@ -27,6 +30,7 @@ public:
     QString foreground() const { return m_foreground; }
     bool isDark() const { return m_dark; }
     int radius() const { return m_radius; }
+    QUrl wallpaper() const { return m_wallpaper; }
 
     static QString readAccent(const QString &path);
     // One `key = "value"` from colors.toml, or the fallback.
@@ -44,6 +48,7 @@ private:
     QString m_background = "#121212";
     QString m_foreground = "#E6E6E6";
     bool m_dark = true;
+    QUrl m_wallpaper;
     QFileSystemWatcher m_watcher;
     QTimer m_debounce;
     QString m_hyprctl;

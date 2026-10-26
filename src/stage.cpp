@@ -46,6 +46,7 @@ Stage::Stage(Hyprland *hyprland, Capture *capture, Snapshots *snapshots, Apps *a
         emit snapshotReady(id, !image.isNull());
     });
 
+    refreshLook();
     const Monitor m = monitor();
     if (m.ok && m.special == Scratchpad) {
         m_consoleOpen = true;
@@ -118,6 +119,7 @@ QVariantList Stage::windowsOn(const QString &workspace, const QPointF &origin) c
             {"w", size.at(0).toDouble()},
             {"h", size.at(1).toDouble()},
             {"fullscreen", o.value("fullscreen").toInt() != 0},
+            {"active", o.value("focusHistoryID").toInt(-1) == 0},
         };
     }
     return windows;
@@ -178,6 +180,47 @@ QVariantMap Stage::pickTarget(const QString &edge, qreal x, qreal y, const QVari
 
 // Omarchy's console: the top half of the work area, and while it holds one
 // window a box twice as wide as tall in the middle (see qconsole.lua).
+QVariantMap Stage::parseGradient(const QString &gradient)
+{
+    QVariantList colors;
+    int angle = 0;
+    for (const QString &word : gradient.split(' ', Qt::SkipEmptyParts)) {
+        if (word.endsWith("deg"))
+            angle = word.chopped(3).toInt();
+        else if (word.size() == 8)
+            colors << "#" + word;
+    }
+    if (colors.isEmpty())
+        colors << "#ff888888";
+    return {{"colors", colors}, {"angle", angle}};
+}
+
+// Read once at start and again whenever Hyprland reloads its config, so the
+// windows a gesture draws look like the ones Hyprland does.
+void Stage::refreshLook()
+{
+    auto option = [this](const char *name) {
+        return m_hyprland->query(QByteArray("getoption ") + name).object();
+    };
+    // Gaps come as "5 5 5 5" (top right bottom left); they're all the same here.
+    auto first = [](const QJsonObject &o) {
+        const QString css = o.value("css").toString();
+        return css.isEmpty() ? o.value("int").toDouble() : css.section(' ', 0, 0).toDouble();
+    };
+    QVariantMap look{
+        {"gapsIn", first(option("general:gaps_in"))},
+        {"gapsOut", first(option("general:gaps_out"))},
+        {"border", option("general:border_size").value("int").toDouble(2)},
+        {"rounding", option("decoration:rounding").value("int").toDouble(0)},
+        {"active", parseGradient(option("general:col.active_border").value("gradient").toString())},
+        {"inactive", parseGradient(option("general:col.inactive_border").value("gradient").toString())},
+    };
+    if (look != m_look) {
+        m_look = look;
+        emit lookChanged();
+    }
+}
+
 QRectF Stage::consoleBox(const QRectF &usable, int windows)
 {
     const qreal tall = std::floor(usable.height() * 0.5);
@@ -269,6 +312,10 @@ void Stage::launch(const QVariantMap &plan, const QString &appId, qreal fraction
 
 void Stage::onEvent(const QString &name, const QString &data)
 {
+    if (name == "configreloaded") {
+        refreshLook();
+        return;
+    }
     if (name == "activespecial") {
         const bool open = data.section(',', 0, 0) == Scratchpad;
         if (open != m_consoleOpen) {

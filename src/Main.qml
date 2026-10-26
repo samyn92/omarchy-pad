@@ -17,7 +17,6 @@ Window {
 
     // How far in from the edge a finger has to land to start a gesture.
     readonly property real strip: 10
-    readonly property real gap: 8
 
     // What the gesture acts on (from stage.beginEdge) and how far it has got.
     property var plan: null
@@ -39,6 +38,33 @@ Window {
                                                        : Qt.rect(0, 0, width, height)
     readonly property rect box: plan && plan.console ? Qt.rect(plan.console.x, plan.console.y, plan.console.w, plan.console.h)
                                                      : Qt.rect(0, 0, 0, 0)
+    // Hyprland's own measures, so what a gesture draws is what Hyprland
+    // will lay out: the border, the gap between windows and around them.
+    readonly property var look: stage.look
+    readonly property real border: look && look.border !== undefined ? look.border : 2
+    readonly property real gapIn: look && look.gapsIn !== undefined ? look.gapsIn : 5
+    readonly property real gapOut: look && look.gapsOut !== undefined ? look.gapsOut : 10
+
+    // Dwindle's node for the window being split: the window with its border
+    // and half a gap on each side. The finger moves the boundary between
+    // the two halves-to-be; each window keeps its border and half a gap
+    // from it, exactly as dwindle will once the app is open.
+    readonly property real nodeStart: sideways ? target.x - border - gapIn : target.y - border - gapIn
+    readonly property real span: (sideways ? target.width : target.height) + 2 * (border + gapIn)
+    readonly property real boundary: nodeStart + span - pull
+    readonly property rect keptOuter: sideways
+        ? Qt.rect(target.x - border, target.y - border, Math.max(0, boundary - gapIn - target.x + border), target.height + 2 * border)
+        : Qt.rect(target.x - border, target.y - border, target.width + 2 * border, Math.max(0, boundary - gapIn - target.y + border))
+    readonly property rect roomOuter: fresh
+        ? Qt.rect(usable.x + gapOut, usable.y + gapOut, usable.width - 2 * gapOut, usable.height - 2 * gapOut)
+        : sideways
+        ? Qt.rect(boundary + gapIn, target.y - border, Math.max(0, target.x + target.width + border - boundary - gapIn), target.height + 2 * border)
+        : Qt.rect(target.x - border, boundary + gapIn, target.width + 2 * border, Math.max(0, target.y + target.height + border - boundary - gapIn))
+    // What the window gives up, gap included: wallpaper, and the new window on it.
+    readonly property rect given: sideways
+        ? Qt.rect(keptOuter.x + keptOuter.width, keptOuter.y, target.x + target.width + border - keptOuter.x - keptOuter.width, keptOuter.height)
+        : Qt.rect(keptOuter.x, keptOuter.y + keptOuter.height, keptOuter.width, target.y + target.height + border - keptOuter.y - keptOuter.height)
+
     // How far the console has come down, 0 to 1.
     readonly property real drop: edge === "top" && box.height > 0 ? Math.min(1, pull / box.height) : 0
 
@@ -129,8 +155,7 @@ Window {
         if (!plan.allowed) {
             pull = rubber(d)
         } else if (splitting) {
-            const size = sideways ? target.width : target.height
-            const most = size * 0.75
+            const most = span * 0.75
             pull = d <= most ? Math.max(0, d) : most + rubber(d - most)
         } else if (edge === "top") {
             pull = d <= box.height ? Math.max(0, d) : box.height + rubber(d - box.height)
@@ -185,7 +210,7 @@ Window {
                 settle(0, finish)
             return
         }
-        const size = sideways ? target.width : target.height
+        const size = span
         if (pull < 56 && v < 450) {
             settle(0, finish)
             return
@@ -292,58 +317,61 @@ Window {
         opacity: win.veil
         visible: win.phase !== "idle" && win.phase !== "dismiss"
 
-        // The window being made smaller. The real one stays where it is: the
-        // room drawn over its far side is what makes it look cut off, so
-        // there is nothing to capture or wait for.
+        // The real window stays where it is; what it gives up is covered by
+        // the wallpaper (as the gap will show it) with the new window on it,
+        // so it looks cut off where the finger is, border and all.
         Item {
-            id: shrinking
-            x: win.target.x
-            y: win.target.y
-            width: win.sideways ? Math.max(0, win.target.width - win.pull) : win.target.width
-            height: win.sideways ? win.target.height : Math.max(0, win.target.height - win.pull)
-        }
-
-        // A soft shadow along the edge the finger is pulling.
-        Rectangle {
-            visible: win.splitting && win.pull > 1
-            x: win.sideways ? shrinking.x + shrinking.width - width : shrinking.x
-            y: win.sideways ? shrinking.y : shrinking.y + shrinking.height - height
-            width: win.sideways ? 14 : shrinking.width
-            height: win.sideways ? shrinking.height : 14
-            gradient: Gradient {
-                orientation: win.sideways ? Gradient.Horizontal : Gradient.Vertical
-                GradientStop { position: 0; color: "transparent" }
-                GradientStop { position: 1; color: style.shadow }
+            visible: win.splitting
+            x: win.given.x
+            y: win.given.y
+            width: Math.max(0, win.given.width)
+            height: Math.max(0, win.given.height)
+            clip: true
+            Image {
+                x: -parent.x
+                y: -parent.y
+                width: win.width
+                height: win.height
+                source: wallpaper.source
+                sourceSize: wallpaper.sourceSize
+                fillMode: Image.PreserveAspectCrop
             }
         }
 
-        // The room the finger made, and the launcher in it.
-        Rectangle {
-            id: roomBack
+        // The border on the edge the finger is pulling, in the window's own
+        // colors (blue while it has focus).
+        WindowFrame {
             visible: win.splitting
-            color: style.background
-            x: win.sideways ? shrinking.x + shrinking.width : win.target.x
-            y: win.sideways ? win.target.y : shrinking.y + shrinking.height
-            width: win.sideways ? Math.max(0, win.target.width - shrinking.width) : win.target.width
-            height: win.sideways ? win.target.height : Math.max(0, win.target.height - shrinking.height)
+            x: win.sideways ? win.keptOuter.x + win.keptOuter.width - width : win.keptOuter.x
+            y: win.sideways ? win.keptOuter.y : win.keptOuter.y + win.keptOuter.height - height
+            width: win.sideways ? win.border : win.keptOuter.width
+            height: win.sideways ? win.keptOuter.height : win.border
+            border: 0
+            fill: "transparent"
+            colors: !win.look ? null : win.plan && win.plan.active ? win.look.active : win.look.inactive
         }
 
-        Item {
+        // The room the finger made: a new window, launcher inside.
+        WindowFrame {
             id: room
             visible: win.splitting || win.fresh
-            x: win.fresh ? win.usable.x + 12 : roomBack.x + (win.sideways ? win.gap : 0)
-            y: win.fresh ? win.usable.y + 12 : roomBack.y + (win.sideways ? 0 : win.gap)
-            width: win.fresh ? win.usable.width - 24 : Math.max(0, roomBack.width - (win.sideways ? win.gap : 0))
-            height: win.fresh ? win.usable.height - 24 : Math.max(0, roomBack.height - (win.sideways ? 0 : win.gap))
-            opacity: win.fresh ? Math.min(1, win.pull / 220) : Math.min(1, win.pull / 140)
-            scale: win.fresh ? 0.94 + 0.06 * Math.min(1, win.pull / 220) : 1
-            clip: true
+            x: win.roomOuter.x
+            y: win.roomOuter.y
+            width: win.roomOuter.width
+            height: win.roomOuter.height
+            border: win.border
+            rounding: win.look && win.look.rounding !== undefined ? win.look.rounding : 0
+            colors: win.look ? win.look.active : null
+            fill: style.background
+            opacity: win.fresh ? Math.min(1, win.pull / 160) : Math.min(1, win.pull / 50)
+            scale: win.fresh ? 0.96 + 0.04 * Math.min(1, win.pull / 160) : 1
 
             Launcher {
                 anchors.fill: parent
                 style: style
+                plain: true
                 interactive: win.phase === "room"
-                opacity: win.phase === "launching" ? 0 : 1
+                opacity: win.phase === "launching" ? 0 : Math.min(1, win.pull / 140)
                 Behavior on opacity { NumberAnimation { duration: 150 } }
                 onPicked: (appId) => win.launchApp(appId)
             }
@@ -466,6 +494,17 @@ Window {
             if (t >= 1)
                 stop()
         }
+    }
+
+    // The wallpaper as Omarchy shows it, decoded once (WebP is slow), for the
+    // gaps a gesture opens up.
+    Image {
+        id: wallpaper
+        visible: false
+        source: theme.wallpaper
+        sourceSize: Qt.size(win.width * Screen.devicePixelRatio, win.height * Screen.devicePixelRatio)
+        fillMode: Image.PreserveAspectCrop
+        asynchronous: true
     }
 
     // Every app's icon, loaded once at the size the launcher asks for, so the

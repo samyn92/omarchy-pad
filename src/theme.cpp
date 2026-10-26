@@ -119,7 +119,12 @@ void Theme::reload() {
     // Themes without a mode line are dark unless their background is light.
     const QString mode = readValue(colors, "mode", QColor(background).lightnessF() > 0.5 ? "light" : "dark");
     const bool dark = mode != "light";
-    if (accent != m_accent || background != m_background || foreground != m_foreground || dark != m_dark) {
+    // A theme or wallpaper switch points the symlink somewhere else.
+    const QString wallpaperPath = QFileInfo(m_directory + "/background").canonicalFilePath();
+    const QUrl wallpaper = wallpaperPath.isEmpty() ? QUrl() : QUrl::fromLocalFile(wallpaperPath);
+    if (accent != m_accent || background != m_background || foreground != m_foreground || dark != m_dark
+        || wallpaper != m_wallpaper) {
+        m_wallpaper = wallpaper;
         m_accent = accent;
         m_background = background;
         m_foreground = foreground;

@@ -6,12 +6,15 @@ Item {
 
     required property QtObject style
     property bool interactive: true
+    // Inside a window frame there is no panel of its own to draw.
+    property bool plain: false
 
     signal picked(string appId)
 
     readonly property real cell: Math.max(92, Math.min(124, width / Math.max(1, Math.round(width / 112))))
 
     Rectangle {
+        visible: !launcher.plain
         anchors.fill: parent
         radius: launcher.style.radius
         color: launcher.style.panel

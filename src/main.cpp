@@ -77,7 +77,7 @@ int main(int argc, char *argv[])
         return 0;
     }
     if (args.contains("--version")) {
-        std::puts("stage 0.1.1");
+        std::puts("stage 0.1.2");
         return 0;
     }
     if (!args.isEmpty())
@@ -86,7 +86,7 @@ int main(int argc, char *argv[])
     QQuickWindow::setDefaultAlphaBuffer(true);
     QGuiApplication app(argc, argv);
     app.setApplicationName("stage");
-    app.setApplicationVersion("0.1.1");
+    app.setApplicationVersion("0.1.2");
     app.setDesktopFileName("stage");
     if (QGuiApplication::platformName() != "wayland") {
         std::fputs("stage needs a Wayland session\n", stderr);

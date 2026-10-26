@@ -22,6 +22,9 @@ class Stage : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool consoleOpen READ consoleOpen NOTIFY consoleOpenChanged)
     Q_PROPERTY(QRectF consoleRect READ consoleRect NOTIFY consoleOpenChanged)
+    // How Hyprland draws windows: gapsIn, gapsOut, border, rounding, and the
+    // active and inactive border colors (#aarrggbb lists, with an angle).
+    Q_PROPERTY(QVariantMap look READ look NOTIFY lookChanged)
 
 public:
     // At most this many windows share a workspace, and this many the console.
@@ -36,6 +39,7 @@ public:
 
     bool consoleOpen() const { return m_consoleOpen; }
     QRectF consoleRect() const { return m_consoleRect; }
+    QVariantMap look() const { return m_look; }
 
     // A finger landed on an edge ("right", "bottom" or "top") at x, y in the
     // overlay's coordinates. Returns what the gesture would act on; pictures
@@ -55,9 +59,12 @@ public:
     static QVariantMap pickTarget(const QString &edge, qreal x, qreal y, const QVariantList &windows,
                                   const QRectF &usable, int limit);
     static QRectF consoleBox(const QRectF &usable, int windows);
+    // "ff7aa2f7 33ccffee 45deg" as {colors: ["#ff7aa2f7", ...], angle: 45}.
+    static QVariantMap parseGradient(const QString &gradient);
 
 signals:
     void consoleOpenChanged();
+    void lookChanged();
     void snapshotReady(int id, bool ok);
     void placed(bool ok);
 
@@ -72,6 +79,7 @@ private:
     };
 
     Monitor monitor() const;
+    void refreshLook();
     QVariantList windowsOn(const QString &workspace, const QPointF &origin) const;
     void onEvent(const QString &name, const QString &data);
     void applyInputRegion(bool force);
@@ -84,6 +92,7 @@ private:
     QPointer<QWindow> m_window;
     QLocalServer *m_server = nullptr;
 
+    QVariantMap m_look;
     bool m_consoleOpen = false;
     QRectF m_consoleRect;
     QList<QRect> m_inputRects;

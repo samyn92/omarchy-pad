@@ -22,6 +22,7 @@ class FakeStage : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool consoleOpen MEMBER consoleOpen NOTIFY consoleOpenChanged)
     Q_PROPERTY(QRectF consoleRect MEMBER consoleRect NOTIFY consoleOpenChanged)
+    Q_PROPERTY(QVariantMap look MEMBER look CONSTANT)
 
 public:
     Q_INVOKABLE QVariantMap beginEdge(const QString &edge, qreal, qreal)
@@ -49,6 +50,9 @@ public:
 
     bool consoleOpen = false;
     QRectF consoleRect;
+    QVariantMap look{{"gapsIn", 5}, {"gapsOut", 10}, {"border", 2}, {"rounding", 0},
+                     {"active", Stage::parseGradient("ff7aa2f7 0deg")},
+                     {"inactive", Stage::parseGradient("aa595959 0deg")}};
     QHash<QString, QVariantMap> plans;
     QStringList log;
     QVariantList region;
@@ -235,6 +239,15 @@ private slots:
         QCOMPARE(apps.name("web"), QString("Web"));
     }
 
+    void bordersReadLikeHyprlands()
+    {
+        const QVariantMap one = Stage::parseGradient("ff7aa2f7 0deg");
+        QCOMPARE(one["colors"].toList(), QVariantList{"#ff7aa2f7"});
+        const QVariantMap two = Stage::parseGradient("ee33ccff ee00ff99 45deg");
+        QCOMPARE(two["colors"].toList().size(), 2);
+        QCOMPARE(two["angle"].toInt(), 45);
+    }
+
     void luaStringsNeverBreak()
     {
         QCOMPARE(Hyprland::quote("foot"), QString("[[foot]]"));
@@ -256,10 +269,12 @@ private slots:
     void swipingInFromTheRightMakesRoomForAnApp()
     {
         Harness h;
-        // Leave two thirds to the window, and let go.
+        // Leave two thirds to the window, and let go. The node dwindle
+        // splits is the window, its border and half a gap each side.
+        const qreal span = 1672 + 2 * (2 + 5);
         h.swipe(QPoint(1693, 600), QPoint(1693 - 560, 600));
         QTRY_COMPARE(h.phase(), QString("room"));
-        QVERIFY(qAbs(h.pull() - 1672 / 3.0) < 2);
+        QVERIFY(qAbs(h.pull() - span / 3.0) < 2);
         const QPoint foot = h.tile("foot");
         QVERIFY(foot.x() > 1100);
         h.tap(foot);
@@ -272,7 +287,7 @@ private slots:
         Harness h;
         h.swipe(QPoint(1693, 600), QPoint(1693 - 300, 600), 90);
         QTRY_COMPARE(h.phase(), QString("room"));
-        QVERIFY(qAbs(h.pull() - 1672 / 2.0) < 2);
+        QVERIFY(qAbs(h.pull() - (1672 + 14) / 2.0) < 2);
     }
 
     void aShortPullSpringsBack()
