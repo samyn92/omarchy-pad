@@ -57,6 +57,7 @@ Controller::Controller(const QString &settingsPath, const QStringList &systemLay
     m_recentEmoji = m_settings.value("recentEmoji").toStringList();
     m_autoShow = m_settings.value("autoShow", true).toBool();
     m_autoShowInTerminals = m_settings.value("autoShowInTerminals", true).toBool();
+    m_autoShowWithKeyboard = m_settings.value("autoShowWithKeyboard", false).toBool();
 
     // Leaving one field for the next comes as a blur and a focus in quick
     // succession; waiting a moment keeps the keyboard from flickering.
@@ -278,7 +279,8 @@ void Controller::focusChanged(const QString &fieldType)
         return;
     }
     m_autoHide.stop();
-    const bool wanted = m_autoShow && (fieldType != "terminal" || m_autoShowInTerminals);
+    const bool wanted = m_autoShow && (fieldType != "terminal" || m_autoShowInTerminals)
+                        && (!m_hardwareKeyboard || m_autoShowWithKeyboard);
     if (!wanted || m_visible)
         return;
     m_autoShown = true;
@@ -298,6 +300,18 @@ void Controller::noteEmoji(const QString &emoji)
         m_recentEmoji.removeLast();
     m_settings.setValue("recentEmoji", m_recentEmoji);
     emit recentEmojiChanged();
+}
+
+void Controller::setHardwareKeyboard(bool attached)
+{
+    if (attached == m_hardwareKeyboard)
+        return;
+    m_hardwareKeyboard = attached;
+    if (attached && !m_autoShowWithKeyboard && m_autoShown) {
+        m_autoHide.stop();
+        m_autoShown = false;
+        setShown(false);
+    }
 }
 
 void Controller::applyReservation()

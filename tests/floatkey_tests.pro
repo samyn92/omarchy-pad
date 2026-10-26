@@ -12,6 +12,7 @@ INCLUDEPATH += ../src ../fcitx5
 HEADERS += \
     ../src/controller.h \
     ../src/ipc.h \
+    ../src/keyboardwatcher.h \
     ../src/keymap.h \
     ../src/theme.h \
     ../src/translator.h \
@@ -21,6 +22,7 @@ SOURCES += \
     floatkey_tests.cpp \
     ../src/controller.cpp \
     ../src/ipc.cpp \
+    ../src/keyboardwatcher.cpp \
     ../src/keymap.cpp \
     ../src/theme.cpp \
     ../src/translator.cpp \

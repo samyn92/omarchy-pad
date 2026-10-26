@@ -16,6 +16,7 @@
 
 #include "controller.h"
 #include "fieldtype.h"
+#include "keyboardwatcher.h"
 #include "keymap.h"
 #include "theme.h"
 #include "translator.h"
@@ -359,6 +360,51 @@ private slots:
         Controller controller(dir.path() + "/floatkey.conf");
         controller.command("focus text");
         QVERIFY(!controller.isVisible());
+    }
+
+    void hardwareKeyboardKeepsItAway()
+    {
+        QTemporaryDir dir;
+        Controller controller(dir.path() + "/floatkey.conf");
+        controller.command("focus text");
+        QVERIFY(controller.isVisible());
+        controller.setHardwareKeyboard(true);   // came up for the field, goes
+        QVERIFY(!controller.isVisible());
+        controller.command("blur");
+        controller.command("focus text");
+        QVERIFY(!controller.isVisible());
+        controller.show();                      // by hand it still comes
+        QVERIFY(controller.isVisible());
+        controller.hide();
+        controller.setHardwareKeyboard(false);
+        controller.command("focus text");
+        QVERIFY(controller.isVisible());
+    }
+
+    void watcherFindsKeyboardsByTheirLetterKeys()
+    {
+        // The Air75's bitmap from this tablet, and its power button's.
+        QVERIFY(KeyboardWatcher::hasLetterKeys("73ffff 0 0 4c3ffff17aff32d bfd4445600000000 1 1130ffb8b17c007 "
+                                               "ffff7bfad951dfff ffbeffdfffefffff fffffffffffffffe"));
+        QVERIFY(!KeyboardWatcher::hasLetterKeys("4000000000000 0"));
+        QVERIFY(!KeyboardWatcher::hasLetterKeys(""));
+
+        QTemporaryDir sys;
+        auto device = [&sys](const QString &event, const QByteArray &name, const QByteArray &keys) {
+            QDir(sys.path()).mkpath(event + "/device/capabilities");
+            QFile n(sys.path() + "/" + event + "/device/name");
+            QVERIFY(n.open(QIODevice::WriteOnly));
+            n.write(name + "\n");
+            QFile k(sys.path() + "/" + event + "/device/capabilities/key");
+            QVERIFY(k.open(QIODevice::WriteOnly));
+            k.write(keys + "\n");
+        };
+        device("event0", "pmic_pwrkey", "4000000000000 0");
+        QVERIFY(!KeyboardWatcher(sys.path(), sys.path()).isAttached());
+        device("event7", "Air75 V3 ISO-1 Keyboard", "ffbeffdfffefffff fffffffffffffffe");
+        KeyboardWatcher watcher(sys.path(), sys.path());
+        QVERIFY(watcher.isAttached());
+        QCOMPARE(watcher.names(), QStringList{"Air75 V3 ISO-1 Keyboard"});
     }
 
     void addonLinesArriveThroughTheSocket()

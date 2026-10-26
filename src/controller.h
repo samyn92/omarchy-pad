@@ -80,6 +80,11 @@ public:
     Q_INVOKABLE void setInputRegion(const QRectF &rect);
     Q_INVOKABLE void noteEmoji(const QString &emoji);
 
+    // A hardware keyboard is attached: fields no longer bring the on-screen
+    // one up (unless autoShowWithKeyboard says so), and one that came up for
+    // a field goes.
+    void setHardwareKeyboard(bool attached);
+
 signals:
     void visibleChanged();
     void modeChanged();
@@ -117,6 +122,8 @@ private:
 
     bool m_autoShow = true;
     bool m_autoShowInTerminals = true;
+    bool m_autoShowWithKeyboard = false;
+    bool m_hardwareKeyboard = false;
     QString m_fieldType;
     // Shown for the focused field, so it goes when the field loses focus.
     bool m_autoShown = false;

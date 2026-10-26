@@ -24,6 +24,9 @@ D-Bus. floatkey ships a small fcitx5 addon that passes this on.
 - Open it yourself with no field focused, and it stays until you hide it.
 - Terminals always count as a text field, so the keyboard comes up whenever one
   has focus. `autoShowInTerminals=false` turns that off.
+- While a hardware keyboard is connected (built in, USB or Bluetooth), fields
+  don't bring it up; connecting one hides a keyboard that came up by itself.
+  Swiping up still shows it. `autoShowWithKeyboard=true` turns that off.
 
 fcitx5 loads the addon when it starts, so after installing restart it once:
 
@@ -86,6 +89,7 @@ autoCapitalize=false    ; capitalise after . ! ? and return
 doubleSpacePeriod=true
 autoShow=true           ; come up when a text field takes focus
 autoShowInTerminals=true
+autoShowWithKeyboard=false ; also come up while a hardware keyboard is connected
 ```
 
 Without `layouts`, floatkey uses Hyprland's `input:kb_layout`. Colors follow
