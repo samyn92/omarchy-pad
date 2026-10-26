@@ -5,13 +5,14 @@
 #  - the on-screen keyboard (floatkey, else wvkbd), started hidden; iceland-osk shows and hides it;
 #  - touch gestures: stage's edge swipes (split a window, pull the scratchpad down) when it is installed, and
 #    lisgd for the 3-finger ones, restarted with every rotation so its edges follow the screen.
-# Settings: ~/.config/iceland/tablet.conf (PANEL, SCALE, ROTATE_FLIP, GESTURES; see install-tablet-setup.sh).
+# Settings: ~/.config/iceland/tablet.conf (PANEL, SCALE, ROTATE_FLIP, GESTURES, GESTURE_DISTANCE; see
+# install-tablet-setup.sh).
 set -u
 
 conf=${XDG_CONFIG_HOME:-$HOME/.config}/iceland/tablet.conf
 state=${XDG_RUNTIME_DIR:-/tmp}/iceland-tablet
 lock=${XDG_CONFIG_HOME:-$HOME/.config}/iceland/rotation-locked
-PANEL=DSI-1 SCALE=2 ROTATE_FLIP=0 GESTURES=1
+PANEL=DSI-1 SCALE=2 ROTATE_FLIP=0 GESTURES=1 GESTURE_DISTANCE=150
 # shellcheck source=/dev/null
 [[ -r $conf ]] && . "$conf"
 mkdir -p "$state"
@@ -60,15 +61,15 @@ gestures() {
       -g "1,RL,R,*,R,$(dsp 'hl.dsp.focus({ workspace = "m+1" })' 'workspace m+1')"
       -g "1,LR,L,*,R,$(dsp 'hl.dsp.focus({ workspace = "m-1" })' 'workspace m-1')")
   fi
-  # Two fingers pulled well down close the window they're on (touching it focused it); a short two-finger
-  # movement, like a scroll, stays harmless. "Well down" is lisgd's medium distance, a third of the screen
-  # height, and pulling that far takes longer than lisgd's default 0.8 s from the first finger down to the last
-  # one up, so a gesture gets 1.5 s.
-  local close
+  # Two fingers pulled down close the window they're on (touching it focused it); a shorter two-finger
+  # movement, like a scroll, stays harmless. lisgd's own distances are thirds of the screen, and a pull
+  # measured on the tablet runs 110 to 400 px, so every gesture here needs GESTURE_DISTANCE desktop pixels
+  # instead (-t counts the panel's pixels), and may lean 22 degrees off its direction, not 15.
+  local close min
+  min=$(awk -v d="$GESTURE_DISTANCE" -v s="$SCALE" 'BEGIN { printf "%d", d * s }')
   close=$(dsp 'hl.dsp.window.close()' 'killactive')
-  lisgd -d "$touch_dev" -m 1500 "${edges[@]}" \
-    -g "2,UD,*,M,R,$close" \
-    -g "2,UD,*,L,R,$close" \
+  lisgd -d "$touch_dev" -t "$min" -r 22 "${edges[@]}" \
+    -g "2,UD,*,*,R,$close" \
     -g "3,DU,*,*,R,$(dsp 'hl.dsp.window.fullscreen({ mode = "maximized" })' 'fullscreen 1')" \
     -g "3,UD,*,*,R,$close" 9>&- &
 }

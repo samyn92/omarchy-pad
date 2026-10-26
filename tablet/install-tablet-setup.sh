@@ -49,6 +49,8 @@ SCALE=$scale
 ROTATE_FLIP=0
 # 0 = no lisgd touch gestures
 GESTURES=1
+# how far, in desktop pixels, a gesture has to travel, the two-finger pull that closes a window included
+GESTURE_DISTANCE=150
 EOF
 fi
 sed -e "s|@PANEL@|$panel|" -e "s|@SCALE@|$scale|" "$here/hypr/iceland_tablet.lua" >"$cfg/hypr/iceland_tablet.lua"
