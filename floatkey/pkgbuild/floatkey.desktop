@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Floatkey
+Name[de]=Floatkey
+Comment=On-screen keyboard that docks, floats, or tucks into a corner
+Comment[de]=Bildschirmtastatur zum Andocken, Schweben oder für die Ecke
+Exec=floatkey show
+Icon=floatkey
+Terminal=false
+Categories=Utility;Accessibility;
+Keywords=keyboard;osk;touch;tablet;
+StartupWMClass=floatkey

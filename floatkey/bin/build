@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+mkdir -p "$ROOT/build"
+cd "$ROOT/build"
+
+qmake6 "$ROOT/floatkey.pro"
+make -j"$(nproc)"
+echo "Built $ROOT/build/floatkey"
+
+# The fcitx5 addon that brings the keyboard up for text fields, when fcitx5's
+# development files are there.
+if pkg-config --exists Fcitx5Core; then
+    mkdir -p "$ROOT/build/fcitx5"
+    cd "$ROOT/build/fcitx5"
+    qmake6 "$ROOT/fcitx5/fcitx5.pro"
+    make -j"$(nproc)"
+    echo "Built $ROOT/build/fcitx5/libfloatkey.so"
+fi
