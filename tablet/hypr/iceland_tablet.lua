@@ -26,3 +26,4 @@ o.bind("SUPER + CTRL + SHIFT + K", "On-screen keyboard", "iceland-osk toggle")
 -- floatkey slides and fades itself in and out, over the whole screen; a compositor animation on top would fade the
 -- entire overlay.
 hl.layer_rule({ match = { namespace = "^floatkey$" }, no_anim = true, animation = "none" })
+hl.layer_rule({ match = { namespace = "^stage$" }, no_anim = true, animation = "none" })
