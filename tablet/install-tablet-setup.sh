@@ -16,7 +16,7 @@ cfg=${XDG_CONFIG_HOME:-$HOME/.config}
 [[ $scale =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "SCALE must be a number such as 2 or 1.6" >&2; exit 2; }
 command -v hyprctl >/dev/null || { echo "run this inside the Omarchy (Hyprland) session" >&2; exit 1; }
 
-lisgd_pkg=$(compgen -G "$here/../lisgd/lisgd-*-$(uname -m).pkg.tar.*" | tail -n 1 || true)
+lisgd_pkg=$(compgen -G "$here/lisgd/lisgd-*-$(uname -m).pkg.tar.*" | tail -n 1 || true)
 [[ -z $lisgd_pkg ]] || sudo pacman -U --needed --noconfirm "$lisgd_pkg"
 
 missing=()
