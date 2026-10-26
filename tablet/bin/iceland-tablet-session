@@ -1,0 +1,100 @@
+#!/bin/bash
+# OnePlus Pad 4 tablet session for Omarchy's Hyprland, started by hypr/iceland_tablet.lua:
+#  - auto-rotate: follows iio-sensor-proxy's accelerometer (monitor-sensor) and turns the panel, the touch
+#    screen and the pen together, unless the rotation lock is on (iceland-rotate-lock);
+#  - the on-screen keyboard (wvkbd), started hidden; iceland-osk shows and hides it;
+#  - touch gestures (lisgd), restarted with every rotation so its edges follow the screen.
+# Settings: ~/.config/iceland/tablet.conf (PANEL, SCALE, ROTATE_FLIP, GESTURES; see install-tablet-setup.sh).
+set -u
+
+conf=${XDG_CONFIG_HOME:-$HOME/.config}/iceland/tablet.conf
+state=${XDG_RUNTIME_DIR:-/tmp}/iceland-tablet
+lock=${XDG_CONFIG_HOME:-$HOME/.config}/iceland/rotation-locked
+PANEL=DSI-1 SCALE=2 ROTATE_FLIP=0 GESTURES=1
+# shellcheck source=/dev/null
+[[ -r $conf ]] && . "$conf"
+mkdir -p "$state"
+
+# only one session per login
+exec 9>"$state/lock"
+flock -n 9 || exit 0
+
+log() { echo "iceland-tablet: $*" >&2; }
+
+start_osk() {
+  command -v wvkbd-mobintl >/dev/null || { log "wvkbd is not installed: no on-screen keyboard"; return; }
+  pgrep -u "$USER" -x wvkbd-mobintl >/dev/null || wvkbd-mobintl --hidden -L 300 -H 420 9>&- &
+}
+
+# Omarchy 4.5's Hyprland takes Lua dispatchers; the plain form stays as a fallback
+dsp() { # dsp LUA PLAIN
+  printf "hyprctl dispatch '%s' >/dev/null 2>&1 || hyprctl dispatch %s" "$1" "$2"
+}
+
+# lisgd gestures: one finger from an edge, three fingers across the screen. Edges are in screen terms: lisgd reads the
+# output's transform from Wayland when it starts (and maps 90/270 to its own counting), so it is restarted after each
+# rotation instead of being given -o.
+gestures() {
+  ((GESTURES)) && command -v lisgd >/dev/null || return 0
+  [[ -n ${touch_dev:-} ]] || return 0
+  pkill -u "$USER" -x lisgd
+  # the lock's descriptor stays out of children, or a leftover lisgd would block the next session start
+  lisgd -d "$touch_dev" \
+    -g '1,DU,B,*,R,iceland-osk toggle' \
+    -g '1,UD,T,*,R,omarchy-menu' \
+    -g "1,RL,R,*,R,$(dsp 'hl.dsp.focus({ workspace = "m+1" })' 'workspace m+1')" \
+    -g "1,LR,L,*,R,$(dsp 'hl.dsp.focus({ workspace = "m-1" })' 'workspace m-1')" \
+    -g "3,DU,*,*,R,$(dsp 'hl.dsp.window.fullscreen({ mode = "maximized" })' 'fullscreen 1')" \
+    -g "3,UD,*,*,R,$(dsp 'hl.dsp.window.close()' 'killactive')" 9>&- &
+}
+
+transform_of() { # iio-sensor-proxy orientation -> Hyprland transform
+  local t
+  case $1 in
+    normal) t=0 ;;
+    left-up) t=1 ;;
+    bottom-up) t=2 ;;
+    right-up) t=3 ;;
+    *) return 1 ;;
+  esac
+  # a panel mounted the other way round: swap the two portrait directions
+  ((ROTATE_FLIP)) && ((t % 2)) && t=$(((t + 2) % 4))
+  echo "$t"
+}
+
+apply() { # apply TRANSFORM
+  hyprctl eval "hl.monitor({ output = \"$PANEL\", mode = \"preferred\", position = \"0x0\", scale = $SCALE, transform = $1 })
+hl.config({ input = { touchdevice = { output = \"$PANEL\", transform = $1 }, tablet = { output = \"$PANEL\", transform = $1 } } })" >/dev/null ||
+    log "hyprctl eval failed for transform $1"
+  echo "$1" >"$state/transform"
+  gestures
+}
+
+# Hyprland names devices in lower case with dashes for spaces; find the evdev node with that name
+touch_dev=""
+if name=$(omarchy-hw-touchscreen 2>/dev/null) && [[ -n $name ]]; then
+  for d in /sys/class/input/event*; do
+    n=$(cat "$d/device/name" 2>/dev/null) || continue
+    n=${n,,}
+    [[ ${n// /-} == "$name" ]] && { touch_dev=/dev/input/${d##*/}; break; }
+  done
+fi
+
+start_osk
+gestures
+
+command -v monitor-sensor >/dev/null || { log "monitor-sensor (iio-sensor-proxy) is missing: no auto-rotate"; wait; exit 0; }
+
+current=""
+monitor-sensor --accel 9>&- | while IFS= read -r line; do
+  case $line in
+    *"orientation changed: "*) o=${line##*changed: } ;;
+    *"(orientation: "*) o=${line##*orientation: }; o=${o%)*} ;;
+    *) continue ;;
+  esac
+  [[ -e $lock ]] && continue
+  t=$(transform_of "$o") || continue
+  [[ $t == "$current" ]] && continue
+  current=$t
+  apply "$t"
+done
