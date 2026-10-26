@@ -61,10 +61,12 @@ gestures() {
       -g "1,LR,L,*,R,$(dsp 'hl.dsp.focus({ workspace = "m-1" })' 'workspace m-1')")
   fi
   # Two fingers pulled well down close the window they're on (touching it focused it); a short two-finger
-  # movement, like a scroll, stays harmless.
+  # movement, like a scroll, stays harmless. "Well down" is lisgd's medium distance, a third of the screen
+  # height, and pulling that far takes longer than lisgd's default 0.8 s from the first finger down to the last
+  # one up, so a gesture gets 1.5 s.
   local close
   close=$(dsp 'hl.dsp.window.close()' 'killactive')
-  lisgd -d "$touch_dev" "${edges[@]}" \
+  lisgd -d "$touch_dev" -m 1500 "${edges[@]}" \
     -g "2,UD,*,M,R,$close" \
     -g "2,UD,*,L,R,$close" \
     -g "3,DU,*,*,R,$(dsp 'hl.dsp.window.fullscreen({ mode = "maximized" })' 'fullscreen 1')" \
@@ -90,6 +92,12 @@ apply() { # apply TRANSFORM
 hl.config({ input = { touchdevice = { output = \"$PANEL\", transform = $1 }, tablet = { output = \"$PANEL\", transform = $1 } } })" >/dev/null ||
     log "hyprctl eval failed for transform $1"
   echo "$1" >"$state/transform"
+  # Hyprland turns the output a moment after eval returns, and lisgd reads the transform only as it starts
+  local i
+  for ((i = 0; i < 20; i++)); do
+    [[ $(hyprctl -j monitors | jq -r --arg p "$PANEL" '.[] | select(.name == $p) | .transform') == "$1" ]] && break
+    sleep 0.05
+  done
   gestures
 }
 

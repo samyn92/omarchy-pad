@@ -3,7 +3,8 @@
 #
 #   tablet/install-tablet-setup.sh [SCALE]       SCALE: 2 (default, 1696x1200 desktop) or 1.6 (2120x1500)
 #
-# Installs wvkbd (on-screen keyboard) and lisgd (touch gestures) when the repositories have them, the three
+# Installs lisgd (touch gestures) from this repository's package (lisgd/PKGBUILD: 0.4.0 with a fix for miscounted
+# fingers), wvkbd (on-screen keyboard) and, without that package, lisgd when the repositories have them, the three
 # iceland-* helpers to /usr/local/bin, ~/.config/iceland/tablet.conf, and ~/.config/hypr/iceland_tablet.lua,
 # which it loads from ~/.config/hypr/hyprland.lua.
 set -euo pipefail
@@ -14,6 +15,9 @@ cfg=${XDG_CONFIG_HOME:-$HOME/.config}
 
 [[ $scale =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "SCALE must be a number such as 2 or 1.6" >&2; exit 2; }
 command -v hyprctl >/dev/null || { echo "run this inside the Omarchy (Hyprland) session" >&2; exit 1; }
+
+lisgd_pkg=$(compgen -G "$here/../lisgd/lisgd-*-$(uname -m).pkg.tar.*" | tail -n 1 || true)
+[[ -z $lisgd_pkg ]] || sudo pacman -U --needed --noconfirm "$lisgd_pkg"
 
 missing=()
 for p in wvkbd lisgd; do
