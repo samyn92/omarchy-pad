@@ -5,12 +5,17 @@
 #include <QFile>
 #include <QLocalServer>
 #include <QLocalSocket>
+#include <QLoggingCategory>
 #include <QRegion>
 #include <QStandardPaths>
 #include <QWindow>
 
 #include "ipc.h"
 #include "virtualkeyboard.h"
+
+// QT_LOGGING_RULES="floatkey.focus.debug=true" shows every focus report from
+// fcitx5's addon and what floatkey made of it.
+Q_LOGGING_CATEGORY(lcFocus, "floatkey.focus", QtInfoMsg)
 
 QStringList Controller::modes()
 {
@@ -160,10 +165,15 @@ QString Controller::command(const QString &line)
     else if (verb == "toggle")
         toggle();
     else if (verb == "focus") {
+        // The field's kind, then anything the addon adds about where it is.
         static const QStringList kinds = {"text", "terminal", "url", "email", "number", "password"};
-        focusChanged(kinds.contains(argument) ? argument : "text");
-    } else if (verb == "blur")
+        const QString kind = argument.section(' ', 0, 0);
+        qCDebug(lcFocus) << "focus" << argument << "visible" << m_visible << "auto" << m_autoShown;
+        focusChanged(kinds.contains(kind) ? kind : "text");
+    } else if (verb == "blur") {
+        qCDebug(lcFocus) << "blur" << "visible" << m_visible << "auto" << m_autoShown;
         focusChanged({});
+    }
     else if (placements.contains(verb)) {
         setMode(placements.value(verb));
         show();

@@ -72,20 +72,29 @@ public:
 private:
     // Focus moves in bursts (out of one field, into another, hints updated)
     // and apps on different frontends report it out of order, so look at
-    // where focus ended up once the burst is over. A field that took focus
-    // is reported even when it's the same kind as the last one: a keyboard
-    // swiped away in one field comes back in the next.
+    // where focus ended up once the burst is over. A Qt app's burst comes as
+    // separate D-Bus calls: a panel of the Omarchy shell sends FocusIn, and
+    // only then the capabilities that say it isn't a text field, so waiting
+    // for the end of one event loop pass flashed the keyboard up for every
+    // panel. Waiting a moment from the first event of a burst lets the rest
+    // arrive. A field that took focus is reported even when it's the same
+    // kind as the last one: a keyboard swiped away in one field comes back
+    // in the next.
     void schedule()
     {
         if (pending_)
             return;
         pending_ = true;
-        check_ = instance_->eventLoop().addDeferEvent([this](fcitx::EventSource *) {
-            pending_ = false;
-            report();
-            return true;
-        });
+        check_ = instance_->eventLoop().addTimeEvent(
+            CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + SettleUs, 0,
+            [this](fcitx::EventSourceTime *, uint64_t) {
+                pending_ = false;
+                report();
+                return true;
+            });
     }
+
+    static constexpr uint64_t SettleUs = 80'000;
 
     void report()
     {
@@ -103,7 +112,7 @@ private:
 
     fcitx::Instance *instance_;
     std::vector<std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>>> handlers_;
-    std::unique_ptr<fcitx::EventSource> check_;
+    std::unique_ptr<fcitx::EventSourceTime> check_;
     bool pending_ = false;
     bool focusedAgain_ = false;
     std::string last_ = "blur";

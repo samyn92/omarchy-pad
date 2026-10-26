@@ -112,7 +112,7 @@ int main(int argc, char *argv[])
         return 0;
     }
     if (args.contains("--version")) {
-        std::puts("floatkey 0.3.0");
+        std::puts("floatkey 0.3.1");
         return 0;
     }
     if (!args.isEmpty() && (startModes.contains(args.first()) || QStringList{"hide", "status", "type", "key", "focus", "blur", "quit"}.contains(args.first())))
@@ -139,7 +139,7 @@ int main(int argc, char *argv[])
     QQuickWindow::setDefaultAlphaBuffer(true);
     QGuiApplication app(argc, argv);
     app.setApplicationName("floatkey");
-    app.setApplicationVersion("0.3.0");
+    app.setApplicationVersion("0.3.1");
     app.setDesktopFileName("floatkey");
     if (QGuiApplication::platformName() != "wayland") {
         std::fputs("floatkey needs a Wayland session\n", stderr);
