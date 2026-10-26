@@ -2,7 +2,7 @@
 # OnePlus Pad 4 tablet session for Omarchy's Hyprland, started by hypr/iceland_tablet.lua:
 #  - auto-rotate: follows iio-sensor-proxy's accelerometer (monitor-sensor) and turns the panel, the touch
 #    screen and the pen together, unless the rotation lock is on (iceland-rotate-lock);
-#  - the on-screen keyboard (wvkbd), started hidden; iceland-osk shows and hides it;
+#  - the on-screen keyboard (floatkey, else wvkbd), started hidden; iceland-osk shows and hides it;
 #  - touch gestures (lisgd), restarted with every rotation so its edges follow the screen.
 # Settings: ~/.config/iceland/tablet.conf (PANEL, SCALE, ROTATE_FLIP, GESTURES; see install-tablet-setup.sh).
 set -u
@@ -22,7 +22,11 @@ flock -n 9 || exit 0
 log() { echo "iceland-tablet: $*" >&2; }
 
 start_osk() {
-  command -v wvkbd-mobintl >/dev/null || { log "wvkbd is not installed: no on-screen keyboard"; return; }
+  if command -v floatkey >/dev/null; then
+    floatkey --hidden 9>&- &
+    return
+  fi
+  command -v wvkbd-mobintl >/dev/null || { log "neither floatkey nor wvkbd is installed: no on-screen keyboard"; return; }
   pgrep -u "$USER" -x wvkbd-mobintl >/dev/null || wvkbd-mobintl --hidden -L 300 -H 420 9>&- &
 }
 

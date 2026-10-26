@@ -22,3 +22,7 @@ o.launch_on_start("iceland-tablet-session")
 -- Keys Omarchy 4.5 leaves free (Super+Ctrl+R / K / Alt+R are its reminders and Herdr bindings).
 o.bind("SUPER + CTRL + SHIFT + R", "Lock or unlock screen rotation", "iceland-rotate-lock toggle")
 o.bind("SUPER + CTRL + SHIFT + K", "On-screen keyboard", "iceland-osk toggle")
+
+-- floatkey slides and fades itself in and out, over the whole screen; a compositor animation on top would fade the
+-- entire overlay.
+hl.layer_rule({ match = { namespace = "^floatkey$" }, no_anim = true, animation = "none" })
