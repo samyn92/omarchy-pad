@@ -11,6 +11,7 @@ include(protocols.pri)
 HEADERS += \
     src/apps.h \
     src/capture.h \
+    src/fingers.h \
     src/hyprland.h \
     src/images.h \
     src/ipc.h \
@@ -22,6 +23,7 @@ SOURCES += \
     src/main.cpp \
     src/apps.cpp \
     src/capture.cpp \
+    src/fingers.cpp \
     src/hyprland.cpp \
     src/images.cpp \
     src/ipc.cpp \

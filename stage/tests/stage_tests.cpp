@@ -10,6 +10,7 @@
 #include <QtTest>
 
 #include "apps.h"
+#include "fingers.h"
 #include "hyprland.h"
 #include "images.h"
 #include "stage.h"
@@ -254,6 +255,111 @@ private slots:
         QCOMPARE(Hyprland::quote("a]]b"), QString("[=[a]]b]=]"));
     }
 
+    // ---- a hand on the touch screen ----
+
+    void theTouchScreenTurnsWithTheScreen()
+    {
+        const QSizeF landscape(1696, 1200), portrait(1200, 1696);
+        // The panel's top left corner, wherever the screen has turned it.
+        QCOMPARE(Fingers::map({0, 0}, 0, landscape), QPointF(0, 0));
+        QCOMPARE(Fingers::map({0, 0}, 1, portrait), QPointF(1200, 0));
+        QCOMPARE(Fingers::map({0, 0}, 2, landscape), QPointF(1696, 1200));
+        QCOMPARE(Fingers::map({0, 0}, 3, portrait), QPointF(0, 1696));
+        for (int t = 0; t < 4; ++t) {
+            const QSizeF size = t % 2 ? portrait : landscape;
+            const QPointF at(300, 450);
+            const QPointF back = Fingers::map(Fingers::unmap(at, t, size), t, size);
+            QVERIFY2(qAbs(back.x() - at.x()) < 1e-6 && qAbs(back.y() - at.y()) < 1e-6, qPrintable(QString::number(t)));
+        }
+    }
+
+    void realPullsCount()
+    {
+        // Pulls recorded on the tablet: 110 px in 0.15 s up to 400 px in 0.55 s, one leaning 15 degrees.
+        QCOMPARE(kinds(pull(2, 110, 150)), QStringList({"hand", "pull", "ended", "up"}));
+        QCOMPARE(kinds(pull(2, 400, 550)), QStringList({"hand", "pull", "ended", "up"}));
+        QCOMPARE(kinds(pull(2, 300, 230, 15)), QStringList({"hand", "pull", "ended", "up"}));
+        QCOMPARE(kinds(pull(3, 300, 300)), QStringList({"hand", "pull", "ended", "up"}));
+        // The pull follows the hand one to one.
+        const QList<Fingers::Event> events = pull(2, 300, 300);
+        const QPointF start = events.first().at;
+        QCOMPARE(qRound(last(events, Fingers::Event::PullEnded).at.y() - start.y()), 300);
+    }
+
+    void handsThatDontPullDoNothing()
+    {
+        // Upward, sideways, or leaning too far.
+        QCOMPARE(kinds(pull(2, -300, 300)), QStringList({"hand", "up"}));
+        QCOMPARE(kinds(pull(2, 300, 300, 80)), QStringList({"hand", "up"}));
+        QCOMPARE(kinds(pull(2, 300, 300, 40)), QStringList({"hand", "up"}));
+        // A two-finger tap.
+        QCOMPARE(kinds(pull(2, 0, 80)), QStringList({"hand", "up"}));
+        // A pinch whose middle drifts down: one finger stays, the other comes 200 px down.
+        Fingers f;
+        QList<Fingers::Event> pinch = f.down(0, {600, 400}, 0) + f.down(1, {700, 400}, 20);
+        for (int i = 1; i <= 25; ++i)
+            pinch += f.move(1, {700, 400 + i * 8.0}, 20 + i * 8);
+        pinch += f.up(1, 300) + f.up(0, 310);
+        QCOMPARE(kinds(pinch), QStringList({"hand", "up"}));
+    }
+
+    void fingersApartAreNoHand()
+    {
+        // Landing 300 ms apart.
+        Fingers f;
+        QList<Fingers::Event> events = f.down(0, {600, 400}, 0) + f.down(1, {700, 400}, 300);
+        for (int i = 1; i <= 20; ++i)
+            events += f.move(0, {600, 400 + i * 10.0}, 300 + i * 8) + f.move(1, {700, 400 + i * 10.0}, 300 + i * 8);
+        QVERIFY(events.isEmpty());
+        QVERIFY(!f.hand());
+    }
+
+    void aRestingThumbIsNotPartOfTheHand()
+    {
+        Fingers f;
+        QList<Fingers::Event> events = f.down(9, {5, 600}, 0);   // holds the tablet
+        events += pull(f, 2, 300, 300, 0, 2000);
+        QCOMPARE(kinds(events), QStringList({"hand", "pull", "ended", "up"}));
+        QCOMPARE(events.first().fingers, 2);
+        QVERIFY(f.up(9, 3000).isEmpty());
+    }
+
+    void threeFingersSwipe()
+    {
+        QCOMPARE(swiped(swipe(-400, 0)), QString("left"));
+        QCOMPARE(swiped(swipe(400, 30)), QString("right"));
+        QCOMPARE(swiped(swipe(0, -300)), QString("up"));
+        QCOMPARE(swiped(swipe(100, 0)), QString());    // too short
+        QCOMPARE(swiped(swipe(300, -200)), QString()); // between two directions
+    }
+
+    void theHandEndsAtItsFirstLift()
+    {
+        Fingers f;
+        QList<Fingers::Event> events = f.down(0, {600, 400}, 0) + f.down(1, {720, 400}, 20);
+        for (int i = 1; i <= 20; ++i)
+            events += f.move(0, {600, 400 + i * 10.0}, 20 + i * 8) + f.move(1, {720, 400 + i * 10.0}, 20 + i * 8);
+        events += f.up(0, 200);
+        // The finger left behind moves on: the pull is over.
+        events += f.move(1, {720, 900}, 220);
+        events += f.up(1, 240);
+        QCOMPARE(kinds(events), QStringList({"hand", "pull", "ended", "up"}));
+        // And a new hand can form afterwards.
+        QCOMPARE(kinds(pull(f, 2, 200, 200, 0, 1000)), QStringList({"hand", "pull", "ended", "up"}));
+    }
+
+    void fingersThatPartCancelThePull()
+    {
+        Fingers f;
+        QList<Fingers::Event> events = f.down(0, {600, 400}, 0) + f.down(1, {720, 400}, 20);
+        for (int i = 1; i <= 10; ++i)
+            events += f.move(0, {600, 400 + i * 10.0}, 20 + i * 8) + f.move(1, {720, 400 + i * 10.0}, 20 + i * 8);
+        // Now they spread apart.
+        events += f.move(1, {1100, 500}, 120);
+        events += f.up(0, 150) + f.up(1, 160);
+        QCOMPARE(kinds(events), QStringList({"hand", "pull", "canceled", "up"}));
+    }
+
     // ---- the gestures, on the real QML ----
 
     void atRestOnlyTheEdgesTakeTouches()
@@ -354,6 +460,71 @@ private slots:
         emit h.fake.consoleOpenChanged();
         h.tap(QPoint(800, 900));
         QVERIFY(h.fake.log.contains("closeConsole"));
+    }
+
+private:
+    // A hand of `fingers` 120 px apart lands 20 ms apart at `start` ms, comes
+    // `distance` px down (up when negative) in `ms`, leaning `lean` degrees,
+    // then lifts.
+    static QList<Fingers::Event> pull(Fingers &f, int fingers, qreal distance, int ms, qreal lean = 0, qreal start = 0)
+    {
+        QList<Fingers::Event> events;
+        const QPointF dir(std::sin(qDegreesToRadians(lean)), std::cos(qDegreesToRadians(lean)));
+        for (int i = 0; i < fingers; ++i)
+            events += f.down(i, {500 + i * 120.0, 300}, start + i * 20);
+        const qreal from = start + (fingers - 1) * 20;
+        const int steps = std::max(1, ms / 8);
+        for (int s = 1; s <= steps; ++s)
+            for (int i = 0; i < fingers; ++i)
+                events += f.move(i, QPointF(500 + i * 120.0, 300) + dir * (distance * s / steps), from + s * 8);
+        for (int i = 0; i < fingers; ++i)
+            events += f.up(i, from + steps * 8 + 10 + i * 15);
+        return events;
+    }
+    static QList<Fingers::Event> pull(int fingers, qreal distance, int ms, qreal lean = 0)
+    {
+        Fingers f;
+        return pull(f, fingers, distance, ms, lean);
+    }
+    static QList<Fingers::Event> swipe(qreal dx, qreal dy)
+    {
+        Fingers f;
+        QList<Fingers::Event> events;
+        for (int i = 0; i < 3; ++i)
+            events += f.down(i, {700 + i * 100.0, 500}, i * 15);
+        for (int s = 1; s <= 30; ++s)
+            for (int i = 0; i < 3; ++i)
+                events += f.move(i, {700 + i * 100.0 + dx * s / 30, 500 + dy * s / 30}, 30 + s * 8);
+        for (int i = 0; i < 3; ++i)
+            events += f.up(i, 300 + i * 10);
+        return events;
+    }
+    static QString swiped(const QList<Fingers::Event> &events)
+    {
+        for (const Fingers::Event &e : events)
+            if (e.type == Fingers::Event::Swiped)
+                return e.direction;
+        return {};
+    }
+    // What happened, without the many moves in between.
+    static QStringList kinds(const QList<Fingers::Event> &events)
+    {
+        static const QHash<int, QString> names{
+            {Fingers::Event::HandDown, "hand"},      {Fingers::Event::PullStarted, "pull"},
+            {Fingers::Event::PullEnded, "ended"},    {Fingers::Event::PullCanceled, "canceled"},
+            {Fingers::Event::Swiped, "swiped"},      {Fingers::Event::HandUp, "up"}};
+        QStringList out;
+        for (const Fingers::Event &e : events)
+            if (names.contains(e.type))
+                out << names[e.type];
+        return out;
+    }
+    static Fingers::Event last(const QList<Fingers::Event> &events, Fingers::Event::Type type)
+    {
+        for (auto it = events.crbegin(); it != events.crend(); ++it)
+            if (it->type == type)
+                return *it;
+        return {};
     }
 };
 
