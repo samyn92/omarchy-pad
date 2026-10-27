@@ -18,7 +18,7 @@ Item {
     signal pinched(bool outward)
     signal menuRequested(rect anchor)
 
-    readonly property var layoutData: Layouts.layout(layoutCode)
+    readonly property var layoutData: Layouts.layout(layoutCode, controller.layoutKeys)
     property string page: "letters"
     readonly property var model: Layouts.keys(page === "emoji" ? []
                                               : compact ? layoutData.compact[page] : layoutData.full.letters)

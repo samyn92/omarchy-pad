@@ -3,6 +3,7 @@
 
 #include <QCoreApplication>
 #include <QGuiApplication>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QProcess>
@@ -31,6 +32,7 @@ static const char *usage =
     "  float                float it, small, wherever it was last dragged\n"
     "  left, right          tuck it into the bottom left or right corner\n"
     "  status               print whether it is shown, its mode and layout\n"
+    "  layouts              print its layouts and what their keys type, as JSON\n"
     "  type TEXT            type TEXT into the focused window\n"
     "  key KEY              press a key, with modifiers: BackSpace, Return,\n"
     "                       ctrl+c, super+space, shift+Left...\n"
@@ -84,8 +86,8 @@ static int runCommand(int argc, char *argv[], const QStringList &args)
     return 0;
 }
 
-// Hyprland's input:kb_layout, so the keyboard starts in the user's layout.
-static QStringList hyprlandLayouts()
+// One of Hyprland's input options, as a comma-separated list.
+static QStringList hyprlandOption(const QString &name)
 {
     if (qEnvironmentVariableIsEmpty("HYPRLAND_INSTANCE_SIGNATURE"))
         return {};
@@ -93,13 +95,55 @@ static QStringList hyprlandLayouts()
     if (hyprctl.isEmpty())
         return {};
     QProcess process;
-    process.start(hyprctl, {"-j", "getoption", "input:kb_layout"});
+    process.start(hyprctl, {"-j", "getoption", name});
     if (!process.waitForFinished(1000)) {
         process.kill();
         return {};
     }
-    const QString layouts = QJsonDocument::fromJson(process.readAllStandardOutput()).object().value("str").toString();
-    return layouts.split(',', Qt::SkipEmptyParts);
+    const QString value = QJsonDocument::fromJson(process.readAllStandardOutput()).object().value("str").toString();
+    // What Hyprland says for an option nobody set.
+    if (value == "[[EMPTY]]")
+        return {};
+    return value.split(',');
+}
+
+// Hyprland's input:kb_layout, so the keyboard starts in the user's layout.
+static QStringList hyprlandLayouts()
+{
+    QStringList layouts = hyprlandOption("input:kb_layout");
+    layouts.removeAll(QString());
+    return layouts;
+}
+
+// The same with each one's input:kb_variant, as "de(nodeadkeys)", so the keys
+// show what the user's own keyboard types.
+static QStringList hyprlandLayoutVariants()
+{
+    const QStringList layouts = hyprlandOption("input:kb_layout"), variants = hyprlandOption("input:kb_variant");
+    QStringList named;
+    for (qsizetype i = 0; i < layouts.size(); ++i) {
+        const QString layout = layouts.at(i).trimmed(), variant = variants.value(i).trimmed();
+        if (!layout.isEmpty())
+            named << (variant.isEmpty() ? layout : QString("%1(%2)").arg(layout, variant));
+    }
+    return named;
+}
+
+// The layouts the keyboard shows and what their keys type, as JSON, for the
+// lock screen's keyboard to draw the same keys.
+static int printLayouts(int argc, char *argv[])
+{
+    QCoreApplication app(argc, argv);
+    const Controller controller(Controller::defaultSettingsPath(), hyprlandLayoutVariants());
+    QJsonArray layouts;
+    for (const QString &code : controller.layouts()) {
+        QJsonObject layout = QJsonObject::fromVariantMap(controller.layoutKeys().value(code).toMap());
+        layout.insert("code", code);
+        layouts.append(layout);
+    }
+    const QJsonObject out{{"index", controller.layoutIndex()}, {"layouts", layouts}};
+    std::printf("%s\n", QJsonDocument(out).toJson(QJsonDocument::Compact).constData());
+    return 0;
 }
 
 int main(int argc, char *argv[])
@@ -113,9 +157,11 @@ int main(int argc, char *argv[])
         return 0;
     }
     if (args.contains("--version")) {
-        std::puts("floatkey 0.4.0");
+        std::puts("floatkey 0.4.1");
         return 0;
     }
+    if (args.value(0) == "layouts")
+        return printLayouts(argc, argv);
     if (!args.isEmpty() && (startModes.contains(args.first()) || QStringList{"hide", "status", "type", "key", "focus", "blur", "quit"}.contains(args.first())))
         return runCommand(argc, argv, args);
 
@@ -140,7 +186,7 @@ int main(int argc, char *argv[])
     QQuickWindow::setDefaultAlphaBuffer(true);
     QGuiApplication app(argc, argv);
     app.setApplicationName("floatkey");
-    app.setApplicationVersion("0.4.0");
+    app.setApplicationVersion("0.4.1");
     app.setDesktopFileName("floatkey");
     if (QGuiApplication::platformName() != "wayland") {
         std::fputs("floatkey needs a Wayland session\n", stderr);
@@ -169,7 +215,7 @@ int main(int argc, char *argv[])
     const QStringList systemLayouts = hyprlandLayouts();
     VirtualKeyboard keyboard(systemLayouts);
     keyboard.connectToCompositor();
-    Controller controller(Controller::defaultSettingsPath(), systemLayouts);
+    Controller controller(Controller::defaultSettingsPath(), hyprlandLayoutVariants());
     if (!mode.isEmpty())
         controller.setMode(mode);
     KeyboardWatcher keyboards;

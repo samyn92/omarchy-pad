@@ -93,7 +93,7 @@ floatkey quit
 `~/.config/floatkey/floatkey.conf`, read at start:
 
 ```ini
-layouts=de, us          ; the globe key cycles through these (us and de so far)
+layouts=de, fr, us(dvorak) ; the globe key cycles through these; any XKB layout
 dockedScale=1.0         ; 0.6–1.6, height of the docked keyboard
 compactScale=1.0        ; 0.6–1.8, size of the floating keyboard
 autoCapitalize=false    ; capitalise after . ! ? and return
@@ -103,8 +103,12 @@ autoShowInTerminals=true
 autoShowWithKeyboard=false ; also come up while a hardware keyboard is connected
 ```
 
-Without `layouts`, floatkey uses Hyprland's `input:kb_layout`. Colors follow
-the Omarchy theme live.
+Without `layouts`, floatkey uses Hyprland's `input:kb_layout` and
+`input:kb_variant`. The keys show what XKB says each layout types, so any
+layout looks the way the hardware keyboard has it; the small keyboard's
+number and symbol pages and the long-press accents are floatkey's own (German
+and US, the US ones for the rest). `floatkey layouts` prints the layouts and
+their keys as JSON. Colors follow the Omarchy theme live.
 
 ## Install
 

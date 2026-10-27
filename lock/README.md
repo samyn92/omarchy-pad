@@ -15,9 +15,11 @@ been tried in a nested Hyprland, not yet as the real lock screen.
 - It is floatkey's docked keyboard minus what a password has no use for: shift
   (double-tap to lock), caps lock, a flick down on a key for its upper
   character, delete (hold to repeat), return and the space bar.
-- Its layout is picked the way floatkey picks its own: floatkey's `layouts`
-  setting, else Hyprland's `input:kb_layout`, starting in the layout floatkey
-  was last left in. The globe key appears when there is more than one.
+- Its layouts are floatkey's own, from `floatkey layouts`: floatkey's
+  `layouts` setting, else Hyprland's `input:kb_layout` and `kb_variant`, with
+  the keys drawn from what XKB says each one types, so any layout shows as on
+  the hardware keyboard. It starts in the layout floatkey was last left in, and
+  the globe key appears when there is more than one.
 - Keys type straight into the password field, in the order fingers went
   down. Omarchy's lock service and its PAM flow are unchanged.
 

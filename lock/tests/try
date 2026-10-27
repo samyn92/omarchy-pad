@@ -38,8 +38,9 @@ if [[ ${1:-} != "--real-input" ]]; then
   input_env="hl.env(\"OMARCHY_INPUT_ROOT\", \"$work/input\")"
 fi
 
-# The real session's keymap, which the lock keyboard takes its layout from.
-kb_layout=$(hyprctl -j getoption input:kb_layout 2>/dev/null | jq -r '.str // empty' || true)
+# The real session's keymap, which the lock keyboard takes its layout from,
+# or LOCK_TRY_LAYOUT's (say fr) to try another.
+kb_layout=${LOCK_TRY_LAYOUT:-$(hyprctl -j getoption input:kb_layout 2>/dev/null | jq -r '.str // empty' || true)}
 
 cat >"$work/hyprland.lua" <<LUA
 hl.monitor({ output = "", mode = "1280x800", position = "auto", scale = 1 })

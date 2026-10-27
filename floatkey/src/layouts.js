@@ -137,8 +137,92 @@ const layouts = {
     },
 }
 
-function layout(code) {
-    return layouts[code] || layouts.us
+// ---- layouts from XKB -------------------------------------------------
+
+// The full keyboard's rows for any layout XKB knows, from what each key types
+// (Controller.layoutKeys: {name, keys: {AE01: ["1", "!"], ...}}), so the keys
+// show what the user's own keyboard types. The compact keyboard takes its
+// letters from the same keys; its number and symbol pages and the long-press
+// accents come from the table above for the same language, else US.
+
+const learned = {}
+
+function base(code) {
+    return code.replace(/\(.*\)$/, "")
+}
+
+function xkbNames(prefix, count) {
+    const names = []
+    for (let i = 1; i <= count; ++i)
+        names.push(prefix + (i < 10 ? "0" : "") + i)
+    return names
+}
+
+// A letter whose shift is its capital is a plain letter key; anything else
+// shows its shifted character too.
+function xkbKey(pair) {
+    const c = pair[0], s = pair[1]
+    if (isLetter(c) && (!s || s === upper(c) || s === c.toUpperCase()))
+        return c
+    return s && s !== c ? {c: c, s: s} : {c: c}
+}
+
+function fromXkb(code, x) {
+    const keys = x.keys
+    const pick = names => names.filter(n => keys[n]).map(n => xkbKey(keys[n]))
+    const number = pick(["TLDE"].concat(xkbNames("AE", 12)))
+    const top = pick(xkbNames("AD", 12).concat(["BKSL"]))
+    const home = pick(xkbNames("AC", 12))
+    let bottom = pick(xkbNames("AB", 10))
+    // The extra key of ISO keyboards, left of Z, when it types something the
+    // other keys don't (< and > on a German one).
+    if (keys.LSGT) {
+        const elsewhere = Object.keys(keys).filter(n => n !== "LSGT")
+                                           .map(n => keys[n].join("")).join("")
+        if (keys.LSGT.some(ch => ch && elsewhere.indexOf(ch) < 0))
+            bottom = [xkbKey(keys.LSGT)].concat(bottom)
+    }
+
+    const full = 14.5
+    const side = (full - home.length) / 2
+    const letters = row => row.filter(k => typeof k === "string")
+    const ct = letters(top), ch = letters(home), cb = letters(bottom)
+    const units = Math.max(ct.length, ch.length, cb.length + 2.6)
+    const edge = Math.max(1, (units - cb.length) / 2 - 0.2)
+    const extras = layouts[base(code)] || layouts.us
+
+    return {
+        name: x.name || code,
+        full: {
+            letters: [
+                number.concat([{k: "backspace", w: Math.max(1, full - number.length)}]),
+                [{k: "tab", w: Math.max(1, full - top.length)}].concat(top),
+                [{k: "caps", w: Math.max(1, side)}].concat(home, [{k: "return", w: Math.max(1, side)}]),
+                [{k: "shift", w: Math.max(1, full - 2.25 - bottom.length)}].concat(bottom, [{k: "shift", w: 2.25}]),
+                fullBottom,
+            ],
+        },
+        compact: {
+            letters: [
+                ct,
+                ch,
+                [{k: "shift", w: edge}, {gap: 0.2}].concat(cb, [{gap: 0.2}, {k: "backspace", w: edge}]),
+                compactBottom(units),
+            ],
+            numbers: extras.compact.numbers,
+            symbols: extras.compact.symbols,
+        },
+        alternates: extras.alternates,
+    }
+}
+
+// A layout's keys. `known` is Controller.layoutKeys: a layout XKB knows is
+// built from it the first time, and remembered; one it doesn't uses the
+// tables above.
+function layout(code, known) {
+    if (!learned[code] && known && known[code] && known[code].keys)
+        learned[code] = fromXkb(code, known[code])
+    return learned[code] || layouts[code] || layouts[base(code || "")] || layouts.us
 }
 
 function name(code) {
@@ -225,7 +309,7 @@ function alternates(code, key, shifted) {
 // Every character the layouts can type, those on the keys of the given
 // layouts first, so the keymap carries them from the start and the ones used
 // most get the keycodes every app can receive.
-function characters(codes) {
+function characters(codes, known) {
     const order = []
     const seen = {}
     function add(ch) {
@@ -237,7 +321,7 @@ function characters(codes) {
     const all = (codes || []).concat(Object.keys(layouts))
     for (const pass of ["keys", "alternates"]) {
         for (const code of all) {
-            const l = layout(code)
+            const l = layout(code, known)
             for (const rows of [l.full.letters, l.compact.letters, l.compact.numbers, l.compact.symbols]) {
                 for (const row of rows) {
                     for (const entry of row) {

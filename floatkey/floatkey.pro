@@ -16,7 +16,8 @@ HEADERS += \
     src/keymap.h \
     src/theme.h \
     src/translator.h \
-    src/virtualkeyboard.h
+    src/virtualkeyboard.h \
+    src/xkblayouts.h
 
 SOURCES += \
     src/main.cpp \
@@ -27,6 +28,7 @@ SOURCES += \
     src/keymap.cpp \
     src/theme.cpp \
     src/translator.cpp \
-    src/virtualkeyboard.cpp
+    src/virtualkeyboard.cpp \
+    src/xkblayouts.cpp
 
 RESOURCES += src/resources.qrc

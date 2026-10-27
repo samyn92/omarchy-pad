@@ -146,7 +146,7 @@ Window {
     onDockHeightChanged: place(false)
     onCompactWidthChanged: place(false)
     Component.onCompleted: {
-        virtualKeyboard.preload(Layouts.characters(controller.layouts))
+        virtualKeyboard.preload(Layouts.characters(controller.layouts, controller.layoutKeys))
         place(false)
         controller.setInputRegion(inputRect)
     }

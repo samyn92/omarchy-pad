@@ -24,6 +24,7 @@
 #include "keymap.h"
 #include "theme.h"
 #include "translator.h"
+#include "xkblayouts.h"
 
 // Stands in for the Wayland virtual keyboard and writes down what the QML
 // asked it to type.
@@ -95,9 +96,9 @@ public:
 // The real Main.qml, offscreen, with a fake keyboard and a temporary home.
 class Harness {
 public:
-    explicit Harness(const QString &mode = "docked")
+    explicit Harness(const QString &mode = "docked", const QStringList &layouts = {"us"})
         : translator(dir.path() + "/language", dir.path()), theme(dir.path()),
-          controller(dir.path() + "/floatkey.conf", {"us"}),
+          controller(dir.path() + "/floatkey.conf", layouts),
           dictation(dir.path() + "/control.sock", fakeSuperwhisper(dir.path()))
     {
         dictation.setMetering(false);
@@ -319,8 +320,9 @@ private slots:
     void controllerPicksLayouts()
     {
         QTemporaryDir dir;
-        QCOMPARE(Controller(dir.path() + "/a.conf", {"de", "fr"}).layouts(), QStringList{"de"});
-        QCOMPARE(Controller(dir.path() + "/b.conf", {"fr"}).layouts(), QStringList{"us"});
+        QCOMPARE(Controller(dir.path() + "/a.conf", {"de", "fr", "zz"}).layouts(), (QStringList{"de", "fr"}));
+        QCOMPARE(Controller(dir.path() + "/b.conf", {"zz"}).layouts(), QStringList{"us"});
+        QCOMPARE(Controller(dir.path() + "/d.conf", {"us(dvorak)"}).layouts(), QStringList{"us(dvorak)"});
         QFile settings(dir.path() + "/c.conf");
         QVERIFY(settings.open(QIODevice::WriteOnly));
         settings.write("layouts=us, de\n");
@@ -817,6 +819,53 @@ private slots:
         h.release(0, mic);
         QCOMPARE(h.dictation.state(), QString("working"));
         QTRY_COMPARE(voiceLog(h.dir.path()), (QStringList{"start", "stop"}));
+    }
+
+    void xkbSaysWhatTheKeysType()
+    {
+        const QVariantMap french = XkbLayouts::read("fr");
+        QCOMPARE(french.value("name").toString(), QString("French"));
+        const QVariantMap keys = french.value("keys").toMap();
+        QCOMPARE(keys.value("AD01").toStringList(), (QStringList{"a", "A"}));
+        QCOMPARE(keys.value("AE02").toStringList(), (QStringList{"é", "2"}));
+        // A dead key shows its accent.
+        QCOMPARE(keys.value("AD11").toStringList().value(0), QString("^"));
+
+        const QVariantMap dvorak = XkbLayouts::read("us(dvorak)").value("keys").toMap();
+        QCOMPARE(dvorak.value("AD03").toStringList(), (QStringList{".", ">"}));
+        QCOMPARE(XkbLayouts::describe("de(nodeadkeys)"), QString("German (no dead keys)"));
+        QVERIFY(XkbLayouts::read("zz").isEmpty());
+        QVERIFY(XkbLayouts::read("us;rm").isEmpty());
+    }
+
+    void keysFollowTheXkbLayout()
+    {
+        Harness h("docked", {"fr"});
+        // AZERTY: a where q is on a US keyboard, and the number row's
+        // unshifted characters.
+        QCOMPARE(h.evaluate(h.keys(), "model.keys.filter(k => k.row === 1 && k.kind === 'char')[0].c").toString(),
+                 QString("a"));
+        h.tap(h.character("é"));
+        QCOMPARE(h.keyboard.log, QStringList{"type:é:0"});
+        QVERIFY(h.keyboard.preloaded.contains("ù"));
+    }
+
+    void compactLettersFollowTheXkbLayout()
+    {
+        Harness h("floating", {"ru"});
+        QCOMPARE(h.evaluate(h.keys(), "model.keys[0].c").toString(), QString("й"));
+        // The number pages are the usual ones.
+        h.tap(h.special("numbers"));
+        h.tap(h.character("1"));
+        QCOMPARE(h.keyboard.log, QStringList{"type:1:0"});
+    }
+
+    void usKeyboardHasNoIsoKey()
+    {
+        Harness us("docked", {"us"});
+        QCOMPARE(us.evaluate(us.keys(), "model.keys.filter(k => k.c === '<').length").toInt(), 0);
+        Harness de("docked", {"de"});
+        QCOMPARE(de.evaluate(de.keys(), "model.keys.filter(k => k.c === '<').length").toInt(), 1);
     }
 };
 

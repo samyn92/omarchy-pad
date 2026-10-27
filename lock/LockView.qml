@@ -25,8 +25,8 @@ UpstreamLockView {
 
   // floatkey's layouts and its sizing for the docked keyboard.
   property var layoutCodes: ["us"]
+  property var layoutKeys: ({})
   property int layoutIndex: 0
-  readonly property var supportedLayouts: ["us", "de"]
 
   onHardwareKeyboardChanged: keyboardChoice = ""
   onInputEnabledChanged: if (!inputEnabled) keyboardChoice = ""
@@ -74,27 +74,32 @@ UpstreamLockView {
     }
   }
 
-  // The layouts floatkey has, picked the way floatkey picks them: its own
-  // layouts setting, else Hyprland's input:kb_layout, keeping the ones it
-  // knows. The lock starts in the one floatkey was last left in.
+  // floatkey's layouts and what XKB says their keys type, from floatkey
+  // itself, so the lock draws the same keys as the keyboard does. The lock
+  // starts in the one floatkey was last left in.
   Process {
     command: ["bash", "-c",
-      "conf=${XDG_CONFIG_HOME:-$HOME/.config}/floatkey/floatkey.conf; "
-        + "codes=$(sed -n 's/^layouts=//p' \"$conf\" 2>/dev/null); "
-        + "[[ -n $codes ]] || codes=$(hyprctl getoption input:kb_layout -j 2>/dev/null | jq -r '.str // empty'); "
-        + "printf '%s\\n%s\\n' \"$codes\" \"$(sed -n 's/^layoutIndex=//p' \"$conf\" 2>/dev/null)\""]
+      "floatkey layouts 2>/dev/null || echo '{\"layouts\":[{\"code\":\"us\"}]}'"]
     running: true
     stdout: StdioCollector {
       onStreamFinished: {
-        var lines = text.split("\n")
-        var codes = []
-        var listed = lines[0].replace(/"/g, "").split(",")
-        for (var i = 0; i < listed.length; i++) {
-          var code = listed[i].trim().toLowerCase()
-          if (root.supportedLayouts.indexOf(code) !== -1 && codes.indexOf(code) === -1) codes.push(code)
+        var listed
+        try {
+          listed = JSON.parse(text)
+        } catch (e) {
+          listed = {}
         }
+        var codes = [], keys = {}
+        var layouts = listed.layouts || []
+        for (var i = 0; i < layouts.length; i++) {
+          var code = layouts[i].code
+          if (!code || codes.indexOf(code) !== -1) continue
+          codes.push(code)
+          if (layouts[i].keys) keys[code] = layouts[i]
+        }
+        root.layoutKeys = keys
         root.layoutCodes = codes.length > 0 ? codes : ["us"]
-        var index = parseInt(lines[1], 10)
+        var index = parseInt(listed.index, 10)
         root.layoutIndex = isFinite(index) ? Math.max(0, Math.min(index, root.layoutCodes.length - 1)) : 0
       }
     }
@@ -120,6 +125,7 @@ UpstreamLockView {
     accent: Commons.Color.accent
     radius: Style.cornerRadius
     layoutCodes: root.layoutCodes
+    layoutKeys: root.layoutKeys
     layoutIndex: root.layoutIndex
 
     onTouched: root.wakeRequested()

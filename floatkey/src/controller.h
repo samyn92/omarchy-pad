@@ -7,6 +7,7 @@
 #include <QSettings>
 #include <QStringList>
 #include <QTimer>
+#include <QVariantMap>
 
 class QLocalServer;
 class QWindow;
@@ -27,6 +28,9 @@ class Controller : public QObject {
     Q_PROPERTY(QString mode READ mode WRITE setMode NOTIFY modeChanged)
     Q_PROPERTY(QPointF floatingPosition READ floatingPosition WRITE setFloatingPosition NOTIFY floatingPositionChanged)
     Q_PROPERTY(QStringList layouts READ layouts CONSTANT)
+    // What XKB says the keys of each layout type, for drawing them
+    // (XkbLayouts::read); a layout XKB doesn't know uses floatkey's own table.
+    Q_PROPERTY(QVariantMap layoutKeys READ layoutKeys CONSTANT)
     Q_PROPERTY(int layoutIndex READ layoutIndex WRITE setLayoutIndex NOTIFY layoutIndexChanged)
     Q_PROPERTY(int dockedHeight READ dockedHeight WRITE setDockedHeight NOTIFY dockedHeightChanged)
     Q_PROPERTY(double dockedScale READ dockedScale CONSTANT)
@@ -46,6 +50,8 @@ public:
     ~Controller() override;
 
     static QStringList modes();
+    // The layouts with floatkey's own hand-made tables, used when XKB can't
+    // say what a layout's keys type.
     static QStringList supportedLayouts();
     static QString defaultSettingsPath();
 
@@ -62,6 +68,7 @@ public:
     QPointF floatingPosition() const { return m_floatingPosition; }
     void setFloatingPosition(const QPointF &position);
     QStringList layouts() const { return m_layouts; }
+    QVariantMap layoutKeys() const { return m_layoutKeys; }
     int layoutIndex() const { return m_layoutIndex; }
     void setLayoutIndex(int index);
     int dockedHeight() const { return m_dockedHeight; }
@@ -111,6 +118,7 @@ private:
     QString m_mode = "docked";
     QPointF m_floatingPosition{0.78, 0.62};
     QStringList m_layouts;
+    QVariantMap m_layoutKeys;
     int m_layoutIndex = 0;
     int m_dockedHeight = 0;
     double m_dockedScale = 1.0;

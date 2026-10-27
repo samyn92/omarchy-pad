@@ -11,6 +11,7 @@
 #include <QWindow>
 
 #include "ipc.h"
+#include "xkblayouts.h"
 #include "virtualkeyboard.h"
 
 // QT_LOGGING_RULES="floatkey.focus.debug=true" shows every focus report from
@@ -32,16 +33,29 @@ QString Controller::defaultSettingsPath()
     return QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + "/floatkey/floatkey.conf";
 }
 
-// Keeps the layouts floatkey has keys for, in the order given, else US.
-static QStringList usableLayouts(const QStringList &requested)
+// Keeps the layouts floatkey can draw, in the order given, else US, with what
+// XKB says each one's keys type.
+static QStringList usableLayouts(const QStringList &requested, QVariantMap *keys)
 {
     QStringList layouts;
     for (QString code : requested) {
-        code = code.trimmed().toLower();
-        if (Controller::supportedLayouts().contains(code) && !layouts.contains(code))
-            layouts << code;
+        code = code.trimmed();
+        if (code.isEmpty() || layouts.contains(code))
+            continue;
+        const QVariantMap read = XkbLayouts::read(code);
+        if (read.isEmpty() && !Controller::supportedLayouts().contains(code))
+            continue;
+        layouts << code;
+        if (!read.isEmpty())
+            keys->insert(code, read);
     }
-    return layouts.isEmpty() ? QStringList{"us"} : layouts;
+    if (layouts.isEmpty()) {
+        layouts << "us";
+        const QVariantMap read = XkbLayouts::read("us");
+        if (!read.isEmpty())
+            keys->insert("us", read);
+    }
+    return layouts;
 }
 
 Controller::Controller(const QString &settingsPath, const QStringList &systemLayouts, QObject *parent)
@@ -53,7 +67,7 @@ Controller::Controller(const QString &settingsPath, const QStringList &systemLay
     m_floatingPosition = QPointF(qBound(0.0, m_settings.value("floating/x", m_floatingPosition.x()).toDouble(), 1.0),
                                  qBound(0.0, m_settings.value("floating/y", m_floatingPosition.y()).toDouble(), 1.0));
     m_layouts = usableLayouts(m_settings.contains("layouts") ? m_settings.value("layouts").toStringList()
-                                                             : systemLayouts);
+                                                             : systemLayouts, &m_layoutKeys);
     m_layoutIndex = qBound(0, m_settings.value("layoutIndex", 0).toInt(), int(m_layouts.size()) - 1);
     m_dockedScale = qBound(0.6, m_settings.value("dockedScale", 1.0).toDouble(), 1.6);
     m_compactScale = qBound(0.6, m_settings.value("compactScale", 1.0).toDouble(), 1.8);

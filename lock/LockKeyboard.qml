@@ -16,6 +16,8 @@ Item {
     property real radius: 8
     // The layouts to cycle through with the globe key, floatkey's first.
     property var layoutCodes: ["us"]
+    // What XKB says each layout's keys type (`floatkey layouts`).
+    property var layoutKeys: ({})
     property int layoutIndex: 0
     readonly property string layoutCode: layoutCodes[Math.min(layoutIndex, layoutCodes.length - 1)] || "us"
 
@@ -58,7 +60,7 @@ Item {
     // floatkey's full layout without its bottom row of modifiers, arrows and
     // the mic, which have nothing to do in a password.
     function lockRows(code) {
-        const rows = Layouts.layout(code).full.letters.slice(0, 4)
+        const rows = Layouts.layout(code, kb.layoutKeys).full.letters.slice(0, 4)
         const globe = kb.layoutCodes.length > 1 ? {k: "globe", w: 1.25} : {gap: 1.25}
         return rows.concat([[globe, {gap: 2.5}, {k: "space", w: 7}, {gap: 2.5}, {k: "hide", w: 1.25}]])
     }
