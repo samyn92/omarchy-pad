@@ -10,7 +10,7 @@ struct libinput;
 // hand even where the overlay doesn't take touches. Only the devices udev
 // tags as touch screens are opened, never keyboards; nothing is grabbed, so
 // Hyprland and the apps get the same touches as before (it needs the user in
-// the input group, like lisgd did). Positions are fractions of the panel's
+// the input group). Positions are fractions of the panel's
 // native width and height, before any rotation.
 class Touchscreen : public QObject {
     Q_OBJECT

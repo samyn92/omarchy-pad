@@ -3,8 +3,7 @@
 #
 #   tablet/install-tablet-setup.sh [SCALE]       SCALE: 2 (default, 1696x1200 desktop) or 1.6 (2120x1500)
 #
-# Installs lisgd (touch gestures) from this repository's package (lisgd/PKGBUILD: 0.4.0 with a fix for miscounted
-# fingers), wvkbd (on-screen keyboard) and, without that package, lisgd when the repositories have them, the three
+# Installs wvkbd (on-screen keyboard, when floatkey isn't there) when the repositories have it, the three
 # iceland-* helpers to /usr/local/bin, ~/.config/iceland/tablet.conf, and ~/.config/hypr/iceland_tablet.lua,
 # which it loads from ~/.config/hypr/hyprland.lua.
 set -euo pipefail
@@ -16,11 +15,8 @@ cfg=${XDG_CONFIG_HOME:-$HOME/.config}
 [[ $scale =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "SCALE must be a number such as 2 or 1.6" >&2; exit 2; }
 command -v hyprctl >/dev/null || { echo "run this inside the Omarchy (Hyprland) session" >&2; exit 1; }
 
-lisgd_pkg=$(compgen -G "$here/lisgd/lisgd-*-$(uname -m).pkg.tar.*" | tail -n 1 || true)
-[[ -z $lisgd_pkg ]] || sudo pacman -U --needed --noconfirm "$lisgd_pkg"
-
 missing=()
-for p in wvkbd lisgd; do
+for p in wvkbd; do
   if pacman -Q "$p" >/dev/null 2>&1; then
     continue
   elif pacman -Si "$p" >/dev/null 2>&1; then
@@ -30,7 +26,7 @@ for p in wvkbd lisgd; do
   fi
 done
 
-# lisgd reads the touch screen directly
+# stage reads the touch screen directly, for two- and three-finger gestures
 id -nG "$USER" | grep -qw input || sudo usermod -aG input "$USER"
 
 sudo install -m 0755 "$here"/bin/iceland-tablet-session "$here"/bin/iceland-osk "$here"/bin/iceland-rotate-lock \
@@ -47,10 +43,6 @@ PANEL=$panel
 SCALE=$scale
 # 1 = swap the two portrait directions, if the screen turns the wrong way
 ROTATE_FLIP=0
-# 0 = no lisgd touch gestures
-GESTURES=1
-# how far, in desktop pixels, a gesture has to travel, the two-finger pull that closes a window included
-GESTURE_DISTANCE=150
 EOF
 fi
 sed -e "s|@PANEL@|$panel|" -e "s|@SCALE@|$scale|" "$here/hypr/iceland_tablet.lua" >"$cfg/hypr/iceland_tablet.lua"

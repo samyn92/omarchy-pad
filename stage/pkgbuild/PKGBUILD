@@ -1,12 +1,11 @@
 pkgname=stage
-pkgver=0.1.2
+pkgver=0.2.0
 pkgrel=1
 pkgdesc='iPad-style multitasking gestures for Omarchy on a tablet'
 arch=('x86_64' 'aarch64')
 license=('MIT')
 depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'layer-shell-qt' 'wayland' 'libinput' 'hyprland' 'uwsm')
 makedepends=('gcc' 'make' 'wayland-protocols')
-optdepends=('lisgd: three-finger swipes between workspaces')
 source=()
 sha256sums=()
 

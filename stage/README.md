@@ -19,7 +19,10 @@ the same the other way. Pull the scratchpad console down from the top.
 | One finger up from the **bottom edge** | Shrinks the window above your finger upward; the launcher fills the room |
 | One finger down from the **top edge** | Pulls Omarchy's scratchpad console down; an empty one offers the launcher |
 | Tap or push up on the dimmed screen | Sends the console back up |
-| Three fingers sideways | Next or previous workspace (lisgd, from the tablet session) |
+| Two fingers pulled **down** on a window | The window follows them and, let go far enough or flicked, slides off and closes; a short pull puts it back |
+| Three fingers sideways | Next or previous workspace |
+| Three fingers up | Maximizes the focused window |
+| Three fingers down | Pulls the window down, as with two |
 
 While you drag, the window keeps its border at your finger, the wallpaper
 shows through the gap, and the launcher arrives as a window of its own, with
@@ -28,6 +31,16 @@ layout it will become. When you let go it lands on a third, a half or two
 thirds, whichever is nearest. A short, quick
 flick makes halves; a short or slow pull springs back. Tap an app and its window
 opens where the launcher was; tap beside the launcher to put things back.
+
+Two and three fingers come straight from the touch screen (stage opens the
+devices udev tags as touch screens with libinput, so the user has to be in the
+`input` group), because fingers on a window go to that window, not to the
+overlay. A pulled window is a picture of it over the wallpaper it leaves; once
+Hyprland has closed it, the others move in. A window with something behind it
+(floating, or maximized over others) just closes when you let go. The app under
+your fingers still sees them, so a page may scroll a little while you pull.
+Try it without touching: `stage simulate pull 1150 300 1150 650`, then
+`stage simulate release`.
 
 A workspace holds at most four windows (two each way), the console two. Past
 that, or splitting a window that already shares its width or height, the
@@ -75,8 +88,8 @@ switched off for that one toggle and put back exactly as it was.
 bin/install
 ```
 
-On the OnePlus Pad tablet setup (`pad4-tablet`), the tablet session starts
-stage when it's installed and leaves lisgd only the three-finger swipes.
+On the OnePlus Pad tablet setup (`../tablet`), the tablet session starts
+stage.
 Keep Hyprland from animating the overlay:
 
 ```lua
