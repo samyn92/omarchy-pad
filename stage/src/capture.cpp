@@ -1,6 +1,8 @@
 #include "capture.h"
 
+#include <QElapsedTimer>
 #include <QGuiApplication>
+#include <QLoggingCategory>
 #include <QScreen>
 #include <QTransform>
 #include <cstring>
@@ -11,6 +13,16 @@
 #include "ext-foreign-toplevel-list-v1-client-protocol.h"
 #include "ext-image-capture-source-v1-client-protocol.h"
 #include "ext-image-copy-capture-v1-client-protocol.h"
+#include "hyprland-toplevel-mapping-v1-client-protocol.h"
+
+// Defined in stage.cpp.
+Q_DECLARE_LOGGING_CATEGORY(lcStage)
+
+// The mapping protocol can also map wlroots' toplevels, which stage never
+// asks for; the generated glue still names their interface, so it gets one.
+extern "C" const wl_interface zwlr_foreign_toplevel_handle_v1_interface = {
+    "zwlr_foreign_toplevel_handle_v1", 3, 0, nullptr, 0, nullptr,
+};
 
 struct Capture::Job {
     Capture *owner = nullptr;
@@ -26,6 +38,7 @@ struct Capture::Job {
     uint32_t width = 0, height = 0, transform = WL_OUTPUT_TRANSFORM_NORMAL;
     int format = -1;
     bool finished = false;
+    QElapsedTimer clock;
 };
 
 // The shm formats a capture can come in, best first, as QImage reads them.
@@ -73,8 +86,13 @@ Capture::~Capture()
         delete job;
     }
     m_jobs.clear();
-    for (auto it = m_toplevels.begin(); it != m_toplevels.end(); ++it)
+    for (auto it = m_toplevels.begin(); it != m_toplevels.end(); ++it) {
+        if (it->mapping)
+            hyprland_toplevel_window_mapping_handle_v1_destroy(it->mapping);
         ext_foreign_toplevel_handle_v1_destroy(it.key());
+    }
+    if (m_mapping)
+        hyprland_toplevel_mapping_manager_v1_destroy(m_mapping);
     if (m_list)
         ext_foreign_toplevel_list_v1_destroy(m_list);
     if (m_toplevelSources)
@@ -111,6 +129,12 @@ void Capture::registryGlobal(void *data, wl_registry *registry, uint32_t name, c
             wl_registry_bind(registry, name, &ext_foreign_toplevel_list_v1_interface, 1));
         static const ext_foreign_toplevel_list_v1_listener listener = {&toplevelAdded, &listFinished};
         ext_foreign_toplevel_list_v1_add_listener(self->m_list, &listener, self);
+    } else if (is(hyprland_toplevel_mapping_manager_v1_interface) && !self->m_mapping) {
+        self->m_mapping = static_cast<hyprland_toplevel_mapping_manager_v1 *>(
+            wl_registry_bind(registry, name, &hyprland_toplevel_mapping_manager_v1_interface, 1));
+        // Toplevels listed before the manager was bound ask now.
+        for (auto it = self->m_toplevels.cbegin(); it != self->m_toplevels.cend(); ++it)
+            self->mapToplevel(it.key());
     }
 }
 
@@ -124,13 +148,53 @@ void Capture::toplevelAdded(void *data, ext_foreign_toplevel_list_v1 *, ext_fore
         &handleClosed, &handleDone, &handleTitle, &handleAppId, &handleIdentifier,
     };
     ext_foreign_toplevel_handle_v1_add_listener(handle, &listener, self);
+    self->mapToplevel(handle);
+}
+
+// Asks Hyprland which of its windows the toplevel is, once.
+void Capture::mapToplevel(ext_foreign_toplevel_handle_v1 *handle)
+{
+    Toplevel &toplevel = m_toplevels[handle];
+    if (!m_mapping || toplevel.mapping || !toplevel.address.isEmpty())
+        return;
+    toplevel.mapping = hyprland_toplevel_mapping_manager_v1_get_window_for_toplevel(m_mapping, handle);
+    static const hyprland_toplevel_window_mapping_handle_v1_listener listener = {&mappingAddress, &mappingFailed};
+    hyprland_toplevel_window_mapping_handle_v1_add_listener(toplevel.mapping, &listener, this);
+}
+
+void Capture::mappingAddress(void *data, hyprland_toplevel_window_mapping_handle_v1 *mapping, uint32_t hi,
+                             uint32_t lo)
+{
+    auto *self = static_cast<Capture *>(data);
+    for (Toplevel &toplevel : self->m_toplevels) {
+        if (toplevel.mapping != mapping)
+            continue;
+        // The form Hyprland's clients JSON uses: 0x, then lowercase hex.
+        toplevel.address = QStringLiteral("0x") + QString::number((quint64(hi) << 32) | lo, 16);
+        toplevel.mapping = nullptr;
+        break;
+    }
+    hyprland_toplevel_window_mapping_handle_v1_destroy(mapping);
+}
+
+void Capture::mappingFailed(void *data, hyprland_toplevel_window_mapping_handle_v1 *mapping)
+{
+    for (Toplevel &toplevel : static_cast<Capture *>(data)->m_toplevels) {
+        if (toplevel.mapping == mapping) {
+            toplevel.mapping = nullptr;
+            break;
+        }
+    }
+    hyprland_toplevel_window_mapping_handle_v1_destroy(mapping);
 }
 
 void Capture::listFinished(void *, ext_foreign_toplevel_list_v1 *) {}
 
 void Capture::handleClosed(void *data, ext_foreign_toplevel_handle_v1 *handle)
 {
-    static_cast<Capture *>(data)->m_toplevels.remove(handle);
+    const Toplevel toplevel = static_cast<Capture *>(data)->m_toplevels.take(handle);
+    if (toplevel.mapping)
+        hyprland_toplevel_window_mapping_handle_v1_destroy(toplevel.mapping);
     ext_foreign_toplevel_handle_v1_destroy(handle);
 }
 
@@ -165,6 +229,8 @@ bool Capture::connectToCompositor()
     wl_proxy_wrapper_destroy(display);
     static const wl_registry_listener listener = {&registryGlobal, &registryGlobalRemove};
     wl_registry_add_listener(m_registry, &listener, this);
+    // Globals, then the toplevels, then their window addresses.
+    wl_display_roundtrip_queue(m_display, m_queue);
     wl_display_roundtrip_queue(m_display, m_queue);
     wl_display_roundtrip_queue(m_display, m_queue);
 
@@ -177,8 +243,11 @@ bool Capture::connectToCompositor()
     release(m_outputs);
     release(m_toplevelSources);
     release(m_list);
-    for (auto it = m_toplevels.begin(); it != m_toplevels.end(); ++it)
+    release(m_mapping);
+    for (auto it = m_toplevels.begin(); it != m_toplevels.end(); ++it) {
         release(it.key());
+        release(it->mapping);
+    }
     return canCaptureScreens();
 }
 
@@ -192,11 +261,23 @@ int Capture::captureScreen(QScreen *screen)
     return start(ext_output_image_capture_source_manager_v1_create_source(m_outputs, native->output()));
 }
 
-int Capture::captureWindow(const QString &appId, const QString &title)
+int Capture::captureWindow(const QString &address, const QString &appId, const QString &title)
 {
     if (!canCaptureWindows())
         return -1;
     ext_foreign_toplevel_handle_v1 *match = nullptr;
+    if (m_mapping && !address.isEmpty()) {
+        // Only the exact window will do: a guess could show another's picture.
+        for (auto it = m_toplevels.cbegin(); it != m_toplevels.cend(); ++it) {
+            if (it->address == address) {
+                match = it.key();
+                break;
+            }
+        }
+        if (!match)
+            return -1;
+        return start(ext_foreign_toplevel_image_capture_source_manager_v1_create_source(m_toplevelSources, match));
+    }
     for (auto it = m_toplevels.cbegin(); it != m_toplevels.cend(); ++it) {
         if (it->appId != appId)
             continue;
@@ -218,6 +299,7 @@ int Capture::start(ext_image_capture_source_v1 *source)
     job->owner = this;
     job->id = m_nextId++;
     job->source = source;
+    job->clock.start();
     job->session = ext_image_copy_capture_manager_v1_create_session(m_copy, source, 0);
     m_jobs.insert(job->id, job);
 
@@ -341,5 +423,7 @@ void Capture::finish(Job *job, bool ok)
         wl_display_flush(m_display);
     }, Qt::QueuedConnection);
 
+    qCDebug(lcStage) << "capture" << job->id << (ok ? "took" : "failed after") << job->clock.elapsed() << "ms"
+                     << image.size();
     emit captured(job->id, image);
 }

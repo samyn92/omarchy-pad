@@ -4,7 +4,8 @@ STAGING = /usr/share/wayland-protocols/staging
 WAYLAND_PROTOCOLS = \
     $$STAGING/ext-image-copy-capture/ext-image-copy-capture-v1.xml \
     $$STAGING/ext-image-capture-source/ext-image-capture-source-v1.xml \
-    $$STAGING/ext-foreign-toplevel-list/ext-foreign-toplevel-list-v1.xml
+    $$STAGING/ext-foreign-toplevel-list/ext-foreign-toplevel-list-v1.xml \
+    $$PWD/src/protocols/hyprland-toplevel-mapping-v1.xml
 
 wayland_header.input = WAYLAND_PROTOCOLS
 wayland_header.output = ${QMAKE_FILE_BASE}-client-protocol.h
