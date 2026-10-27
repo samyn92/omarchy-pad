@@ -5,7 +5,9 @@ import QtQuick
 // lands there drags the window beside that edge smaller, or the scratchpad
 // console down, and the room it makes becomes the launcher. Pictures of the
 // windows move under the finger; Hyprland only lays out the real ones once
-// the finger has decided.
+// the finger has decided. Two fingers pulling a window down (stage reads
+// those from the touch screen itself) move a picture of it the same way, and
+// let go far enough it slides off and the window closes.
 Window {
     id: win
 
@@ -28,8 +30,15 @@ Window {
     property var samples: []
     property var ready: ({})        // snapshot ids that have arrived
     property string launchingIcon: ""
+    property bool gone: false       // the window pulled away has closed
 
     readonly property string edge: plan ? plan.edge : ""
+    // A window pulled down by a hand: its picture, over the wallpaper it
+    // leaves behind, once the picture is there (until then, the real one).
+    readonly property bool closing: edge === "close"
+    readonly property bool showing: closing && plan.animated === true && ready[plan.snapshot] === true
+    readonly property rect closingOuter: closing ? Qt.rect(plan.x - border, plan.y - border, plan.w + 2 * border, plan.h + 2 * border)
+                                                 : Qt.rect(0, 0, 0, 0)
     readonly property bool sideways: edge === "right"
     readonly property bool splitting: (edge === "right" || edge === "bottom") && plan !== null && !plan.empty
     readonly property bool fresh: (edge === "right" || edge === "bottom") && plan !== null && plan.empty === true
@@ -108,6 +117,9 @@ Window {
     // ---- the finger ----
 
     function pressed(p) {
+        // A hand's fingers are the hand's, wherever they land.
+        if (stage.hand)
+            return
         if (phase === "room") {
             // A tap beside the launcher puts things back.
             if (!inside(Qt.rect(room.x, room.y, room.width, room.height), p.x, p.y)
@@ -145,7 +157,7 @@ Window {
     }
 
     function moved(p) {
-        if (phase !== "tracking")
+        if (phase !== "tracking" || closing)
             return
         const d = distance(p)
         const now = Date.now()
@@ -180,7 +192,7 @@ Window {
                 stage.closeConsole()
             return
         }
-        if (phase !== "tracking")
+        if (phase !== "tracking" || closing)
             return
         const v = speed()
         if (!plan.allowed) {
@@ -236,6 +248,59 @@ Window {
         fraction = 1
         veil = 1
         launchingIcon = ""
+        gone = false
+    }
+
+    // ---- a hand pulling a window down ----
+
+    function handPulled(p, at, ms) {
+        if (phase !== "idle")
+            return
+        plan = p
+        start = Qt.point(p.fromX, p.fromY)
+        gone = false
+        veil = 1
+        pull = 0
+        samples = []
+        phase = "tracking"
+        handMoved(at, ms)
+    }
+
+    function handMoved(at, ms) {
+        if (phase !== "tracking" || !closing)
+            return
+        const d = at.y - start.y
+        samples.push({d: d, t: ms})
+        while (samples.length > 2 && ms - samples[0].t > 90)
+            samples.shift()
+        pull = d >= 0 ? d : -rubber(-d)
+    }
+
+    // Far enough, or quick enough, and the window goes: it is asked to close
+    // as the picture slides off, and the wallpaper under it gives way to the
+    // others once it has. A window that won't close (it asks about unsaved
+    // work) shows again.
+    function handReleased(at, ms) {
+        if (phase !== "tracking" || !closing)
+            return
+        handMoved(at, ms)
+        if (pull < 100 && speed() < 500) {
+            settle(0, finish)
+            return
+        }
+        stage.closeWindow(plan.address)
+        if (!showing) {
+            finish()
+            return
+        }
+        settle(height - closingOuter.y + 40, function () {
+            if (gone) {
+                finish()
+            } else {
+                phase = "leaving"
+                leaveTimer.start()
+            }
+        })
     }
 
     function launchApp(appId) {
@@ -305,6 +370,31 @@ Window {
             if (win.phase === "leaving" && stage.consoleOpen) {
                 leaveTimer.stop()
                 fadeOut.start()
+            }
+        }
+        // A hand puts down whatever one finger at an edge had started.
+        function onHandChanged() {
+            if (stage.hand && (win.phase === "tracking" || win.phase === "dismiss") && !win.closing)
+                win.finish()
+        }
+        function onPullStarted(plan, at, ms) { win.handPulled(plan, at, ms) }
+        function onPullMoved(at, ms) { win.handMoved(at, ms) }
+        function onPullEnded(at, ms) { win.handReleased(at, ms) }
+        function onPullCanceled() {
+            if (win.phase === "tracking" && win.closing)
+                win.cancel()
+        }
+        function onSwiped(direction) {
+            if (win.phase === "idle")
+                stage.swipe(direction)
+        }
+        function onWindowClosed(address) {
+            if (!win.closing || address !== win.plan.address)
+                return
+            win.gone = true
+            if (win.phase === "leaving") {
+                leaveTimer.stop()
+                win.finish()
             }
         }
     }
@@ -435,6 +525,46 @@ Window {
             }
         }
 
+        // Where the window pulled down was: wallpaper, the way the gaps show
+        // it, until Hyprland has closed it and moves the others in.
+        Item {
+            visible: win.showing && !win.gone
+            x: win.closingOuter.x
+            y: win.closingOuter.y
+            width: win.closingOuter.width
+            height: win.closingOuter.height
+            clip: true
+            Image {
+                x: -parent.x
+                y: -parent.y
+                width: win.width
+                height: win.height
+                source: wallpaper.source
+                sourceSize: wallpaper.sourceSize
+                fillMode: Image.PreserveAspectCrop
+            }
+        }
+
+        // The window itself, following the fingers down and a little smaller
+        // the farther it goes.
+        WindowFrame {
+            visible: win.showing
+            x: win.closingOuter.x
+            y: win.closingOuter.y + win.pull
+            width: win.closingOuter.width
+            height: win.closingOuter.height
+            transformOrigin: Item.Top
+            scale: 1 - 0.08 * Math.min(1, Math.max(0, win.pull) / Math.max(1, win.closingOuter.height))
+            border: win.border
+            rounding: win.look && win.look.rounding !== undefined ? win.look.rounding : 0
+            colors: win.look ? win.look.active : null
+            Image {
+                anchors.fill: parent
+                source: win.showing ? "image://snapshot/" + win.plan.snapshot : ""
+                cache: false
+            }
+        }
+
         // The app on its way, where it will appear.
         Image {
             readonly property Item host: win.edge === "top" ? dropped : room
@@ -528,6 +658,6 @@ Window {
         onPressed: (touchPoints) => win.pressed(touchPoints[0])
         onUpdated: (touchPoints) => win.moved(touchPoints[0])
         onReleased: (touchPoints) => win.released(touchPoints[0])
-        onCanceled: (touchPoints) => { if (win.phase === "tracking") win.cancel() }
+        onCanceled: (touchPoints) => { if (win.phase === "tracking" && !win.closing) win.cancel() }
     }
 }

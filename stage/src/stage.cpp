@@ -406,6 +406,13 @@ void Stage::onEvent(const QString &name, const QString &data)
         }
         return;
     }
+    if (name == "closewindow") {
+        const QString address = "0x" + data.section(',', 0, 0);
+        if (QTimer *timer = m_closing.take(address))
+            timer->deleteLater();
+        emit windowClosed(address);
+        return;
+    }
     if (name == "openwindow" && !m_pending.isEmpty()) {
         const QString address = "0x" + data.section(',', 0, 0);
         const QString workspace = data.section(',', 1, 1);
@@ -463,6 +470,35 @@ void Stage::closeConsole()
 {
     if (m_consoleOpen)
         m_hyprland->dispatch("hl.dsp.workspace.toggle_special(\"scratchpad\")");
+}
+
+void Stage::closeWindow(const QString &address)
+{
+    const QString window = QString("window = \"address:%1\"").arg(address);
+    m_hyprland->dispatch(QString("hl.dsp.window.set_prop({ prop = \"no_anim\", value = \"1\", %1 })").arg(window));
+    m_hyprland->dispatch(QString("hl.dsp.window.close({ %1 })").arg(window));
+    if (m_closing.contains(address))
+        return;
+    auto *timer = new QTimer(this);
+    timer->setSingleShot(true);
+    connect(timer, &QTimer::timeout, this, [this, address, window] {
+        if (QTimer *t = m_closing.take(address))
+            t->deleteLater();
+        m_hyprland->dispatch(QString("hl.dsp.window.set_prop({ prop = \"no_anim\", value = \"0\", %1 })").arg(window));
+    });
+    m_closing.insert(address, timer);
+    timer->start(5000);
+}
+
+void Stage::swipe(const QString &direction)
+{
+    // Fingers going left bring the next workspace in from the right.
+    if (direction == "left")
+        m_hyprland->dispatch("hl.dsp.focus({ workspace = \"m+1\" })");
+    else if (direction == "right")
+        m_hyprland->dispatch("hl.dsp.focus({ workspace = \"m-1\" })");
+    else if (direction == "up")
+        m_hyprland->dispatch("hl.dsp.window.fullscreen({ mode = \"maximized\" })");
 }
 
 void Stage::setInputRegion(const QVariantList &rects)
@@ -570,6 +606,14 @@ void Stage::handle(const QList<Fingers::Event> &events)
             m_locked = m_hyprland->query("locked").object().value("locked").toBool();
             const Monitor m = monitor();
             m_handPlan = m_locked || !m.ok ? QVariantMap() : windowAt(e.at.x(), e.at.y(), visibleWindows(m), m.special);
+            if (!m_handPlan.isEmpty()) {
+                m_handPlan["fromX"] = e.at.x();
+                m_handPlan["fromY"] = e.at.y();
+                // Taken now, so the picture is there by the time the hand has moved.
+                if (m_handPlan["animated"].toBool())
+                    m_handPlan["snapshot"] = m_capture->captureWindow(m_handPlan["appClass"].toString(),
+                                                                      m_handPlan["title"].toString());
+            }
             qCDebug(lcStage) << "hand" << e.fingers << "at" << e.at << "locked" << m_locked << "on"
                              << m_handPlan.value("appClass") << m_handPlan.value("address")
                              << "animated" << m_handPlan.value("animated");

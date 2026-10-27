@@ -66,6 +66,12 @@ public:
     Q_INVOKABLE void openConsole();
     Q_INVOKABLE void closeConsole();
     Q_INVOKABLE void setInputRegion(const QVariantList &rects);
+    // Asks the window to close, without Hyprland animating it away a second
+    // time (the picture already left); `windowClosed` follows if it does.
+    Q_INVOKABLE void closeWindow(const QString &address);
+    // What a three-finger swipe does: "left" and "right" go to the next or
+    // previous workspace, "up" maximizes the focused window.
+    Q_INVOKABLE void swipe(const QString &direction);
 
     // Pure helpers, kept apart for the tests.
     static QVariantMap pickTarget(const QString &edge, qreal x, qreal y, const QVariantList &windows,
@@ -93,6 +99,7 @@ signals:
     void pullCanceled();
     // Three fingers went "left", "right" or "up".
     void swiped(const QString &direction);
+    void windowClosed(const QString &address);
 
 private:
     struct Monitor {
@@ -145,4 +152,7 @@ private:
     bool m_pulling = false;
     bool m_locked = false;
     QVariantMap m_handPlan;
+    // Windows asked to close, kept from animating; a window that stays (it
+    // asked about unsaved work, say) gets its animations back.
+    QHash<QString, QTimer *> m_closing;
 };

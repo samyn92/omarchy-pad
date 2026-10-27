@@ -24,8 +24,16 @@ class FakeStage : public QObject {
     Q_PROPERTY(bool consoleOpen MEMBER consoleOpen NOTIFY consoleOpenChanged)
     Q_PROPERTY(QRectF consoleRect MEMBER consoleRect NOTIFY consoleOpenChanged)
     Q_PROPERTY(QVariantMap look MEMBER look CONSTANT)
+    Q_PROPERTY(bool hand MEMBER hand NOTIFY handChanged)
 
 public:
+    Q_INVOKABLE void closeWindow(const QString &address)
+    {
+        log << "close:" + address;
+        if (!refuse)
+            QTimer::singleShot(30, this, [this, address] { emit windowClosed(address); });
+    }
+    Q_INVOKABLE void swipe(const QString &direction) { log << "swipe:" + direction; }
     Q_INVOKABLE QVariantMap beginEdge(const QString &edge, qreal, qreal)
     {
         log << "begin:" + edge;
@@ -57,11 +65,20 @@ public:
     QHash<QString, QVariantMap> plans;
     QStringList log;
     QVariantList region;
+    bool hand = false;
+    bool refuse = false;   // windows that won't close
 
 signals:
     void consoleOpenChanged();
     void snapshotReady(int id, bool ok);
     void placed(bool ok);
+    void handChanged();
+    void pullStarted(const QVariantMap &plan, const QPointF &at, qreal ms);
+    void pullMoved(const QPointF &at, qreal ms);
+    void pullEnded(const QPointF &at, qreal ms);
+    void pullCanceled();
+    void swiped(const QString &direction);
+    void windowClosed(const QString &address);
 };
 
 static QVariantMap rect(qreal x, qreal y, qreal w, qreal h)
@@ -99,6 +116,9 @@ public:
         fake.plans["right"] = {{"edge", "right"}, {"allowed", true}, {"empty", false}, {"address", "0x1"},
                                {"appClass", "foot"}, {"title", "foot"}, {"x", 12}, {"y", 42}, {"w", 1672}, {"h", 1146},
                                {"usable", rect(0, 30, 1696, 1170)}, {"snapshot", 1}, {"workspace", "1"}};
+        fake.plans["close"] = {{"edge", "close"}, {"address", "0x9"}, {"appClass", "foot"}, {"title", "foot"},
+                               {"x", 12}, {"y", 42}, {"w", 829}, {"h", 1146}, {"animated", true}, {"snapshot", 1},
+                               {"fromX", 400}, {"fromY", 300}};
         fake.plans["bottom"] = fake.plans["right"];
         fake.plans["bottom"]["edge"] = "bottom";
         fake.plans["top"] = {{"edge", "top"}, {"allowed", true}, {"empty", false},
@@ -146,6 +166,37 @@ public:
         }
         if (lift)
             release(to);
+    }
+
+    // Two fingers landing together, as stage reports them from the touch
+    // screen: they pull the "close" plan's window `dy` down in `ms`.
+    void handDown()
+    {
+        fake.hand = true;
+        emit fake.handChanged();
+        emit fake.snapshotReady(fake.plans["close"].value("snapshot").toInt(), true);
+    }
+    void handPull(qreal dy, int ms, bool lift = true)
+    {
+        const QVariantMap plan = fake.plans["close"];
+        const QPointF from(plan["fromX"].toReal(), plan["fromY"].toReal());
+        handDown();
+        qreal t = 1000;
+        emit fake.pullStarted(plan, from + QPointF(0, std::min<qreal>(24, dy)), t);
+        const int steps = std::max(1, ms / 16);
+        for (int i = 1; i <= steps; ++i) {
+            QTest::qWait(16);
+            t += 16;
+            emit fake.pullMoved(from + QPointF(0, dy * i / steps), t);
+        }
+        if (lift)
+            handUp(from + QPointF(0, dy), t + 8);
+    }
+    void handUp(const QPointF &at, qreal ms)
+    {
+        emit fake.pullEnded(at, ms);
+        fake.hand = false;
+        emit fake.handChanged();
     }
 
     // The centre of the launcher tile for an app, in window coordinates.
@@ -502,6 +553,91 @@ private slots:
         emit h.fake.consoleOpenChanged();
         h.tap(QPoint(800, 900));
         QVERIFY(h.fake.log.contains("closeConsole"));
+    }
+
+    // ---- two fingers pulling a window down ----
+
+    void pullingAWindowDownClosesIt()
+    {
+        Harness h;
+        h.handPull(300, 300, false);
+        // The picture follows the fingers.
+        QVERIFY(h.window->property("showing").toBool());
+        QCOMPARE(qRound(h.pull()), 300);
+        h.handUp(QPointF(400, 600), 1400);
+        QCOMPARE(h.fake.log, QStringList({"close:0x9"}));
+        QTRY_COMPARE(h.phase(), QString("idle"));
+    }
+
+    void aShortSlowPullPutsTheWindowBack()
+    {
+        Harness h;
+        h.handPull(60, 600);
+        QTRY_COMPARE(h.phase(), QString("idle"));
+        QVERIFY(h.fake.log.isEmpty());
+        QCOMPARE(h.pull(), 0.0);
+    }
+
+    void aQuickFlickClosesToo()
+    {
+        Harness h;
+        h.handPull(80, 48);
+        QCOMPARE(h.fake.log, QStringList({"close:0x9"}));
+    }
+
+    void aWindowThatStaysShowsAgain()
+    {
+        Harness h;
+        h.fake.refuse = true;
+        h.handPull(300, 300);
+        QCOMPARE(h.fake.log, QStringList({"close:0x9"}));
+        QTRY_COMPARE(h.phase(), QString("leaving"));
+        QTRY_COMPARE_WITH_TIMEOUT(h.phase(), QString("idle"), 3000);
+    }
+
+    void aCoveredWindowJustCloses()
+    {
+        Harness h;
+        h.fake.plans["close"]["animated"] = false;
+        h.handPull(300, 300, false);
+        QVERIFY(!h.window->property("showing").toBool());
+        h.handUp(QPointF(400, 600), 1400);
+        QCOMPARE(h.fake.log, QStringList({"close:0x9"}));
+        QCOMPARE(h.phase(), QString("idle"));
+    }
+
+    void aHandPutsDownAnEdgeGesture()
+    {
+        Harness h;
+        h.swipe(QPoint(1693, 600), QPoint(1300, 600), 200, false);
+        QCOMPARE(h.phase(), QString("tracking"));
+        h.handDown();
+        QCOMPARE(h.phase(), QString("idle"));
+        // The edge finger's last moves and its lift are the hand's now.
+        h.move(QPoint(1200, 600));
+        h.release(QPoint(1200, 600));
+        QCOMPARE(h.phase(), QString("idle"));
+        QVERIFY(!h.fake.log.join(' ').contains("launch"));
+    }
+
+    void handsWaitWhileTheLauncherIsOut()
+    {
+        Harness h;
+        h.swipe(QPoint(1693, 600), QPoint(1100, 600), 300);
+        QTRY_COMPARE(h.phase(), QString("room"));
+        h.handPull(300, 300);
+        emit h.fake.swiped("left");
+        QCOMPARE(h.phase(), QString("room"));
+        QVERIFY(!h.fake.log.join(' ').contains("close:"));
+        QVERIFY(!h.fake.log.join(' ').contains("swipe:"));
+    }
+
+    void threeFingersSwitchWorkspaces()
+    {
+        Harness h;
+        emit h.fake.swiped("left");
+        emit h.fake.swiped("up");
+        QCOMPARE(h.fake.log, QStringList({"swipe:left", "swipe:up"}));
     }
 
 private:
