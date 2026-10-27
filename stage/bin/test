@@ -7,4 +7,6 @@ cd "$ROOT/build/tests"
 
 qmake6 "$ROOT/tests/stage_tests.pro"
 make -j"$(nproc)"
-QT_QPA_PLATFORM=offscreen ./stage_tests
+# No input method: a test focusing a text field would take fcitx5's focus
+# from the desktop, and dictated text would go to the test instead.
+QT_IM_MODULE=none QT_QPA_PLATFORM=offscreen ./stage_tests
