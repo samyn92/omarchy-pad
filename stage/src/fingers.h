@@ -12,7 +12,8 @@
 // and only speaks up for a hand. Fed in the overlay's logical coordinates and
 // milliseconds, it says what the hand does:
 //  - two or three fingers moving down together pull a window down;
-//  - three fingers sideways or up swipe, once the first of them lifts.
+//  - three fingers moving sideways together slide the workspaces;
+//  - three fingers up swipe, once the first of them lifts.
 // A hand ends at its first lift, so the last finger's jump can't move a pull.
 class Fingers {
 public:
@@ -23,7 +24,11 @@ public:
             PullMoved,
             PullEnded,     // a finger lifted
             PullCanceled,  // the fingers went apart, a pinch rather than a pull
-            Swiped,        // three fingers, `direction` "left", "right" or "up"
+            SlideStarted,  // three fingers move sideways together; `direction` "left" or "right"
+            SlideMoved,
+            SlideEnded,
+            SlideCanceled,
+            Swiped,        // three fingers, `direction` "up"
             HandUp,        // every finger of the hand has lifted
         };
         Type type;
@@ -39,7 +44,9 @@ public:
     // A pull counts once the hand has come this far, this close to straight down.
     static constexpr qreal PullDistance = 24;
     static constexpr qreal PullDegrees = 30;
-    // A three-finger swipe needs this distance, this close to its direction.
+    // A slide counts as soon as a pull would, this close to level.
+    static constexpr qreal SlideDegrees = 30;
+    // A three-finger swipe up needs this distance, this close to straight up.
     static constexpr qreal SwipeDistance = 150;
     static constexpr qreal SwipeDegrees = 22;
 
@@ -62,14 +69,17 @@ private:
         QPointF now;
         qreal landed = 0;
     };
-    enum class State { Forming, Pulling, Done };
+    enum class State { Forming, Pulling, Sliding, Done };
 
     QPointF travel() const;
     bool together() const;
     QPointF lead() const { return m_fingers.value(m_members.first()).now; }
     QPointF pullPoint() const;
 
+    bool everyFingerAlong(const QPointF &t) const;
+
     QHash<int, Finger> m_fingers;   // every finger down, by slot
     QList<int> m_members;           // the hand's fingers, first one first
     State m_state = State::Forming;
+    QString m_direction;            // which way a slide goes
 };

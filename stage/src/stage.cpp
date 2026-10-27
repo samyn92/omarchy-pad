@@ -94,6 +94,7 @@ Stage::Monitor Stage::monitor() const
         const QJsonArray reserved = o.value("reserved").toArray();
         m.usable = m.logical.adjusted(reserved.at(0).toDouble(), reserved.at(1).toDouble(),
                                       -reserved.at(2).toDouble(), -reserved.at(3).toDouble());
+        m.name = o.value("name").toString();
         m.workspace = o.value("activeWorkspace").toObject().value("id").toInt();
         m.workspaceName = o.value("activeWorkspace").toObject().value("name").toString();
         m.special = o.value("specialWorkspace").toObject().value("name").toString();
@@ -408,6 +409,10 @@ void Stage::onEvent(const QString &name, const QString &data)
         }
         return;
     }
+    if (name == "workspace") {
+        emit workspaceShown(data);
+        return;
+    }
     if (name == "closewindow") {
         const QString address = "0x" + data.section(',', 0, 0);
         if (QTimer *timer = m_closing.take(address))
@@ -449,23 +454,103 @@ void Stage::openConsole()
     if (m_consoleOpen)
         return;
     // The finger already brought the console down, so Hyprland's own slide in
-    // is switched off for this one toggle and put back the way it was.
-    QJsonObject slide;
+    // is switched off for this one toggle.
+    withoutAnimation("specialWorkspaceIn", [this] { m_hyprland->dispatch("hl.dsp.workspace.toggle_special(\"scratchpad\")"); });
+}
+
+// Runs `change` with one of Hyprland's animations switched off, and puts it
+// back the way it was a moment later.
+void Stage::withoutAnimation(const QString &leaf, const std::function<void()> &change)
+{
+    QJsonObject animation;
     for (const QJsonValue &v : m_hyprland->query("animations").array().at(0).toArray())
-        if (v.toObject().value("name").toString() == "specialWorkspaceIn")
-            slide = v.toObject();
-    const bool silence = slide.value("overridden").toBool() && slide.value("enabled").toBool();
+        if (v.toObject().value("name").toString() == leaf)
+            animation = v.toObject();
+    const bool silence = animation.value("overridden").toBool() && animation.value("enabled").toBool();
     if (silence)
-        m_hyprland->eval("hl.animation({ leaf = \"specialWorkspaceIn\", enabled = false })");
-    m_hyprland->dispatch("hl.dsp.workspace.toggle_special(\"scratchpad\")");
+        m_hyprland->eval(QString("hl.animation({ leaf = %1, enabled = false })").arg(Hyprland::quote(leaf)));
+    change();
     if (silence) {
-        const QString restore = QString("hl.animation({ leaf = \"specialWorkspaceIn\", enabled = true, speed = %1, "
-                                        "bezier = %2, style = %3 })")
-                                    .arg(slide.value("speed").toDouble())
-                                    .arg(Hyprland::quote(slide.value("bezier").toString()),
-                                         Hyprland::quote(slide.value("style").toString()));
+        const QString restore = QString("hl.animation({ leaf = %1, enabled = true, speed = %2, bezier = %3, style = %4 })")
+                                    .arg(Hyprland::quote(leaf))
+                                    .arg(animation.value("speed").toDouble())
+                                    .arg(Hyprland::quote(animation.value("bezier").toString()),
+                                         Hyprland::quote(animation.value("style").toString()));
         QTimer::singleShot(250, this, [this, restore] { m_hyprland->eval(restore); });
     }
+}
+
+void Stage::switchWorkspace(int id)
+{
+    // The fingers already slid the next workspace in.
+    withoutAnimation("workspaces", [this, id] { m_hyprland->dispatch(QString("hl.dsp.focus({ workspace = \"%1\" })").arg(id)); });
+}
+
+// What three fingers slide: this workspace's windows and those of the one
+// next to it on this monitor (the next higher one for fingers going left, as
+// "m+1" would be), bottom first, each with a picture on its way.
+QVariantMap Stage::slidePlan(const QString &direction)
+{
+    const Monitor m = monitor();
+    if (!m.ok || !m.special.isEmpty())
+        return {};
+    int next = 0;
+    for (const QJsonValue &value : m_hyprland->query("workspaces").array()) {
+        const QJsonObject o = value.toObject();
+        const int id = o.value("id").toInt();
+        if (id <= 0 || o.value("monitor").toString() != m.name)
+            continue;
+        if (direction == "left" ? id > m.workspace && (!next || id < next) : id < m.workspace && id > next)
+            next = id;
+    }
+    const QPointF origin = m.logical.topLeft();
+    const QJsonArray clients = m_hyprland->query("clients").array();
+    auto windows = [&](int workspace) {
+        QList<QVariantMap> list;
+        for (const QJsonValue &value : clients) {
+            const QJsonObject o = value.toObject();
+            if (o.value("workspace").toObject().value("id").toInt() != workspace || !o.value("mapped").toBool()
+                || o.value("hidden").toBool() || o.value("pinned").toBool())
+                continue;
+            const QJsonArray at = o.value("at").toArray(), size = o.value("size").toArray();
+            list << QVariantMap{
+                {"address", o.value("address").toString()},
+                {"appClass", o.value("class").toString()},
+                {"x", at.at(0).toDouble() - origin.x()},
+                {"y", at.at(1).toDouble() - origin.y()},
+                {"w", size.at(0).toDouble()},
+                {"h", size.at(1).toDouble()},
+                {"rank", o.value("floating").toBool() ? 2 : o.value("fullscreen").toInt() ? 1 : 0},
+                {"focus", o.value("focusHistoryID").toInt(1000)},
+                {"title", o.value("title").toString()},
+            };
+        }
+        // Drawn bottom up: tiled, fullscreen, then floating ones, the last used on top.
+        std::stable_sort(list.begin(), list.end(), [](const QVariantMap &a, const QVariantMap &b) {
+            return a["rank"] != b["rank"] ? a["rank"].toInt() < b["rank"].toInt() : a["focus"].toInt() > b["focus"].toInt();
+        });
+        QVariantList out;
+        int lowest = 1000;
+        for (const QVariantMap &w : std::as_const(list))
+            lowest = qMin(lowest, w["focus"].toInt());
+        for (QVariantMap w : std::as_const(list)) {
+            w["active"] = w["focus"].toInt() == lowest;
+            w["snapshot"] = m_capture->captureWindow(w["address"].toString(), w["appClass"].toString(), w["title"].toString());
+            out << w;
+        }
+        return out;
+    };
+    QVariantMap plan{
+        {"edge", "slide"},
+        {"direction", direction},
+        {"usable", rectMap(m.usable.translated(-origin))},
+        {"current", windows(m.workspace)},
+        {"next", next ? QVariant(next) : QVariant()},
+    };
+    if (next)
+        plan["nextWindows"] = windows(next);
+    qCDebug(lcStage) << "slide" << direction << "from" << m.workspace << "to" << next;
+    return plan;
 }
 
 void Stage::closeConsole()
@@ -641,6 +726,28 @@ void Stage::handle(const QList<Fingers::Event> &events)
             m_pulling = false;
             qCDebug(lcStage) << (e.type == Fingers::Event::PullEnded ? "pull ended" : "pull canceled") << "at" << e.at;
             e.type == Fingers::Event::PullEnded ? emit pullEnded(e.at, e.ms) : emit pullCanceled();
+            break;
+        case Fingers::Event::SlideStarted:
+            if (m_locked)
+                break;
+            m_handPlan = slidePlan(e.direction);
+            if (m_handPlan.isEmpty())
+                break;
+            m_sliding = true;
+            m_handPlan["fromX"] = e.at.x();
+            m_handPlan["fromY"] = e.at.y();
+            emit slideStarted(m_handPlan, e.at, e.ms);
+            break;
+        case Fingers::Event::SlideMoved:
+            if (m_sliding)
+                emit slideMoved(e.at, e.ms);
+            break;
+        case Fingers::Event::SlideEnded:
+        case Fingers::Event::SlideCanceled:
+            if (!m_sliding)
+                break;
+            m_sliding = false;
+            e.type == Fingers::Event::SlideEnded ? emit slideEnded(e.at, e.ms) : emit slideCanceled();
             break;
         case Fingers::Event::Swiped:
             qCDebug(lcStage) << "swiped" << e.direction << "locked" << m_locked;

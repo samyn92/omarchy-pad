@@ -34,6 +34,11 @@ public:
             QTimer::singleShot(30, this, [this, address] { emit windowClosed(address); });
     }
     Q_INVOKABLE void swipe(const QString &direction) { log << "swipe:" + direction; }
+    Q_INVOKABLE void switchWorkspace(int id)
+    {
+        log << "switch:" + QString::number(id);
+        QTimer::singleShot(20, this, [this, id] { emit workspaceShown(QString::number(id)); });
+    }
     Q_INVOKABLE QVariantMap beginEdge(const QString &edge, qreal, qreal)
     {
         log << "begin:" + edge;
@@ -79,6 +84,11 @@ signals:
     void pullCanceled();
     void swiped(const QString &direction);
     void windowClosed(const QString &address);
+    void slideStarted(const QVariantMap &plan, const QPointF &at, qreal ms);
+    void slideMoved(const QPointF &at, qreal ms);
+    void slideEnded(const QPointF &at, qreal ms);
+    void slideCanceled();
+    void workspaceShown(const QString &name);
 };
 
 static QVariantMap rect(qreal x, qreal y, qreal w, qreal h)
@@ -119,6 +129,11 @@ public:
         fake.plans["close"] = {{"edge", "close"}, {"address", "0x9"}, {"appClass", "foot"}, {"title", "foot"},
                                {"x", 12}, {"y", 42}, {"w", 829}, {"h", 1146}, {"animated", true}, {"snapshot", 1},
                                {"fromX", 400}, {"fromY", 300}};
+        const QVariantMap one{{"address", "0x9"}, {"appClass", "foot"}, {"x", 12}, {"y", 42}, {"w", 1672}, {"h", 1146},
+                              {"active", true}, {"snapshot", 1}};
+        fake.plans["slide"] = {{"edge", "slide"}, {"direction", "left"}, {"usable", rect(0, 30, 1696, 1170)},
+                               {"current", QVariantList{one}}, {"next", 2}, {"nextWindows", QVariantList{one}},
+                               {"fromX", 900}, {"fromY", 600}};
         fake.plans["bottom"] = fake.plans["right"];
         fake.plans["bottom"]["edge"] = "bottom";
         fake.plans["top"] = {{"edge", "top"}, {"allowed", true}, {"empty", false},
@@ -195,6 +210,27 @@ public:
     void handUp(const QPointF &at, qreal ms)
     {
         emit fake.pullEnded(at, ms);
+        fake.hand = false;
+        emit fake.handChanged();
+    }
+
+    // Three fingers sliding `dx` sideways in `ms`.
+    void handSlide(qreal dx, int ms)
+    {
+        const QVariantMap plan = fake.plans["slide"];
+        const QPointF from(plan["fromX"].toReal(), plan["fromY"].toReal());
+        fake.hand = true;
+        emit fake.handChanged();
+        emit fake.snapshotReady(1, true);
+        qreal t = 1000;
+        emit fake.slideStarted(plan, from + QPointF(dx < 0 ? -24 : 24, 0), t);
+        const int steps = std::max(1, ms / 16);
+        for (int i = 1; i <= steps; ++i) {
+            QTest::qWait(16);
+            t += 16;
+            emit fake.slideMoved(from + QPointF(dx * i / steps, 0), t);
+        }
+        emit fake.slideEnded(from + QPointF(dx, 0), t + 8);
         fake.hand = false;
         emit fake.handChanged();
     }
@@ -417,13 +453,17 @@ private slots:
         QVERIFY(f.up(9, 3000).isEmpty());
     }
 
-    void threeFingersSwipe()
+    void threeFingersSlideAndSwipe()
     {
-        QCOMPARE(swiped(swipe(-400, 0)), QString("left"));
-        QCOMPARE(swiped(swipe(400, 30)), QString("right"));
+        // Sideways they slide, from the start, the way they go.
+        QCOMPARE(kinds(swipe(-400, 0)), QStringList({"hand", "slide", "slid", "up"}));
+        QCOMPARE(last(swipe(-400, 0), Fingers::Event::SlideStarted).direction, QString("left"));
+        QCOMPARE(last(swipe(400, 30), Fingers::Event::SlideEnded).direction, QString("right"));
+        // Up they swipe once they lift.
         QCOMPARE(swiped(swipe(0, -300)), QString("up"));
-        QCOMPARE(swiped(swipe(100, 0)), QString());    // too short
-        QCOMPARE(swiped(swipe(300, -200)), QString()); // between two directions
+        QCOMPARE(swiped(swipe(0, -100)), QString());   // too short
+        // Between two directions, nothing.
+        QCOMPARE(kinds(swipe(300, -250)), QStringList({"hand", "up"}));
     }
 
     void theHandEndsAtItsFirstLift()
@@ -632,12 +672,37 @@ private slots:
         QVERIFY(!h.fake.log.join(' ').contains("swipe:"));
     }
 
-    void threeFingersSwitchWorkspaces()
+    void threeFingersSwipeUpToMaximize()
     {
         Harness h;
-        emit h.fake.swiped("left");
         emit h.fake.swiped("up");
-        QCOMPARE(h.fake.log, QStringList({"swipe:left", "swipe:up"}));
+        QCOMPARE(h.fake.log, QStringList({"swipe:up"}));
+    }
+
+    void slidingAQuarterBringsTheNextWorkspace()
+    {
+        Harness h;
+        h.handSlide(-500, 300);
+        QTRY_COMPARE(h.fake.log, QStringList({"switch:2"}));
+        QTRY_COMPARE(h.phase(), QString("idle"));
+    }
+
+    void aShortSlowSlideStays()
+    {
+        Harness h;
+        h.handSlide(-200, 800);
+        QTRY_COMPARE(h.phase(), QString("idle"));
+        QVERIFY(h.fake.log.isEmpty());
+    }
+
+    void theLastWorkspaceOnlyGives()
+    {
+        Harness h;
+        h.fake.plans["slide"]["next"] = QVariant();
+        h.fake.plans["slide"].remove("nextWindows");
+        h.handSlide(-800, 300);
+        QTRY_COMPARE(h.phase(), QString("idle"));
+        QVERIFY(h.fake.log.isEmpty());
     }
 
 private:
@@ -690,7 +755,9 @@ private:
         static const QHash<int, QString> names{
             {Fingers::Event::HandDown, "hand"},      {Fingers::Event::PullStarted, "pull"},
             {Fingers::Event::PullEnded, "ended"},    {Fingers::Event::PullCanceled, "canceled"},
-            {Fingers::Event::Swiped, "swiped"},      {Fingers::Event::HandUp, "up"}};
+            {Fingers::Event::Swiped, "swiped"},      {Fingers::Event::HandUp, "up"},
+            {Fingers::Event::SlideStarted, "slide"}, {Fingers::Event::SlideEnded, "slid"},
+            {Fingers::Event::SlideCanceled, "slidecanceled"}};
         QStringList out;
         for (const Fingers::Event &e : events)
             if (names.contains(e.type))

@@ -56,26 +56,47 @@ QList<Fingers::Event> Fingers::move(int slot, const QPointF &at, qreal ms)
     if (!m_members.contains(slot) || m_state == State::Done)
         return {};
 
+    const int n = int(m_members.size());
     if (!together()) {
-        const bool pulling = m_state == State::Pulling;
+        const State was = m_state;
         m_state = State::Done;
-        if (pulling)
-            return {Event{Event::PullCanceled, pullPoint(), ms, int(m_members.size())}};
+        if (was == State::Pulling)
+            return {Event{Event::PullCanceled, pullPoint(), ms, n}};
+        if (was == State::Sliding)
+            return {Event{Event::SlideCanceled, pullPoint(), ms, n, m_direction}};
         return {};
     }
     if (m_state == State::Pulling)
-        return {Event{Event::PullMoved, pullPoint(), ms, int(m_members.size())}};
+        return {Event{Event::PullMoved, pullPoint(), ms, n}};
+    if (m_state == State::Sliding)
+        return {Event{Event::SlideMoved, pullPoint(), ms, n, m_direction}};
 
     const QPointF t = travel();
-    const bool everyFingerDown = std::all_of(m_members.cbegin(), m_members.cend(), [&](int s) {
-        const Finger &f = m_fingers[s];
-        return f.now.y() - f.start.y() >= t.y() / 2;
-    });
-    if (length(t) >= PullDistance && t.y() > 0 && degreesOff(t, {0, 1}) <= PullDegrees && everyFingerDown) {
+    if (length(t) < PullDistance)
+        return {};
+    if (t.y() > 0 && degreesOff(t, {0, 1}) <= PullDegrees && everyFingerAlong(t)) {
         m_state = State::Pulling;
-        return {Event{Event::PullStarted, pullPoint(), ms, int(m_members.size())}};
+        return {Event{Event::PullStarted, pullPoint(), ms, n}};
+    }
+    const QPointF level(t.x() < 0 ? -1 : 1, 0);
+    if (n == 3 && degreesOff(t, level) <= SlideDegrees && everyFingerAlong(t)) {
+        m_state = State::Sliding;
+        m_direction = t.x() < 0 ? "left" : "right";
+        return {Event{Event::SlideStarted, pullPoint(), ms, n, m_direction}};
     }
     return {};
+}
+
+// Each finger has come at least half the hand's way, so a finger that stays
+// put while others move (a pinch, a spread) never starts anything.
+bool Fingers::everyFingerAlong(const QPointF &t) const
+{
+    const qreal len = length(t);
+    return std::all_of(m_members.cbegin(), m_members.cend(), [&](int s) {
+        const Finger &f = m_fingers[s];
+        const QPointF d = f.now - f.start;
+        return (d.x() * t.x() + d.y() * t.y()) / len >= len / 2;
+    });
 }
 
 QList<Fingers::Event> Fingers::up(int slot, qreal ms)
@@ -84,15 +105,12 @@ QList<Fingers::Event> Fingers::up(int slot, qreal ms)
     if (m_members.contains(slot) && m_fingers.contains(slot)) {
         if (m_state == State::Pulling) {
             events << Event{Event::PullEnded, pullPoint(), ms, int(m_members.size())};
+        } else if (m_state == State::Sliding) {
+            events << Event{Event::SlideEnded, pullPoint(), ms, int(m_members.size()), m_direction};
         } else if (m_state == State::Forming && m_members.size() == 3) {
             const QPointF t = travel();
-            static const QList<QPair<QString, QPointF>> directions{
-                {"left", {-1, 0}}, {"right", {1, 0}}, {"up", {0, -1}}};
-            if (length(t) >= SwipeDistance) {
-                for (const auto &[name, direction] : directions)
-                    if (degreesOff(t, direction) <= SwipeDegrees)
-                        events << Event{Event::Swiped, lead(), ms, 3, name};
-            }
+            if (length(t) >= SwipeDistance && degreesOff(t, {0, -1}) <= SwipeDegrees)
+                events << Event{Event::Swiped, lead(), ms, 3, "up"};
         }
         m_state = State::Done;
     }

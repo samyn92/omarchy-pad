@@ -7,7 +7,8 @@ import QtQuick
 // windows move under the finger; Hyprland only lays out the real ones once
 // the finger has decided. Two fingers pulling a window down (stage reads
 // those from the touch screen itself) move a picture of it the same way, and
-// let go far enough it slides off and the window closes.
+// let go far enough it slides off and the window closes. Three fingers
+// sideways slide the workspace aside for the next one, pictures again.
 Window {
     id: win
 
@@ -37,6 +38,11 @@ Window {
     // leaves behind, once the picture is there (until then, the real one).
     readonly property bool closing: edge === "close"
     readonly property bool showing: closing && plan.animated === true && ready[plan.snapshot] === true
+    // Three fingers sliding the workspaces: `pull` is how far the next one
+    // has come in, once every picture is there.
+    readonly property bool sliding: edge === "slide"
+    readonly property bool slideShowing: sliding && allReady(plan.current) && allReady(plan.nextWindows || [])
+    readonly property real slideOffset: sliding ? (plan.direction === "left" ? -pull : pull) : 0
     readonly property rect closingOuter: closing ? Qt.rect(plan.x - border, plan.y - border, plan.w + 2 * border, plan.h + 2 * border)
                                                  : Qt.rect(0, 0, 0, 0)
     readonly property bool sideways: edge === "right"
@@ -96,6 +102,13 @@ Window {
 
     function iconFor(appClass) {
         return apps.icon(appClass) || (appClass || "").toLowerCase()
+    }
+
+    function allReady(windows) {
+        for (let i = 0; i < windows.length; ++i)
+            if (ready[windows[i].snapshot] !== true)
+                return false
+        return true
     }
 
     function inside(r, x, y) {
@@ -251,6 +264,53 @@ Window {
         gone = false
     }
 
+    // ---- three fingers sliding the workspaces ----
+
+    function handSlid(p, at, ms) {
+        if (phase !== "idle")
+            return
+        plan = p
+        start = Qt.point(p.fromX, p.fromY)
+        veil = 1
+        pull = 0
+        samples = []
+        phase = "tracking"
+        handSlideMoved(at, ms)
+    }
+
+    function handSlideMoved(at, ms) {
+        if (phase !== "tracking" || !sliding)
+            return
+        const d = plan.direction === "left" ? start.x - at.x : at.x - start.x
+        samples.push({d: d, t: ms})
+        while (samples.length > 2 && ms - samples[0].t > 90)
+            samples.shift()
+        // Past the last workspace, and back past where it started, it only gives a little.
+        if (d < 0)
+            pull = -rubber(-d)
+        else if (!plan.next)
+            pull = rubber(d)
+        else
+            pull = d <= width ? d : width + rubber(d - width)
+    }
+
+    // A quarter of the way, or a flick, and the next workspace takes the
+    // screen; Hyprland switches to it once the pictures are where it is.
+    function handSlideReleased(at, ms) {
+        if (phase !== "tracking" || !sliding)
+            return
+        handSlideMoved(at, ms)
+        if (!plan.next || (pull < width / 4 && speed() < 500)) {
+            settle(0, finish)
+            return
+        }
+        settle(width, function () {
+            phase = "leaving"
+            stage.switchWorkspace(plan.next)
+            leaveTimer.start()
+        })
+    }
+
     // ---- a hand pulling a window down ----
 
     function handPulled(p, at, ms) {
@@ -325,8 +385,9 @@ Window {
             property: "pull"
             to: settler.to
             duration: 320
-            // A little overshoot when it lands somewhere, none on the way back.
-            easing.type: settler.to > 0 ? Easing.OutBack : Easing.OutCubic
+            // A little overshoot when it lands somewhere, none on the way back,
+            // nor where a workspace lines up with the screen.
+            easing.type: settler.to > 0 && !win.sliding ? Easing.OutBack : Easing.OutCubic
             easing.overshoot: 0.7
         }
         ScriptAction {
@@ -387,6 +448,19 @@ Window {
         function onSwiped(direction) {
             if (win.phase === "idle")
                 stage.swipe(direction)
+        }
+        function onSlideStarted(plan, at, ms) { win.handSlid(plan, at, ms) }
+        function onSlideMoved(at, ms) { win.handSlideMoved(at, ms) }
+        function onSlideEnded(at, ms) { win.handSlideReleased(at, ms) }
+        function onSlideCanceled() {
+            if (win.phase === "tracking" && win.sliding)
+                win.cancel()
+        }
+        function onWorkspaceShown(name) {
+            if (win.phase === "leaving" && win.sliding) {
+                leaveTimer.stop()
+                win.finish()
+            }
         }
         function onWindowClosed(address) {
             if (!win.closing || address !== win.plan.address)
@@ -565,6 +639,36 @@ Window {
             }
         }
 
+        // Sliding workspaces: the wallpaper stays, as it does when Hyprland
+        // switches, and the windows of both workspaces move over it.
+        Item {
+            visible: win.slideShowing
+            x: win.usable.x
+            y: win.usable.y
+            width: win.usable.width
+            height: win.usable.height
+            clip: true
+            Image {
+                x: -parent.x
+                y: -parent.y
+                width: win.width
+                height: win.height
+                source: wallpaper.source
+                sourceSize: wallpaper.sourceSize
+                fillMode: Image.PreserveAspectCrop
+            }
+        }
+        Workspace {
+            visible: win.slideShowing
+            x: win.slideOffset
+            windows: win.sliding ? win.plan.current : []
+        }
+        Workspace {
+            visible: win.slideShowing
+            x: win.slideOffset + (win.sliding && win.plan.direction === "left" ? win.width : -win.width)
+            windows: win.sliding && win.plan.nextWindows ? win.plan.nextWindows : []
+        }
+
         // The app on its way, where it will appear.
         Image {
             readonly property Item host: win.edge === "top" ? dropped : room
@@ -580,6 +684,31 @@ Window {
                 loops: Animation.Infinite
                 NumberAnimation { from: 1; to: 0.9; duration: 520; easing.type: Easing.InOutSine }
                 NumberAnimation { from: 0.9; to: 1; duration: 520; easing.type: Easing.InOutSine }
+            }
+        }
+    }
+
+    // A workspace's windows as pictures in their frames, where Hyprland has them.
+    component Workspace: Item {
+        property var windows: []
+        width: win.width
+        height: win.height
+        Repeater {
+            model: parent.windows
+            delegate: WindowFrame {
+                required property var modelData
+                x: modelData.x - win.border
+                y: modelData.y - win.border
+                width: modelData.w + 2 * win.border
+                height: modelData.h + 2 * win.border
+                border: win.border
+                rounding: win.look && win.look.rounding !== undefined ? win.look.rounding : 0
+                colors: !win.look ? null : modelData.active ? win.look.active : win.look.inactive
+                Image {
+                    anchors.fill: parent
+                    source: "image://snapshot/" + parent.parent.modelData.snapshot
+                    cache: false
+                }
             }
         }
     }
