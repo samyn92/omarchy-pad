@@ -3,8 +3,8 @@
 An on-screen keyboard for Omarchy on a tablet that behaves like the iPad's.
 Docked along the bottom it is a full 13"-iPad keyboard, with a number row,
 tab, caps lock, ctrl, alt, super, esc and arrows. Pinch it, and it shrinks to a
-small iPhone-size keyboard that you drag anywhere on the screen or tuck into the
-bottom left or right corner, for typing with one finger.
+small iPhone-size keyboard that you drag anywhere on the screen, for typing
+with one finger.
 
 ![The docked keyboard, holding e for its accents](docs/docked.png)
 
@@ -40,7 +40,6 @@ systemctl --user restart omarchy-fcitx5.service
 |---|---|
 | Docked | Spread two fingers on the floating keyboard, drag it down past the bottom edge, or pick it from the menu. Windows move up to make room. |
 | Floating | Pinch two fingers on the docked keyboard, or pick it from the menu. Drag the grabber under it to move it anywhere. |
-| Left or right corner | Drag the floating keyboard into a bottom corner, or pick it from the menu. |
 | Voice orb | Pick it from the menu: the keyboard folds into a pill with the voice orb between two grabbers. Drag a grabber to move it anywhere; tap one for the menu. |
 
 The menu opens from a long press on the docked keyboard's hide key (slide onto
@@ -86,7 +85,7 @@ menu.
 floatkey                 # start it, shown
 floatkey --hidden        # start it hidden, for a session autostart
 floatkey toggle          # show or hide (starts it if needed); also show, hide
-floatkey dock            # also float, left, right
+floatkey dock            # also float, orb
 floatkey status          # shown docked de
 floatkey type "Grüße 👋"  # type into the focused window
 floatkey key ctrl+c      # press a key: BackSpace, Return, super+space, shift+Left...

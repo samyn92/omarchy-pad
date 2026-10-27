@@ -20,7 +20,7 @@ Q_LOGGING_CATEGORY(lcFocus, "floatkey.focus", QtInfoMsg)
 
 QStringList Controller::modes()
 {
-    return {"docked", "floating", "left", "right", "orb"};
+    return {"docked", "floating", "orb"};
 }
 
 QStringList Controller::supportedLayouts()
@@ -64,6 +64,9 @@ Controller::Controller(const QString &settingsPath, const QStringList &systemLay
     const QString mode = m_settings.value("mode").toString();
     if (modes().contains(mode))
         m_mode = mode;
+    // The corners are gone; a keyboard left in one floats.
+    else if (mode == "left" || mode == "right")
+        m_mode = "floating";
     m_floatingPosition = QPointF(qBound(0.0, m_settings.value("floating/x", m_floatingPosition.x()).toDouble(), 1.0),
                                  qBound(0.0, m_settings.value("floating/y", m_floatingPosition.y()).toDouble(), 1.0));
     m_orbPosition = QPointF(qBound(0.0, m_settings.value("orb/x", m_orbPosition.x()).toDouble(), 1.0),
@@ -171,7 +174,7 @@ QString Controller::command(const QString &line)
     const QString verb = line.section(' ', 0, 0).trimmed();
     const QString argument = Ipc::decode(line.section(' ', 1).trimmed());
     static const QHash<QString, QString> placements = {
-        {"dock", "docked"}, {"float", "floating"}, {"left", "left"}, {"right", "right"}, {"orb", "orb"},
+        {"dock", "docked"}, {"float", "floating"}, {"orb", "orb"},
     };
 
     if (verb == "show")

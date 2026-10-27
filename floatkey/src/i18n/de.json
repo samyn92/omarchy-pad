@@ -1,8 +1,6 @@
 {
   "Docked": "Angedockt",
   "Floating": "Schwebend",
-  "Left corner": "Ecke links",
-  "Right corner": "Ecke rechts",
   "Typing is unavailable: %1": "Tippen ist nicht möglich: %1",
   "floatkey needs a Wayland session": "floatkey braucht eine Wayland-Sitzung",
   "The compositor doesn't offer a virtual keyboard (zwp_virtual_keyboard_manager_v1)": "Der Compositor bietet keine virtuelle Tastatur an (zwp_virtual_keyboard_manager_v1)",

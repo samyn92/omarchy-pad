@@ -33,7 +33,7 @@ Window {
     property bool dragging: false
     property point dragOrigin
     property string dragMode
-    // Where letting go now would put the keyboard: "", "docked", "left" or "right".
+    // Where letting go now would put the keyboard: "" or "docked".
     property string snap: ""
 
     Binding {
@@ -68,10 +68,6 @@ Window {
                            clamp(o.y * height - orbHeight / 2, margin, height - orbHeight - margin), orbWidth, orbHeight)
         }
         const w = compactWidth, h = compactHeight
-        if (mode === "left")
-            return Qt.rect(margin, height - h - margin, w, h)
-        if (mode === "right")
-            return Qt.rect(width - w - margin, height - h - margin, w, h)
         const p = controller.floatingPosition
         return Qt.rect(clamp(p.x * width - w / 2, margin, width - w - margin),
                        clamp(p.y * height - h / 2, margin, height - h - margin), w, h)
@@ -115,10 +111,7 @@ Window {
         const y = clamp(wantedY, 0, bottom + 40)
         panel.x = x
         panel.y = y
-        const low = height - (Math.min(y, bottom) + h) < 64
-        const next = low && x < 64 ? "left"
-                   : low && width - (x + w) < 64 ? "right"
-                   : wantedY > bottom + 32 ? "docked" : ""
+        const next = wantedY > bottom + 32 ? "docked" : ""
         if (next !== snap) {
             snap = next
             if (next !== "")
@@ -174,8 +167,8 @@ Window {
         controller.setInputRegion(inputRect)
     }
 
-    // Shows where the keyboard will land while it is dragged into a corner or
-    // down onto the bottom edge.
+    // Shows where the keyboard will land while it is dragged down onto the
+    // bottom edge.
     Rectangle {
         id: ghost
         property rect area
@@ -184,7 +177,7 @@ Window {
         y: area.y
         width: area.width
         height: area.height
-        radius: win.snap === "docked" ? 0 : style.boardRadius
+        radius: 0
         color: style.glow
         border.width: 2
         border.color: style.accent

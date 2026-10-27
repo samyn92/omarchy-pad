@@ -16,8 +16,8 @@ namespace LayerShellQt {
 class Window;
 }
 
-// The keyboard's state: shown or hidden, where it sits (docked, floating, or in
-// a corner), which layout it shows, and the user's settings. It also tells the
+// The keyboard's state: shown or hidden, where it sits (docked, floating, or
+// the voice orb alone), which layout it shows, and the user's settings. It also tells the
 // compositor which part of the transparent overlay takes touches, and reserves
 // space at the bottom of the screen while the keyboard is docked so windows
 // move up instead of hiding behind it. With fcitx5's floatkey addon it comes

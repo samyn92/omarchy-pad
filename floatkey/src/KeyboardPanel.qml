@@ -1,7 +1,7 @@
 import QtQuick
 
-// The keyboard's body. Docked it spans the bottom of the screen; floating or
-// in a corner it is a small board with a grabber strip underneath that drags
+// The keyboard's body. Docked it spans the bottom of the screen; floating it
+// is a small board with a grabber strip underneath that drags
 // it around, like the iPad's floating keyboard, with the voice orb in its
 // middle. As the orb alone it is only that strip: a pill with the orb between
 // two grabbers, and a tap on a grabber brings up the placements.

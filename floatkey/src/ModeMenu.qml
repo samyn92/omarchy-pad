@@ -16,8 +16,6 @@ Item {
     readonly property var entries: [
         {mode: "docked", label: qsTr("Docked")},
         {mode: "floating", label: qsTr("Floating")},
-        {mode: "left", label: qsTr("Left corner")},
-        {mode: "right", label: qsTr("Right corner")},
         {mode: "orb", label: qsTr("Voice orb")},
         {mode: "hide", label: qsTr("Hide")},
     ]
@@ -117,8 +115,6 @@ Item {
                         readonly property var box: ({
                             docked: [2.5, 14, 27, 5.5],
                             floating: [15, 7, 12, 7],
-                            left: [2.5, 12.5, 12, 7],
-                            right: [17.5, 12.5, 12, 7],
                             orb: [10, 14, 12, 4.5],
                             hide: [0, 0, 0, 0],
                         })[row.modelData.mode]

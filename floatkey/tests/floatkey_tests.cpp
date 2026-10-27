@@ -298,8 +298,9 @@ private slots:
         QCOMPARE(controller.command("status"), QString("ok shown floating us"));
         QCOMPARE(controller.command("toggle"), QString("ok"));
         QVERIFY(!controller.isVisible());
-        QCOMPARE(controller.command("right"), QString("ok"));
-        QCOMPARE(controller.mode(), QString("right"));
+        QCOMPARE(controller.command("orb"), QString("ok"));
+        QCOMPARE(controller.mode(), QString("orb"));
+        QVERIFY(controller.command("left").startsWith("error"));
         QVERIFY(controller.command("sing").startsWith("error"));
         QVERIFY(controller.command("type hello").startsWith("error"));   // no keyboard attached
     }
@@ -309,12 +310,19 @@ private slots:
         QTemporaryDir dir;
         {
             Controller controller(dir.path() + "/floatkey.conf");
-            controller.setMode("left");
+            controller.setMode("orb");
             controller.setFloatingPosition(QPointF(0.25, 0.4));
         }
         Controller controller(dir.path() + "/floatkey.conf");
-        QCOMPARE(controller.mode(), QString("left"));
+        QCOMPARE(controller.mode(), QString("orb"));
         QCOMPARE(controller.floatingPosition(), QPointF(0.25, 0.4));
+
+        // A keyboard left in a corner, which are gone, floats.
+        QFile old(dir.path() + "/old.conf");
+        QVERIFY(old.open(QIODevice::WriteOnly));
+        old.write("mode=right\n");
+        old.close();
+        QCOMPARE(Controller(dir.path() + "/old.conf").mode(), QString("floating"));
     }
 
     void controllerPicksLayouts()
@@ -670,11 +678,11 @@ private slots:
         QObject *menu = h.window->findChild<QObject *>("menu");
         QVERIFY(menu->property("opened").toBool());
         QTest::qWait(200);
-        // Slide onto "Left corner", the third row, and lift.
-        const QPoint left = h.evaluate(menu, "mapToItem(null, width / 2, 6 + rowHeight * 2.5)").toPointF().toPoint();
-        h.slide(0, hide, left);
-        h.release(0, left);
-        QCOMPARE(h.controller.mode(), QString("left"));
+        // Slide onto "Voice orb", the third row, and lift.
+        const QPoint orb = h.evaluate(menu, "mapToItem(null, width / 2, 6 + rowHeight * 2.5)").toPointF().toPoint();
+        h.slide(0, hide, orb);
+        h.release(0, orb);
+        QCOMPARE(h.controller.mode(), QString("orb"));
         QVERIFY(h.controller.isVisible());
     }
 
@@ -696,28 +704,28 @@ private slots:
         QCOMPARE(h.keys()->property("page").toString(), QString("letters"));
     }
 
-    void draggingIntoACornerTucksItThere()
+    void draggingMovesOrDocksIt()
     {
         Harness h("floating");
         QObject *handle = h.window->findChild<QObject *>("handle");
         // The grabber beside the orb.
         const QString onGrabber = "mapToItem(null, width / 2 - 43, height / 2)";
         const QPoint grip = h.evaluate(handle, onGrabber).toPointF().toPoint();
-        const QPoint corner(80, h.window->height() - 20);
-        h.press(0, grip);
-        h.slide(0, grip, corner, 20);
-        h.release(0, corner);
-        QCOMPARE(h.controller.mode(), QString("left"));
-
-        // And out again: anywhere in the open is floating.
-        const QPoint from = h.evaluate(handle, onGrabber).toPointF().toPoint();
         const QPoint middle(h.window->width() / 2, h.window->height() / 2);
-        QTest::qWait(400);
-        h.press(0, from);
-        h.slide(0, from, middle, 20);
+        h.press(0, grip);
+        h.slide(0, grip, middle, 20);
         h.release(0, middle);
         QCOMPARE(h.controller.mode(), QString("floating"));
         QVERIFY(qAbs(h.controller.floatingPosition().x() - 0.5) < 0.1);
+
+        // Down past the bottom edge, it docks.
+        QTest::qWait(400);
+        const QPoint from = h.evaluate(handle, onGrabber).toPointF().toPoint();
+        const QPoint below(from.x(), h.window->height() + 120);
+        h.press(0, from);
+        h.slide(0, from, below, 20);
+        h.release(0, below);
+        QCOMPARE(h.controller.mode(), QString("docked"));
     }
 
     void dictationReadsTheDaemonsPhases()
