@@ -3,15 +3,17 @@ import QtQuick
 // The keyboard's body. Docked it spans the bottom of the screen; floating or
 // in a corner it is a small board with a grabber strip underneath that drags
 // it around, like the iPad's floating keyboard, with the voice orb in its
-// middle.
+// middle. As the orb alone it is only that strip: a pill with the orb between
+// two grabbers, and a tap on a grabber brings up the placements.
 Item {
     id: panel
 
     required property QtObject style
     property bool compact: false
+    property bool orbOnly: false
     property string layoutCode: "us"
     property Item menu: null
-    readonly property int handleHeight: 40
+    readonly property int handleHeight: 46
     readonly property alias keys: view
 
     signal dragStarted()
@@ -46,7 +48,7 @@ Item {
     Rectangle {
         id: board
         anchors.fill: parent
-        radius: panel.compact ? panel.style.boardRadius : 0
+        radius: panel.orbOnly ? height / 2 : panel.compact ? panel.style.boardRadius : 0
         color: panel.style.board
         border.width: panel.compact ? 1 : 0
         border.color: panel.style.edge
@@ -71,6 +73,10 @@ Item {
         compact: panel.compact
         layoutCode: panel.layoutCode
         menu: panel.menu
+        enabled: !panel.orbOnly
+        visible: opacity > 0
+        opacity: panel.orbOnly ? 0 : 1
+        Behavior on opacity { NumberAnimation { duration: 160 } }
         onPinched: (outward) => panel.pinched(outward)
         onMenuRequested: (anchor) => panel.menuRequested(Qt.rect(anchor.x + view.x, anchor.y + view.y,
                                                                  anchor.width, anchor.height))
@@ -85,19 +91,19 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        height: panel.handleHeight
+        height: panel.orbOnly ? panel.height : panel.handleHeight
 
         // The grabber, split around the orb when there is one.
         Repeater {
             model: dictation.available ? [-1, 1] : [0]
             Rectangle {
                 required property int modelData
-                readonly property bool makesRoom: modelData === -1 ? cancel.visible : modelData === 1 && timer.visible
+                readonly property bool makesRoom: modelData === -1 ? cancel.visible : modelData === 1 && (timer.visible || send.visible)
                 anchors.verticalCenter: parent.verticalCenter
-                x: handle.width / 2 + modelData * (orb.width / 2 + 14 + width / 2) - width / 2
-                width: modelData === 0 ? 48 : 28
-                height: 5
-                radius: 2.5
+                x: handle.width / 2 + modelData * (orb.width / 2 + (panel.orbOnly ? 20 : 14) + width / 2) - width / 2
+                width: modelData === 0 ? 48 : panel.orbOnly ? 36 : 28
+                height: panel.orbOnly ? 6 : 5
+                radius: height / 2
                 color: drag.active ? panel.style.accent : panel.style.faint
                 opacity: makesRoom ? 0 : 1
                 Behavior on opacity { NumberAnimation { duration: 160 } }
@@ -112,8 +118,14 @@ Item {
             onActiveTranslationChanged: if (active) panel.dragMoved(activeTranslation.x, activeTranslation.y)
         }
 
+        TapHandler {
+            enabled: panel.orbOnly
+            onTapped: panel.menuRequested(Qt.rect(0, handle.y, handle.width, handle.height))
+        }
+
         Item {
             id: placements
+            visible: !panel.orbOnly
             anchors.left: parent.left
             anchors.leftMargin: 6
             width: 46
@@ -132,6 +144,7 @@ Item {
         }
 
         Item {
+            visible: !panel.orbOnly
             anchors.right: parent.right
             anchors.rightMargin: 6
             width: 46
@@ -154,8 +167,8 @@ Item {
             objectName: "orb"
             visible: dictation.available
             anchors.centerIn: parent
-            width: 30
-            height: 30
+            width: panel.orbOnly ? 56 : 36
+            height: width
             style: panel.style
         }
 
@@ -198,8 +211,89 @@ Item {
             text: Math.floor(whole / 60) + ":" + String(whole % 60).padStart(2, "0")
             color: panel.style.label
             font.family: panel.style.font
-            font.pixelSize: 13
+            font.pixelSize: panel.orbOnly ? 15 : 13
             font.features: {"tnum": 1}
+        }
+
+        // Once the words went in: return, for a few seconds, to send them.
+        Item {
+            id: send
+            objectName: "sendVoice"
+            property bool offered: false
+            property real remaining: 0
+            visible: opacity > 0
+            enabled: offered
+            opacity: offered ? 1 : 0
+            scale: offered ? (sendArea.pressed ? 0.88 : 1) : 0.7
+            Behavior on opacity { NumberAnimation { duration: 180 } }
+            Behavior on scale { SpringAnimation { spring: 6; damping: 0.3; epsilon: 0.002 } }
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.left: orb.right
+            anchors.leftMargin: panel.orbOnly ? 14 : 10
+            width: panel.orbOnly ? 56 : 46
+            height: panel.orbOnly ? 36 : 28
+
+            function offer() {
+                offered = true
+                drain.restart()
+            }
+
+            Rectangle {
+                anchors.fill: parent
+                radius: height / 2
+                color: sendArea.pressed ? panel.style.mix(panel.style.accent, panel.style.black, 0.2) : panel.style.accent
+            }
+            // How long it stays: a light band that drains away to the left.
+            Rectangle {
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                width: parent.width * send.remaining
+                radius: height / 2
+                color: panel.style.alpha(panel.style.white, 0.22)
+            }
+            KeyIcon {
+                anchors.centerIn: parent
+                width: parent.height * 0.62
+                height: width
+                name: "return"
+                stroke: 2
+                color: panel.style.accentText
+            }
+
+            NumberAnimation {
+                id: drain
+                target: send
+                property: "remaining"
+                from: 1
+                to: 0
+                duration: 4000
+                onFinished: send.offered = false
+            }
+
+            MouseArea {
+                id: sendArea
+                anchors.fill: parent
+                anchors.margins: -6
+                preventStealing: true
+                onClicked: {
+                    virtualKeyboard.tapKey("Return", 0)
+                    drain.stop()
+                    send.offered = false
+                }
+            }
+
+            Connections {
+                target: dictation
+                function onStateChanged() {
+                    if (dictation.state === "done")
+                        send.offer()
+                    else if (dictation.state !== "idle") {
+                        drain.stop()
+                        send.offered = false
+                    }
+                }
+            }
         }
     }
 

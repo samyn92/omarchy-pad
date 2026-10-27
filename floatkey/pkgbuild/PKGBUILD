@@ -1,5 +1,5 @@
 pkgname=floatkey
-pkgver=0.4.1
+pkgver=0.5.0
 pkgrel=1
 pkgdesc='iPad-style on-screen keyboard for Omarchy: docked, floating, or tucked into a corner'
 arch=('x86_64' 'aarch64')

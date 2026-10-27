@@ -6,5 +6,7 @@
   "Typing is unavailable: %1": "Tippen ist nicht möglich: %1",
   "floatkey needs a Wayland session": "floatkey braucht eine Wayland-Sitzung",
   "The compositor doesn't offer a virtual keyboard (zwp_virtual_keyboard_manager_v1)": "Der Compositor bietet keine virtuelle Tastatur an (zwp_virtual_keyboard_manager_v1)",
-  "Could not hand the keymap to the compositor": "Die Tastaturbelegung konnte nicht an den Compositor übergeben werden"
+  "Could not hand the keymap to the compositor": "Die Tastaturbelegung konnte nicht an den Compositor übergeben werden",
+  "Voice orb": "Sprach-Orb",
+  "Hide": "Ausblenden"
 }

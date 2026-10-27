@@ -23,7 +23,7 @@
 #include "virtualkeyboard.h"
 
 static const char *usage =
-    "Usage: floatkey [--hidden] [--mode docked|floating|left|right]\n"
+    "Usage: floatkey [--hidden] [--mode docked|floating|left|right|orb]\n"
     "       floatkey <command>\n"
     "\n"
     "Starts the on-screen keyboard, or drives the running one:\n"
@@ -31,6 +31,7 @@ static const char *usage =
     "  dock                 dock it along the bottom of the screen\n"
     "  float                float it, small, wherever it was last dragged\n"
     "  left, right          tuck it into the bottom left or right corner\n"
+    "  orb                  only the voice orb, floating, for voice typing\n"
     "  status               print whether it is shown, its mode and layout\n"
     "  layouts              print its layouts and what their keys type, as JSON\n"
     "  type TEXT            type TEXT into the focused window\n"
@@ -42,7 +43,7 @@ static const char *usage =
     "  quit                 stop the keyboard\n";
 
 static const QHash<QString, QString> startModes = {
-    {"show", {}}, {"toggle", {}}, {"dock", "docked"}, {"float", "floating"}, {"left", "left"}, {"right", "right"},
+    {"show", {}}, {"toggle", {}}, {"dock", "docked"}, {"float", "floating"}, {"left", "left"}, {"right", "right"}, {"orb", "orb"},
 };
 
 static int runCommand(int argc, char *argv[], const QStringList &args)
@@ -157,7 +158,7 @@ int main(int argc, char *argv[])
         return 0;
     }
     if (args.contains("--version")) {
-        std::puts("floatkey 0.4.1");
+        std::puts("floatkey 0.5.0");
         return 0;
     }
     if (args.value(0) == "layouts")
@@ -186,7 +187,7 @@ int main(int argc, char *argv[])
     QQuickWindow::setDefaultAlphaBuffer(true);
     QGuiApplication app(argc, argv);
     app.setApplicationName("floatkey");
-    app.setApplicationVersion("0.4.1");
+    app.setApplicationVersion("0.5.0");
     app.setDesktopFileName("floatkey");
     if (QGuiApplication::platformName() != "wayland") {
         std::fputs("floatkey needs a Wayland session\n", stderr);
@@ -197,7 +198,7 @@ int main(int argc, char *argv[])
     const QString socket = Ipc::socketPath();
     if (Ipc::send(socket, "status", nullptr, 300)) {
         static const QHash<QString, QString> placements = {
-            {"docked", "dock"}, {"floating", "float"}, {"left", "left"}, {"right", "right"},
+            {"docked", "dock"}, {"floating", "float"}, {"left", "left"}, {"right", "right"}, {"orb", "orb"},
         };
         if (!mode.isEmpty())
             Ipc::send(socket, placements.value(mode), nullptr);

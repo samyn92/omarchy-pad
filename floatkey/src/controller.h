@@ -27,6 +27,8 @@ class Controller : public QObject {
     Q_PROPERTY(bool visible READ isVisible NOTIFY visibleChanged)
     Q_PROPERTY(QString mode READ mode WRITE setMode NOTIFY modeChanged)
     Q_PROPERTY(QPointF floatingPosition READ floatingPosition WRITE setFloatingPosition NOTIFY floatingPositionChanged)
+    // Where the voice orb alone sits, as for floatingPosition.
+    Q_PROPERTY(QPointF orbPosition READ orbPosition WRITE setOrbPosition NOTIFY orbPositionChanged)
     Q_PROPERTY(QStringList layouts READ layouts CONSTANT)
     // What XKB says the keys of each layout type, for drawing them
     // (XkbLayouts::read); a layout XKB doesn't know uses floatkey's own table.
@@ -67,6 +69,8 @@ public:
     void setMode(const QString &mode);
     QPointF floatingPosition() const { return m_floatingPosition; }
     void setFloatingPosition(const QPointF &position);
+    QPointF orbPosition() const { return m_orbPosition; }
+    void setOrbPosition(const QPointF &position);
     QStringList layouts() const { return m_layouts; }
     QVariantMap layoutKeys() const { return m_layoutKeys; }
     int layoutIndex() const { return m_layoutIndex; }
@@ -96,6 +100,7 @@ signals:
     void visibleChanged();
     void modeChanged();
     void floatingPositionChanged();
+    void orbPositionChanged();
     void layoutIndexChanged();
     void dockedHeightChanged();
     void recentEmojiChanged();
@@ -117,6 +122,7 @@ private:
     bool m_visible = false;
     QString m_mode = "docked";
     QPointF m_floatingPosition{0.78, 0.62};
+    QPointF m_orbPosition{0.5, 0.9};
     QStringList m_layouts;
     QVariantMap m_layoutKeys;
     int m_layoutIndex = 0;

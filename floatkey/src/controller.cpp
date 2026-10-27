@@ -20,7 +20,7 @@ Q_LOGGING_CATEGORY(lcFocus, "floatkey.focus", QtInfoMsg)
 
 QStringList Controller::modes()
 {
-    return {"docked", "floating", "left", "right"};
+    return {"docked", "floating", "left", "right", "orb"};
 }
 
 QStringList Controller::supportedLayouts()
@@ -66,6 +66,8 @@ Controller::Controller(const QString &settingsPath, const QStringList &systemLay
         m_mode = mode;
     m_floatingPosition = QPointF(qBound(0.0, m_settings.value("floating/x", m_floatingPosition.x()).toDouble(), 1.0),
                                  qBound(0.0, m_settings.value("floating/y", m_floatingPosition.y()).toDouble(), 1.0));
+    m_orbPosition = QPointF(qBound(0.0, m_settings.value("orb/x", m_orbPosition.x()).toDouble(), 1.0),
+                            qBound(0.0, m_settings.value("orb/y", m_orbPosition.y()).toDouble(), 1.0));
     m_layouts = usableLayouts(m_settings.contains("layouts") ? m_settings.value("layouts").toStringList()
                                                              : systemLayouts, &m_layoutKeys);
     m_layoutIndex = qBound(0, m_settings.value("layoutIndex", 0).toInt(), int(m_layouts.size()) - 1);
@@ -169,7 +171,7 @@ QString Controller::command(const QString &line)
     const QString verb = line.section(' ', 0, 0).trimmed();
     const QString argument = Ipc::decode(line.section(' ', 1).trimmed());
     static const QHash<QString, QString> placements = {
-        {"dock", "docked"}, {"float", "floating"}, {"left", "left"}, {"right", "right"},
+        {"dock", "docked"}, {"float", "floating"}, {"left", "left"}, {"right", "right"}, {"orb", "orb"},
     };
 
     if (verb == "show")
@@ -243,6 +245,17 @@ void Controller::setFloatingPosition(const QPointF &position)
     m_settings.setValue("floating/x", bounded.x());
     m_settings.setValue("floating/y", bounded.y());
     emit floatingPositionChanged();
+}
+
+void Controller::setOrbPosition(const QPointF &position)
+{
+    const QPointF bounded(qBound(0.0, position.x(), 1.0), qBound(0.0, position.y(), 1.0));
+    if (bounded == m_orbPosition)
+        return;
+    m_orbPosition = bounded;
+    m_settings.setValue("orb/x", bounded.x());
+    m_settings.setValue("orb/y", bounded.y());
+    emit orbPositionChanged();
 }
 
 void Controller::setLayoutIndex(int index)

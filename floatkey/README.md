@@ -41,10 +41,12 @@ systemctl --user restart omarchy-fcitx5.service
 | Docked | Spread two fingers on the floating keyboard, drag it down past the bottom edge, or pick it from the menu. Windows move up to make room. |
 | Floating | Pinch two fingers on the docked keyboard, or pick it from the menu. Drag the grabber under it to move it anywhere. |
 | Left or right corner | Drag the floating keyboard into a bottom corner, or pick it from the menu. |
+| Voice orb | Pick it from the menu: the keyboard folds into a pill with the voice orb between two grabbers. Drag a grabber to move it anywhere; tap one for the menu. |
 
 The menu opens from a long press on the docked keyboard's hide key (slide onto
 a placement and lift), or from the keyboard button on the floating keyboard's
-grabber strip. floatkey remembers the placement and where you left it floating.
+grabber strip. Its last row hides the keyboard. floatkey remembers the
+placement, and where you left it floating and where you left the orb.
 
 ## Typing
 
@@ -72,7 +74,11 @@ what you said into the focused field; or hold it while you talk and let go.
 While it listens the orb lights up in the theme's accent and glows with your
 voice, a × beside it (or esc) lets the words go, and the keyboard itself
 glows. It breathes while the words are worked out and shows a tick as they go
-in. A dictation started with Omarchy's dictation key shows on the orb too.
+in; then, for four seconds, a return button beside it sends them. A touch
+squeezes the orb and sends waves out, and it keeps sending them while it
+listens, the louder the voice the stronger. A dictation started with Omarchy's
+dictation key shows on the orb too. For voice alone, pick Voice orb from the
+menu.
 
 ## Commands
 

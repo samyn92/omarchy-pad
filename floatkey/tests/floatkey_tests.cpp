@@ -867,6 +867,83 @@ private slots:
         Harness de("docked", {"de"});
         QCOMPARE(de.evaluate(de.keys(), "model.keys.filter(k => k.c === '<').length").toInt(), 1);
     }
+
+    void orbModeIsTheOrbAlone()
+    {
+        Harness h("orb");
+        QObject *panel = h.window->findChild<QObject *>("panel");
+        QTRY_COMPARE(panel->property("width").toInt(), 236);
+        QTRY_VERIFY(!h.keys()->property("visible").toBool());
+
+        QObject *orb = h.window->findChild<QObject *>("orb");
+        const QPoint centre = h.evaluate(orb, "mapToItem(null, width / 2, height / 2)").toPointF().toPoint();
+        h.tap(centre);
+        QCOMPARE(h.dictation.state(), QString("listening"));
+        QTRY_COMPARE(voiceLog(h.dir.path()), QStringList{"start"});
+        // Tapping the orb is not tapping the strip under it.
+        QVERIFY(!h.window->findChild<QObject *>("menu")->property("opened").toBool());
+        QCOMPARE(h.controller.mode(), QString("orb"));
+    }
+
+    void orbGrabbersOpenTheMenuAndDrag()
+    {
+        Harness h("orb");
+        QObject *handle = h.window->findChild<QObject *>("handle");
+        QTest::qWait(300);
+        const QPoint grabber = h.evaluate(handle, "mapToItem(null, width / 2 - 70, height / 2)").toPointF().toPoint();
+        h.tap(grabber);
+        QObject *menu = h.window->findChild<QObject *>("menu");
+        QTRY_VERIFY(menu->property("opened").toBool());
+        // Its last row hides the keyboard (once it has faded in).
+        const int rows = h.evaluate(menu, "entries.length").toInt();
+        const QPoint hide = h.evaluate(menu, QString("mapToItem(null, width / 2, 6 + rowHeight * %1)").arg(rows - 0.5))
+                                .toPointF().toPoint();
+        QTest::qWait(200);
+        h.tap(hide);
+        QVERIFY(!h.controller.isVisible());
+
+        // Dragged, it stays the orb, where it was let go.
+        h.controller.show();
+        QTest::qWait(350);
+        const QPoint from = h.evaluate(handle, "mapToItem(null, width / 2 - 70, height / 2)").toPointF().toPoint();
+        const QPoint to(300, 300);
+        h.press(0, from);
+        h.slide(0, from, to, 20);
+        h.release(0, to);
+        QCOMPARE(h.controller.mode(), QString("orb"));
+        QVERIFY(h.controller.orbPosition().y() < 0.5);
+    }
+
+    void returnSendsWhatWasSaid()
+    {
+        Harness h("orb");
+        QObject *orb = h.window->findChild<QObject *>("orb");
+        QTest::qWait(300);
+        const QPoint centre = h.evaluate(orb, "mapToItem(null, width / 2, height / 2)").toPointF().toPoint();
+        h.tap(centre);
+        QCOMPARE(h.dictation.state(), QString("listening"));
+        QTest::qWait(200);
+        h.tap(centre);
+        // No daemon here, so the dictation is done as soon as the tap's
+        // grace runs out: return comes up for a few seconds.
+        QTRY_COMPARE_WITH_TIMEOUT(h.dictation.state(), QString("done"), 3000);
+        QObject *send = h.window->findChild<QObject *>("sendVoice");
+        QVERIFY(send->property("offered").toBool());
+        QTest::qWait(250);
+        h.tap(h.evaluate(send, "mapToItem(null, width / 2, height / 2)").toPointF().toPoint());
+        QCOMPARE(h.keyboard.log, QStringList{"key:Return:0"});
+        QVERIFY(!send->property("offered").toBool());
+    }
+
+    void returnGoesByItself()
+    {
+        Harness h("floating");
+        QObject *send = h.window->findChild<QObject *>("sendVoice");
+        QMetaObject::invokeMethod(send, "offer");
+        QVERIFY(send->property("offered").toBool());
+        QTRY_VERIFY_WITH_TIMEOUT(!send->property("offered").toBool(), 5000);
+        QVERIFY(h.keyboard.log.isEmpty());
+    }
 };
 
 QTEST_MAIN(FloatkeyTests)

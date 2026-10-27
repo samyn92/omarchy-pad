@@ -1,7 +1,8 @@
 import QtQuick
 
 // Where the keyboard goes, iPad style: hold the docked keyboard's hide key and
-// slide onto a placement, or tap the floating keyboard's keyboard button.
+// slide onto a placement, or tap the floating keyboard's keyboard button (or
+// the voice orb's grabbers). The last row hides it.
 Item {
     id: menu
 
@@ -17,6 +18,8 @@ Item {
         {mode: "floating", label: qsTr("Floating")},
         {mode: "left", label: qsTr("Left corner")},
         {mode: "right", label: qsTr("Right corner")},
+        {mode: "orb", label: qsTr("Voice orb")},
+        {mode: "hide", label: qsTr("Hide")},
     ]
     readonly property real rowHeight: 48
 
@@ -100,6 +103,7 @@ Item {
 
                 // A little screen showing where this placement puts the keyboard.
                 Rectangle {
+                    visible: row.modelData.mode !== "hide"
                     x: 18
                     anchors.verticalCenter: parent.verticalCenter
                     width: 32
@@ -115,6 +119,8 @@ Item {
                             floating: [15, 7, 12, 7],
                             left: [2.5, 12.5, 12, 7],
                             right: [17.5, 12.5, 12, 7],
+                            orb: [10, 14, 12, 4.5],
+                            hide: [0, 0, 0, 0],
                         })[row.modelData.mode]
                         x: box[0]
                         y: box[1]
@@ -123,6 +129,29 @@ Item {
                         radius: 1.5
                         color: row.selected ? menu.style.accent : menu.style.label
                     }
+                }
+
+                // The orb's pill gets its orb.
+                Rectangle {
+                    visible: row.modelData.mode === "orb"
+                    x: 18 + 16 - width / 2
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.verticalCenterOffset: 5
+                    width: 7
+                    height: 7
+                    radius: 3.5
+                    color: row.selected ? menu.style.accent : menu.style.board
+                    border.width: 1.5
+                    border.color: row.selected ? menu.style.accent : menu.style.label
+                }
+                KeyIcon {
+                    visible: row.modelData.mode === "hide"
+                    x: 22
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 24
+                    height: 24
+                    name: "hide"
+                    color: menu.style.label
                 }
 
                 Text {

@@ -6,9 +6,10 @@ import QtQuick.Shapes
 // hold it while talking and let go. Asleep it is a quiet key with a
 // microphone. Listening, it lights up in the theme's accent, swirls, and its
 // glow swells with the voice; while Superwhisper works the words out it
-// breathes, and a tick shows as they go in. The docked keyboard's mic key is
-// the same orb in the shape of a key, driven by the keyboard's own touch
-// handling (`interactive: false`).
+// breathes, and a tick shows as they go in. A touch squeezes it, flashes its
+// glow and sends waves out, and it springs back. The docked keyboard's mic
+// key is the same orb in the shape of a key, driven by the keyboard's own
+// touch handling (`interactive: false`).
 Item {
     id: orb
 
@@ -20,7 +21,7 @@ Item {
     property bool down: area.pressed
     property color idleColor: style.key
     property color iconColor: style.label
-    property real iconSize: Math.min(width, height) * 0.62
+    property real iconSize: Math.min(width, height) * 0.56
 
     readonly property bool live: phase === "listening"
     readonly property bool busy: phase === "working"
@@ -53,14 +54,29 @@ Item {
         }
     }
 
-    readonly property real glow: live ? 0.45 + 0.55 * voice
-                               : busy ? 0.25 + 0.3 * breath
-                               : done ? 0.55 : 0
-    property real shownGlow: glow
-    Behavior on shownGlow { NumberAnimation { duration: orb.live ? 80 : 350 } }
+    // A touch: full while the finger is down, fading after it lifts.
+    property real touch: 0
+    Behavior on touch {
+        enabled: !orb.down
+        NumberAnimation { duration: 450; easing.type: Easing.OutCubic }
+    }
+    onDownChanged: {
+        touch = down ? 1 : 0
+        if (down) {
+            wave(1)
+            burst.start()
+        }
+    }
 
-    scale: down ? 0.92 : 1 + (live ? 0.06 * voice : busy ? 0.02 * breath : 0)
-    Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+    readonly property real glow: Math.max(live ? 0.45 + 0.55 * voice
+                                          : busy ? 0.25 + 0.3 * breath
+                                          : done ? 0.55 : 0, 0.55 * touch)
+    property real shownGlow: glow
+    Behavior on shownGlow { NumberAnimation { duration: orb.live || orb.down ? 80 : 350 } }
+
+    // Squeezed under the finger, and a spring back when it lifts.
+    scale: down ? 0.86 : 1 + (live ? 0.06 * voice : busy ? 0.02 * breath : 0)
+    Behavior on scale { SpringAnimation { spring: 6; damping: 0.26; epsilon: 0.002 } }
 
     // ---- the glow --------------------------------------------------------
 
@@ -103,6 +119,73 @@ Item {
         scale: 1.05 + (orb.live ? 0.4 * orb.voice : orb.busy ? 0.08 * orb.breath : 0.1)
     }
 
+    // Waves that run out from its edge: a burst of them at a touch, and a
+    // steady swell while it listens, closer and stronger the louder the voice.
+    // A few rings are reused in turn.
+    property int nextWave: 0
+    function wave(strength) {
+        const ring = waves.itemAt(nextWave)
+        if (!ring || !visible)
+            return
+        ring.fire(strength)
+        nextWave = (nextWave + 1) % waves.count
+    }
+
+    Repeater {
+        id: waves
+        model: 6
+        Item {
+            id: w
+            property real grow: 0
+            property real strength: 1
+            // How far out it travels: most of the orb's size, less for the
+            // docked keyboard's wide mic key.
+            readonly property real spread: Math.min(orb.width, orb.height) * (0.4 + 0.6 * strength)
+            anchors.centerIn: parent
+            width: orb.width + 2 * spread * grow
+            height: orb.height + 2 * spread * grow
+            visible: fade.running
+
+            function fire(s) {
+                strength = s
+                fade.restart()
+            }
+
+            Rectangle {
+                anchors.fill: parent
+                radius: orb.radius + w.spread * w.grow
+                readonly property real remaining: 1 - w.grow
+                color: orb.style.alpha(orb.accent, (0.1 + 0.14 * w.strength) * remaining)
+                border.width: 1.5 + 2.5 * w.strength * remaining
+                border.color: orb.style.alpha(w.grow < 0.5 ? orb.accent : orb.partner, (0.55 + 0.4 * w.strength) * remaining)
+            }
+
+            NumberAnimation {
+                id: fade
+                target: w
+                property: "grow"
+                from: 0
+                to: 1
+                duration: 520 + 380 * w.strength
+                easing.type: Easing.OutCubic
+            }
+        }
+    }
+
+    Timer {
+        id: burst
+        interval: 130
+        onTriggered: orb.wave(0.6)
+    }
+
+    // While it listens, a wave every so often, sooner with a louder voice.
+    Timer {
+        running: orb.live && orb.visible
+        repeat: true
+        interval: 1000 - 600 * orb.voice
+        onTriggered: orb.wave(0.45 + 0.55 * orb.voice)
+    }
+
     // ---- the body --------------------------------------------------------
 
     Rectangle {
@@ -139,7 +222,7 @@ Item {
     Rectangle {
         anchors.fill: parent
         radius: orb.radius
-        opacity: orb.litness * 0.5
+        opacity: 0.2 + orb.litness * 0.3
         gradient: Gradient {
             GradientStop { position: 0; color: Qt.rgba(1, 1, 1, 0.35) }
             GradientStop { position: 0.55; color: Qt.rgba(1, 1, 1, 0) }

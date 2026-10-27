@@ -769,20 +769,23 @@ Item {
                 font.pixelSize: Math.round(face.height * 0.3)
             }
 
-            VoiceOrb {
-                visible: cell.k.kind === "mic"
+            // The mic key is the voice orb, made only where there is one.
+            Loader {
+                active: cell.k.kind === "mic"
                 x: face.x
                 y: face.y
                 width: face.width
                 height: face.height
-                radius: face.radius
-                style: view.style
-                interactive: false
-                down: cell.down && dictation.state !== "listening"
-                idleColor: face.color
-                iconColor: dictation.available ? cell.ink : view.style.faint
-                iconSize: Math.min(face.width, face.height) * 0.5
-                opacity: view.trackpad ? 0.4 : 1
+                sourceComponent: VoiceOrb {
+                    radius: face.radius
+                    style: view.style
+                    interactive: false
+                    down: cell.down && dictation.state !== "listening"
+                    idleColor: face.color
+                    iconColor: dictation.available ? cell.ink : view.style.faint
+                    iconSize: Math.min(face.width, face.height) * 0.5
+                    opacity: view.trackpad ? 0.4 : 1
+                }
             }
 
             KeyIcon {

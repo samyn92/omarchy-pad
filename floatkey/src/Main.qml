@@ -16,6 +16,10 @@ Window {
     Style { id: style }
 
     readonly property bool compact: controller.mode !== "docked"
+    // Only the voice orb, on a pill of its own.
+    readonly property bool orbOnly: controller.mode === "orb"
+    readonly property int orbWidth: Math.round(236 * controller.compactScale)
+    readonly property int orbHeight: Math.round(80 * controller.compactScale)
     readonly property real margin: 12
     readonly property int dockHeight: Math.round(0.3 * Math.min(width, height) * controller.dockedScale)
     readonly property int compactWidth: Math.round(Math.min(400 * controller.compactScale,
@@ -28,6 +32,7 @@ Window {
 
     property bool dragging: false
     property point dragOrigin
+    property string dragMode
     // Where letting go now would put the keyboard: "", "docked", "left" or "right".
     property string snap: ""
 
@@ -57,6 +62,11 @@ Window {
     function rectFor(mode) {
         if (mode === "docked")
             return Qt.rect(0, height - dockHeight, width, dockHeight)
+        if (mode === "orb") {
+            const o = controller.orbPosition
+            return Qt.rect(clamp(o.x * width - orbWidth / 2, margin, width - orbWidth - margin),
+                           clamp(o.y * height - orbHeight / 2, margin, height - orbHeight - margin), orbWidth, orbHeight)
+        }
         const w = compactWidth, h = compactHeight
         if (mode === "left")
             return Qt.rect(margin, height - h - margin, w, h)
@@ -87,11 +97,18 @@ Window {
         settle.stop()
         menu.close()
         dragOrigin = Qt.point(panel.x, panel.y)
+        dragMode = controller.mode
         dragging = true
     }
 
     function dragTo(dx, dy) {
         const w = panel.width, h = panel.height, bottom = height - h
+        // The orb goes anywhere, and stays the orb.
+        if (dragMode === "orb") {
+            panel.x = clamp(dragOrigin.x + dx, 0, width - w)
+            panel.y = clamp(dragOrigin.y + dy, 0, bottom)
+            return
+        }
         const x = clamp(dragOrigin.x + dx, 0, width - w)
         const wantedY = dragOrigin.y + dy
         // It may go a little past the bottom edge: that's how it docks.
@@ -113,6 +130,11 @@ Window {
         if (!dragging)
             return
         dragging = false
+        if (dragMode === "orb") {
+            controller.orbPosition = Qt.point((panel.x + panel.width / 2) / width, (panel.y + panel.height / 2) / height)
+            place(true)
+            return
+        }
         const target = snap
         snap = ""
         if (target === "")
@@ -135,6 +157,7 @@ Window {
         target: controller
         function onModeChanged() { win.place(true) }
         function onFloatingPositionChanged() { win.place(true) }
+        function onOrbPositionChanged() { win.place(true) }
         function onVisibleChanged() {
             menu.close()
             if (controller.visible)
@@ -172,6 +195,7 @@ Window {
         objectName: "panel"
         style: style
         compact: win.compact
+        orbOnly: win.orbOnly
         layoutCode: controller.layouts[controller.layoutIndex] || "us"
         menu: menu
         opacity: win.compact ? win.reveal : 1
@@ -203,6 +227,11 @@ Window {
         objectName: "menu"
         style: style
         current: controller.mode
-        onChosen: (mode) => controller.mode = mode
+        onChosen: (mode) => {
+            if (mode === "hide")
+                controller.hide()
+            else
+                controller.mode = mode
+        }
     }
 }
