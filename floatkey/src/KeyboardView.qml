@@ -5,7 +5,8 @@ import "layouts.js" as Layouts
 // area hit-tests every finger itself, so fast two-thumb typing lands in the
 // order the keys went down, sliding to the right key before lifting works,
 // and holding a key brings up its accents, the space bar's trackpad or the
-// hide key's placement menu.
+// hide key's placement menu. The mic key is the voice orb: tap to speak, or
+// hold it while talking.
 Item {
     id: view
 
@@ -276,7 +277,14 @@ Item {
                 goTo("letters")
             break
         case "tab": press("Tab"); break
-        case "esc": press("Escape"); break
+        // Escape lets go of a dictation, as Superwhisper's own shortcut does.
+        case "esc":
+            if (dictation.state === "listening")
+                dictation.cancel()
+            else
+                press("Escape")
+            break
+        case "mic": dictation.toggle(); break
         case "globe": globe(); break
         case "hide": controller.hide(); break
         }
@@ -383,8 +391,8 @@ Item {
             goTo(k.kind)
             break
         default:
-            // Characters, space, return, tab, esc, globe and hide act when
-            // the finger lifts.
+            // Characters, space, return, tab, esc, globe, mic and hide act
+            // when the finger lifts.
             order.push(p.pointId)
             if (compact && k.kind === "char")
                 previewIndex = index
@@ -467,7 +475,7 @@ Item {
             return
         t.x = p.x
         t.y = p.y
-        if (cancelled && t.mode !== "shift")
+        if (cancelled && t.mode !== "shift" && t.mode !== "talk")
             t.mode = "dropped"
         switch (t.mode) {
         case "tap":
@@ -494,6 +502,9 @@ Item {
             break
         case "repeat":
             repeater.end(t.id)
+            break
+        case "talk":
+            dictation.stop()
             break
         case "page":
             slideFromPage(t)
@@ -544,6 +555,11 @@ Item {
             t.mode = "menu"
             setDown(t.index, false)
             menuRequested(capRect(k))
+        } else if (k.kind === "mic" && (dictation.state === "idle" || dictation.state === "done")) {
+            // Hold to talk, let go to type it.
+            removeFromOrder(id)
+            t.mode = "talk"
+            dictation.start()
         }
     }
 
@@ -598,6 +614,8 @@ Item {
         for (const id in touches) {
             if (touches[id].mode === "shift")
                 shiftHolds = Math.max(0, shiftHolds - 1)
+            else if (touches[id].mode === "talk")
+                dictation.stop()
             touches[id].mode = "dropped"
             touches[id].index = -1
         }
@@ -751,6 +769,22 @@ Item {
                 font.pixelSize: Math.round(face.height * 0.3)
             }
 
+            VoiceOrb {
+                visible: cell.k.kind === "mic"
+                x: face.x
+                y: face.y
+                width: face.width
+                height: face.height
+                radius: face.radius
+                style: view.style
+                interactive: false
+                down: cell.down && dictation.state !== "listening"
+                idleColor: face.color
+                iconColor: dictation.available ? cell.ink : view.style.faint
+                iconSize: Math.min(face.width, face.height) * 0.5
+                opacity: view.trackpad ? 0.4 : 1
+            }
+
             KeyIcon {
                 visible: cell.icon !== "" && !view.trackpad
                 anchors.centerIn: face
@@ -792,13 +826,14 @@ Item {
         readonly property rect cap: k ? view.capRect(k) : Qt.rect(0, 0, 0, 0)
         readonly property real headWidth: Math.round(cap.width * 1.6)
         readonly property real headHeight: Math.round(cap.height * 1.2)
-        readonly property real neck: Math.round(cap.height * 0.25)
+        // How far the head rises clear of the key, so the finger never hides it.
+        readonly property real lift: Math.round(cap.height * 0.3)
         visible: view.compact && k !== null && !view.trackpad && !accents.visible
         z: 10
         x: cap.x + cap.width / 2 - headWidth / 2
-        y: cap.y - headHeight + neck
+        y: cap.y - headHeight - lift
         width: headWidth
-        height: headHeight - neck + cap.height
+        height: headHeight + lift + cap.height
 
         Rectangle {
             y: 1.5

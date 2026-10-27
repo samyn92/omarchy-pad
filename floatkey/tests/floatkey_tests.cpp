@@ -1,5 +1,8 @@
 #include <QDir>
 #include <QFile>
+#include <QJsonDocument>
+#include <QLocalServer>
+#include <QLocalSocket>
 #include <QPointingDevice>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -15,6 +18,7 @@
 #include <xkbcommon/xkbcommon.h>
 
 #include "controller.h"
+#include "dictation.h"
 #include "fieldtype.h"
 #include "keyboardwatcher.h"
 #include "keymap.h"
@@ -43,18 +47,66 @@ public:
     QString preloaded;
 };
 
+// Stands in for `superwhisper`: writes down each command it was given.
+static QString fakeSuperwhisper(const QString &dir)
+{
+    const QString path = dir + "/superwhisper";
+    QFile script(path);
+    if (!script.open(QIODevice::WriteOnly))
+        return {};
+    script.write("#!/bin/sh\necho \"$1\" >> \"$(dirname \"$0\")/voice.log\"\n");
+    script.close();
+    script.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+    return path;
+}
+
+static QStringList voiceLog(const QString &dir)
+{
+    QFile log(dir + "/voice.log");
+    if (!log.open(QIODevice::ReadOnly))
+        return {};
+    return QString::fromUtf8(log.readAll()).split('\n', Qt::SkipEmptyParts);
+}
+
+// Stands in for Superwhisper's control socket, answering every status
+// request with `status`.
+class FakeDaemon : public QObject {
+public:
+    explicit FakeDaemon(const QString &path)
+    {
+        QLocalServer::removeServer(path);
+        server.listen(path);
+        connect(&server, &QLocalServer::newConnection, this, [this] {
+            while (QLocalSocket *client = server.nextPendingConnection()) {
+                connect(client, &QLocalSocket::readyRead, client, [this, client] {
+                    if (!client->readAll().contains("status"))
+                        return;
+                    client->write(QJsonDocument(status).toJson(QJsonDocument::Compact) + "\n");
+                    client->flush();
+                });
+                connect(client, &QLocalSocket::disconnected, client, &QObject::deleteLater);
+            }
+        });
+    }
+    QLocalServer server;
+    QJsonObject status{{"phase", "idle"}};
+};
+
 // The real Main.qml, offscreen, with a fake keyboard and a temporary home.
 class Harness {
 public:
     explicit Harness(const QString &mode = "docked")
         : translator(dir.path() + "/language", dir.path()), theme(dir.path()),
-          controller(dir.path() + "/floatkey.conf", {"us"})
+          controller(dir.path() + "/floatkey.conf", {"us"}),
+          dictation(dir.path() + "/control.sock", fakeSuperwhisper(dir.path()))
     {
+        dictation.setMetering(false);
         controller.setMode(mode);
         engine.rootContext()->setContextProperty("translator", &translator);
         engine.rootContext()->setContextProperty("theme", &theme);
         engine.rootContext()->setContextProperty("controller", &controller);
         engine.rootContext()->setContextProperty("virtualKeyboard", &keyboard);
+        engine.rootContext()->setContextProperty("dictation", &dictation);
         engine.load(QUrl("qrc:/Main.qml"));
         window = engine.rootObjects().isEmpty() ? nullptr : qobject_cast<QQuickWindow *>(engine.rootObjects().first());
         if (!window)
@@ -115,6 +167,7 @@ public:
     Theme theme;
     FakeKeyboard keyboard;
     Controller controller;
+    Dictation dictation;
     QQmlApplicationEngine engine;
     QQuickWindow *window = nullptr;
 };
@@ -645,7 +698,9 @@ private slots:
     {
         Harness h("floating");
         QObject *handle = h.window->findChild<QObject *>("handle");
-        const QPoint grip = h.evaluate(handle, "mapToItem(null, width / 2, height / 2)").toPointF().toPoint();
+        // The grabber beside the orb.
+        const QString onGrabber = "mapToItem(null, width / 2 - 43, height / 2)";
+        const QPoint grip = h.evaluate(handle, onGrabber).toPointF().toPoint();
         const QPoint corner(80, h.window->height() - 20);
         h.press(0, grip);
         h.slide(0, grip, corner, 20);
@@ -653,7 +708,7 @@ private slots:
         QCOMPARE(h.controller.mode(), QString("left"));
 
         // And out again: anywhere in the open is floating.
-        const QPoint from = h.evaluate(handle, "mapToItem(null, width / 2, height / 2)").toPointF().toPoint();
+        const QPoint from = h.evaluate(handle, onGrabber).toPointF().toPoint();
         const QPoint middle(h.window->width() / 2, h.window->height() / 2);
         QTest::qWait(400);
         h.press(0, from);
@@ -661,6 +716,107 @@ private slots:
         h.release(0, middle);
         QCOMPARE(h.controller.mode(), QString("floating"));
         QVERIFY(qAbs(h.controller.floatingPosition().x() - 0.5) < 0.1);
+    }
+
+    void dictationReadsTheDaemonsPhases()
+    {
+        QCOMPARE(Dictation::stateFor({}), QString("idle"));
+        QCOMPARE(Dictation::stateFor({{"phase", "idle"}}), QString("idle"));
+        QCOMPARE(Dictation::stateFor({{"phase", "recording"}}), QString("listening"));
+        QCOMPARE(Dictation::stateFor({{"phase", "warming"}}), QString("listening"));
+        QCOMPARE(Dictation::stateFor({{"phase", "transcribing"}}), QString("working"));
+
+        QCOMPARE(Dictation::loudness(QByteArray(640, 0)), 0.0);
+        QByteArray loud;
+        for (int i = 0; i < 320; ++i) {
+            const qint16 sample = i % 2 ? 20000 : -20000;
+            loud.append(reinterpret_cast<const char *>(&sample), 2);
+        }
+        QVERIFY(Dictation::loudness(loud) > 0.9);
+    }
+
+    void dictationFollowsTheDaemon()
+    {
+        QTemporaryDir dir;
+        FakeDaemon daemon(dir.path() + "/control.sock");
+        Dictation dictation(dir.path() + "/control.sock", fakeSuperwhisper(dir.path()));
+        dictation.setMetering(false);
+        dictation.setWatching(true);
+
+        // Started from Omarchy's key: the orb lights up all the same.
+        daemon.status = {{"phase", "recording"}, {"recording_seconds", 3.5}};
+        QTRY_COMPARE_WITH_TIMEOUT(dictation.state(), QString("listening"), 2000);
+        QTRY_COMPARE(dictation.seconds(), 3.5);
+        daemon.status = {{"phase", "transcribing"}};
+        QTRY_COMPARE(dictation.state(), QString("working"));
+        daemon.status = {{"phase", "idle"}};
+        QTRY_COMPARE(dictation.state(), QString("done"));
+        QTRY_COMPARE_WITH_TIMEOUT(dictation.state(), QString("idle"), 2000);
+    }
+
+    void dictationTrustsTheTapOverAStaleReply()
+    {
+        QTemporaryDir dir;
+        FakeDaemon daemon(dir.path() + "/control.sock");
+        Dictation dictation(dir.path() + "/control.sock", fakeSuperwhisper(dir.path()));
+        dictation.setMetering(false);
+        dictation.start();
+        QCOMPARE(dictation.state(), QString("listening"));
+        // The daemon still says idle for a moment: the orb stays lit.
+        QTest::qWait(400);
+        QCOMPARE(dictation.state(), QString("listening"));
+        QTRY_COMPARE(voiceLog(dir.path()), QStringList{"start"});
+        daemon.status = {{"phase", "recording"}};
+        QTest::qWait(300);
+        dictation.toggle();
+        QCOMPARE(dictation.state(), QString("working"));
+        QTRY_COMPARE(voiceLog(dir.path()), (QStringList{"start", "stop"}));
+    }
+
+    void tappingTheOrbDictates()
+    {
+        Harness h("floating");
+        QObject *orb = h.window->findChild<QObject *>("orb");
+        QVERIFY(orb->property("visible").toBool());
+        const QPoint centre = h.evaluate(orb, "mapToItem(null, width / 2, height / 2)").toPointF().toPoint();
+        h.tap(centre);
+        QCOMPARE(h.dictation.state(), QString("listening"));
+        QTRY_COMPARE(voiceLog(h.dir.path()), QStringList{"start"});
+        // Its cancel button shows beside it, and lets the words go.
+        QObject *cancel = h.window->findChild<QObject *>("cancelVoice");
+        QTRY_VERIFY(cancel->property("opacity").toDouble() > 0.99);
+        h.tap(h.evaluate(cancel, "mapToItem(null, width / 2, height / 2)").toPointF().toPoint());
+        QCOMPARE(h.dictation.state(), QString("idle"));
+        QTRY_COMPARE(voiceLog(h.dir.path()), (QStringList{"start", "cancel"}));
+        // Typing never moved the keyboard.
+        QCOMPARE(h.controller.mode(), QString("floating"));
+        QVERIFY(h.keyboard.log.isEmpty());
+    }
+
+    void dockedMicKeyDictatesAndEscapeLetsGo()
+    {
+        Harness h;
+        h.tap(h.special("mic"));
+        QCOMPARE(h.dictation.state(), QString("listening"));
+        h.tap(h.special("esc"));
+        QCOMPARE(h.dictation.state(), QString("idle"));
+        QTRY_COMPARE(voiceLog(h.dir.path()), (QStringList{"start", "cancel"}));
+        QVERIFY(h.keyboard.log.isEmpty());
+        // Without a dictation Escape is Escape.
+        h.tap(h.special("esc"));
+        QCOMPARE(h.keyboard.log, QStringList{"key:Escape:0"});
+    }
+
+    void holdingTheMicKeyTalks()
+    {
+        Harness h;
+        const QPoint mic = h.special("mic");
+        h.press(0, mic);
+        QTest::qWait(600);
+        QCOMPARE(h.dictation.state(), QString("listening"));
+        h.release(0, mic);
+        QCOMPARE(h.dictation.state(), QString("working"));
+        QTRY_COMPARE(voiceLog(h.dir.path()), (QStringList{"start", "stop"}));
     }
 };
 

@@ -37,6 +37,14 @@ Window {
         value: win.dockHeight
     }
 
+    // The orb follows a dictation started from Omarchy's key too, while the
+    // keyboard is up.
+    Binding {
+        target: dictation
+        property: "watching"
+        value: controller.visible
+    }
+
     readonly property rect inputRect: !controller.visible ? Qt.rect(0, 0, 1, 1)
         : menu.opened ? Qt.rect(0, 0, width, height)
         : Qt.rect(panel.x, panel.y, panel.width, panel.height)

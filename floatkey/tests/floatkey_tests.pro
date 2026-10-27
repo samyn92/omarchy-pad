@@ -1,4 +1,4 @@
-QT += core gui qml quick testlib network
+QT += core gui qml quick testlib network multimedia
 CONFIG += c++20 testcase link_pkgconfig
 PKGCONFIG += wayland-client xkbcommon Fcitx5Utils
 LIBS += -lLayerShellQtInterface
@@ -11,6 +11,7 @@ INCLUDEPATH += ../src ../fcitx5
 
 HEADERS += \
     ../src/controller.h \
+    ../src/dictation.h \
     ../src/ipc.h \
     ../src/keyboardwatcher.h \
     ../src/keymap.h \
@@ -21,6 +22,7 @@ HEADERS += \
 SOURCES += \
     floatkey_tests.cpp \
     ../src/controller.cpp \
+    ../src/dictation.cpp \
     ../src/ipc.cpp \
     ../src/keyboardwatcher.cpp \
     ../src/keymap.cpp \

@@ -16,8 +16,8 @@
 // and shape of an iPhone's.
 
 const fullBottom = [
-    {k: "ctrl", w: 1.25}, {k: "alt"}, {k: "super"}, {k: "esc"}, {k: "globe"},
-    {k: "space", w: 5},
+    {k: "ctrl", w: 1.25}, {k: "alt"}, {k: "super"}, {k: "esc"}, {k: "globe"}, {k: "mic"},
+    {k: "space", w: 4},
     {k: "left"}, {stack: [{k: "up"}, {k: "down"}]}, {k: "right"}, {k: "hide", w: 1.25},
 ]
 

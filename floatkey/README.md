@@ -63,6 +63,17 @@ grabber strip. floatkey remembers the placement and where you left it floating.
 Fingers can overlap: keys are typed in the order they went down, and the key
 under the finger when it lifts is the one that counts.
 
+## Voice typing
+
+With [Superwhisper](https://superwhisper.com) installed, the floating keyboard
+has a voice orb in the middle of its grabber strip, and the docked one a mic
+key beside the emoji key. Tap it and speak, tap again and Superwhisper types
+what you said into the focused field; or hold it while you talk and let go.
+While it listens the orb lights up in the theme's accent and glows with your
+voice, a × beside it (or esc) lets the words go, and the keyboard itself
+glows. It breathes while the words are worked out and shows a tick as they go
+in. A dictation started with Omarchy's dictation key shows on the orb too.
+
 ## Commands
 
 ```bash
@@ -127,6 +138,13 @@ on a keycode your keymap leaves empty, so no binding can ever fire by mistake.
 A character not yet in the keymap brings a fresh virtual keyboard with a new
 keymap, because Hyprland and input methods such as fcitx5 only pick up a
 keymap when a keyboard first becomes active.
+
+Voice typing runs the `superwhisper` command (`start`, `stop`, `cancel`), the
+same one Omarchy's dictation key uses, and follows the dictation on
+Superwhisper's control socket. Superwhisper types the text through its own
+fcitx5 addon. Superwhisper keeps its microphone levels to itself, so while it
+listens floatkey opens the default microphone too, only to measure how loud
+the voice is.
 
 The fcitx5 addon (`fcitx5/`) watches fcitx5's focus events. Once each burst of
 focus changes settles, it sends floatkey one line over its socket: `focus

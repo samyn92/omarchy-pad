@@ -14,6 +14,7 @@
 #include <cstdio>
 
 #include "controller.h"
+#include "dictation.h"
 #include "ipc.h"
 #include "keyboardwatcher.h"
 #include "theme.h"
@@ -112,7 +113,7 @@ int main(int argc, char *argv[])
         return 0;
     }
     if (args.contains("--version")) {
-        std::puts("floatkey 0.3.1");
+        std::puts("floatkey 0.4.0");
         return 0;
     }
     if (!args.isEmpty() && (startModes.contains(args.first()) || QStringList{"hide", "status", "type", "key", "focus", "blur", "quit"}.contains(args.first())))
@@ -139,7 +140,7 @@ int main(int argc, char *argv[])
     QQuickWindow::setDefaultAlphaBuffer(true);
     QGuiApplication app(argc, argv);
     app.setApplicationName("floatkey");
-    app.setApplicationVersion("0.3.1");
+    app.setApplicationVersion("0.4.0");
     app.setDesktopFileName("floatkey");
     if (QGuiApplication::platformName() != "wayland") {
         std::fputs("floatkey needs a Wayland session\n", stderr);
@@ -176,12 +177,15 @@ int main(int argc, char *argv[])
     QObject::connect(&keyboards, &KeyboardWatcher::attachedChanged, &controller,
                      [&] { controller.setHardwareKeyboard(keyboards.isAttached()); });
 
+    Dictation dictation;
+
     QQmlApplicationEngine engine;
     QObject::connect(&translator, &Translator::changed, &engine, &QQmlEngine::retranslate);
     engine.rootContext()->setContextProperty("translator", &translator);
     engine.rootContext()->setContextProperty("theme", &theme);
     engine.rootContext()->setContextProperty("controller", &controller);
     engine.rootContext()->setContextProperty("virtualKeyboard", &keyboard);
+    engine.rootContext()->setContextProperty("dictation", &dictation);
     engine.load(QUrl("qrc:/Main.qml"));
     auto *window = engine.rootObjects().isEmpty() ? nullptr : qobject_cast<QQuickWindow *>(engine.rootObjects().first());
     if (!window)

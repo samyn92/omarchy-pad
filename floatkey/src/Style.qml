@@ -30,6 +30,11 @@ QtObject {
     readonly property color faint: alpha(label, 0.5)
     readonly property color shadow: dark ? alpha(black, 0.55) : alpha(black, 0.28)
     readonly property color glow: alpha(accent, 0.22)
+    // A warmer neighbour of the accent, so voice typing glows in two colours
+    // whatever the theme.
+    readonly property color accentPartner: Qt.hsla((accent.hslHue + 0.08) % 1,
+                                                   Math.min(1, accent.hslSaturation * 1.1 + 0.1),
+                                                   Math.min(0.72, accent.hslLightness + 0.06), 1)
 
     readonly property string font: "Adwaita Sans"
     readonly property string emojiFont: "Noto Color Emoji"

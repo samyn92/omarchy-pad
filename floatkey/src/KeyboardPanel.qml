@@ -2,7 +2,8 @@ import QtQuick
 
 // The keyboard's body. Docked it spans the bottom of the screen; floating or
 // in a corner it is a small board with a grabber strip underneath that drags
-// it around, like the iPad's floating keyboard.
+// it around, like the iPad's floating keyboard, with the voice orb in its
+// middle.
 Item {
     id: panel
 
@@ -10,7 +11,7 @@ Item {
     property bool compact: false
     property string layoutCode: "us"
     property Item menu: null
-    readonly property int handleHeight: 28
+    readonly property int handleHeight: 40
     readonly property alias keys: view
 
     signal dragStarted()
@@ -19,6 +20,15 @@ Item {
     // `anchor` is in the panel's coordinates.
     signal menuRequested(rect anchor)
     signal pinched(bool outward)
+
+    // Behind the floating board; over the docked one's top edge.
+    VoiceGlow {
+        z: panel.compact ? -1 : 1
+        anchors.fill: board
+        style: panel.style
+        compact: panel.compact
+        radius: board.radius
+    }
 
     // A soft shadow under the floating board.
     Rectangle {
@@ -77,12 +87,21 @@ Item {
         anchors.bottom: parent.bottom
         height: panel.handleHeight
 
-        Rectangle {
-            anchors.centerIn: parent
-            width: 48
-            height: 5
-            radius: 2.5
-            color: drag.active ? panel.style.accent : panel.style.faint
+        // The grabber, split around the orb when there is one.
+        Repeater {
+            model: dictation.available ? [-1, 1] : [0]
+            Rectangle {
+                required property int modelData
+                readonly property bool makesRoom: modelData === -1 ? cancel.visible : modelData === 1 && timer.visible
+                anchors.verticalCenter: parent.verticalCenter
+                x: handle.width / 2 + modelData * (orb.width / 2 + 14 + width / 2) - width / 2
+                width: modelData === 0 ? 48 : 28
+                height: 5
+                radius: 2.5
+                color: drag.active ? panel.style.accent : panel.style.faint
+                opacity: makesRoom ? 0 : 1
+                Behavior on opacity { NumberAnimation { duration: 160 } }
+            }
         }
 
         DragHandler {
@@ -128,6 +147,59 @@ Item {
                 id: hideTap
                 onTapped: controller.hide()
             }
+        }
+
+        VoiceOrb {
+            id: orb
+            objectName: "orb"
+            visible: dictation.available
+            anchors.centerIn: parent
+            width: 30
+            height: 30
+            style: panel.style
+        }
+
+        // While it listens: let go of the words on the left, the time on the right.
+        Item {
+            id: cancel
+            objectName: "cancelVoice"
+            visible: opacity > 0
+            opacity: dictation.state === "listening" ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: 160 } }
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.right: orb.left
+            anchors.rightMargin: 8
+            width: 36
+            height: parent.height
+            KeyIcon {
+                anchors.centerIn: parent
+                width: 18
+                height: 18
+                name: "close"
+                stroke: 2
+                color: cancelArea.pressed ? panel.style.accent : panel.style.label
+            }
+            MouseArea {
+                id: cancelArea
+                anchors.fill: parent
+                preventStealing: true
+                onClicked: dictation.cancel()
+            }
+        }
+        Text {
+            id: timer
+            visible: opacity > 0
+            opacity: dictation.state === "listening" ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: 160 } }
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.left: orb.right
+            anchors.leftMargin: 12
+            readonly property int whole: Math.floor(dictation.seconds)
+            text: Math.floor(whole / 60) + ":" + String(whole % 60).padStart(2, "0")
+            color: panel.style.label
+            font.family: panel.style.font
+            font.pixelSize: 13
+            font.features: {"tnum": 1}
         }
     }
 

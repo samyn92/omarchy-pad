@@ -1,4 +1,4 @@
-QT += core gui qml quick network
+QT += core gui qml quick network multimedia
 
 CONFIG += c++17 release link_pkgconfig
 PKGCONFIG += wayland-client xkbcommon
@@ -10,6 +10,7 @@ include(protocols.pri)
 
 HEADERS += \
     src/controller.h \
+    src/dictation.h \
     src/ipc.h \
     src/keyboardwatcher.h \
     src/keymap.h \
@@ -20,6 +21,7 @@ HEADERS += \
 SOURCES += \
     src/main.cpp \
     src/controller.cpp \
+    src/dictation.cpp \
     src/ipc.cpp \
     src/keyboardwatcher.cpp \
     src/keymap.cpp \
