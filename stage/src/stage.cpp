@@ -250,7 +250,8 @@ QVariantMap Stage::beginEdge(const QString &edge, qreal x, qreal y)
         }
         for (QVariant &v : windows) {
             QVariantMap w = v.toMap();
-            w["snapshot"] = m_capture->captureWindow(w["appClass"].toString(), w["title"].toString());
+            w["snapshot"] = m_capture->captureWindow(w["address"].toString(), w["appClass"].toString(),
+                                                     w["title"].toString());
             v = w;
         }
         return {

@@ -14,6 +14,8 @@ struct ext_output_image_capture_source_manager_v1;
 struct ext_foreign_toplevel_image_capture_source_manager_v1;
 struct ext_foreign_toplevel_list_v1;
 struct ext_foreign_toplevel_handle_v1;
+struct hyprland_toplevel_mapping_manager_v1;
+struct hyprland_toplevel_window_mapping_handle_v1;
 
 // Takes still pictures of the screen and of single windows through the
 // standard capture protocols (ext-image-copy-capture), so a gesture can move
@@ -33,21 +35,24 @@ public:
     // Each returns a request id, or -1 when it can't be done; `captured`
     // follows with that id (and a null image if it failed).
     int captureScreen(QScreen *screen);
-    // Windows are known to Wayland by app id and title, which is how
-    // Hyprland's windows are matched to them.
-    int captureWindow(const QString &appId, const QString &title);
+    // Takes the window with Hyprland's address (as `clients` shows it,
+    // 0x…). Without Hyprland's toplevel mapping it falls back to app id and
+    // title, which can't tell two same-titled windows apart.
+    int captureWindow(const QString &address, const QString &appId, const QString &title);
 
 signals:
     void captured(int id, const QImage &image);
 
 private:
     struct Toplevel {
-        QString appId, title;
+        QString appId, title, address;
+        hyprland_toplevel_window_mapping_handle_v1 *mapping = nullptr;
     };
     struct Job;
 
     int start(struct ext_image_capture_source_v1 *source);
     void finish(Job *job, bool ok);
+    void mapToplevel(ext_foreign_toplevel_handle_v1 *handle);
 
     static void registryGlobal(void *, wl_registry *, uint32_t, const char *, uint32_t);
     static void registryGlobalRemove(void *, wl_registry *, uint32_t);
@@ -58,6 +63,8 @@ private:
     static void handleTitle(void *, ext_foreign_toplevel_handle_v1 *, const char *);
     static void handleAppId(void *, ext_foreign_toplevel_handle_v1 *, const char *);
     static void handleIdentifier(void *, ext_foreign_toplevel_handle_v1 *, const char *);
+    static void mappingAddress(void *, hyprland_toplevel_window_mapping_handle_v1 *, uint32_t, uint32_t);
+    static void mappingFailed(void *, hyprland_toplevel_window_mapping_handle_v1 *);
 
     wl_display *m_display = nullptr;
     wl_event_queue *m_queue = nullptr;
@@ -67,6 +74,7 @@ private:
     ext_output_image_capture_source_manager_v1 *m_outputs = nullptr;
     ext_foreign_toplevel_image_capture_source_manager_v1 *m_toplevelSources = nullptr;
     ext_foreign_toplevel_list_v1 *m_list = nullptr;
+    hyprland_toplevel_mapping_manager_v1 *m_mapping = nullptr;
     QHash<ext_foreign_toplevel_handle_v1 *, Toplevel> m_toplevels;
     QHash<int, Job *> m_jobs;
     int m_nextId = 1;

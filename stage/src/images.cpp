@@ -23,8 +23,9 @@ void Snapshots::insert(int id, const QImage &image)
 {
     QMutexLocker lock(&m_mutex);
     m_images.insert(id, image);
-    // A gesture needs at most a handful (the screen, a few console windows).
-    while (m_images.size() > 8)
+    // A gesture needs at most a handful (the screen, a few console windows),
+    // and each full-screen picture is about 31 MB.
+    while (m_images.size() > 4)
         m_images.remove(*std::min_element(m_images.keyBegin(), m_images.keyEnd()));
 }
 
