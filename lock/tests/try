@@ -1,0 +1,67 @@
+#!/bin/bash
+
+# Opens a nested Hyprland in a window and locks it with the lock plugin, so the
+# keyboard can be tried without locking the real session. The password is
+# "test". Closing the window ends it.
+#
+#   tests/try                no keyboard attached (a fake, empty /sys/class/input;
+#                            tests/plug adds and removes a keyboard there)
+#   tests/try --real-input   whatever is really attached
+
+set -euo pipefail
+
+here=$(cd "$(dirname "$0")/.." && pwd)
+shell_root="${OMARCHY_PATH:-/usr/share/omarchy}/shell"
+work=$(mktemp -d "${TMPDIR:-/tmp}/lock-try.XXXXXX")
+
+mkdir -p "$work/shell/plugins" "$work/pam"
+cp "$here/tests/harness/shell.qml" "$work/shell/"
+ln -s "$shell_root/Commons" "$work/shell/Commons"
+ln -s "$shell_root/Ui" "$work/shell/Ui"
+"$here/bin/install" --to "$work/shell/plugins/lock" >/dev/null
+
+cat >"$work/pam/check" <<'CHECK'
+#!/bin/bash
+IFS= read -r -d '' password || true
+[[ $password == test ]]
+CHECK
+chmod +x "$work/pam/check"
+cat >"$work/pam/lock-test" <<PAM
+auth    required pam_exec.so expose_authtok quiet $work/pam/check
+account required pam_permit.so
+PAM
+
+input_env=""
+if [[ ${1:-} != "--real-input" ]]; then
+  # An empty seat for tests/plug to add a keyboard to.
+  mkdir -p "$work/input/sys/class/input" "$work/input/dev/input" "$work/input/run/udev/data"
+  input_env="hl.env(\"OMARCHY_INPUT_ROOT\", \"$work/input\")"
+fi
+
+# The real session's keymap, which the lock keyboard takes its layout from.
+kb_layout=$(hyprctl -j getoption input:kb_layout 2>/dev/null | jq -r '.str // empty' || true)
+
+cat >"$work/hyprland.lua" <<LUA
+hl.monitor({ output = "", mode = "1280x800", position = "auto", scale = 1 })
+hl.env("LOCK_TEST_PAM", "$work/pam")
+hl.env("LOCK_TEST_BACKGROUND", "$HOME/.local/state/omarchy/current/background")
+hl.env("OMARCHY_PATH", "${OMARCHY_PATH:-/usr/share/omarchy}")
+$input_env
+hl.config({ input = { kb_layout = "${kb_layout:-us}" } })
+hl.config({ misc = { disable_hyprland_logo = true, disable_splash_rendering = true, allow_session_lock_restore = true } })
+hl.on("hyprland.start", function ()
+  hl.exec_cmd("quickshell -p $work/shell > $work/quickshell.log 2>&1")
+end)
+LUA
+
+echo "Work dir: $work"
+echo "Lock it:  qs -p $work/shell ipc --any-display call harness lock"
+echo "State:    qs -p $work/shell ipc --any-display call harness state"
+[[ -z $input_env ]] || echo "Keyboard: tests/plug $work (--unplug)"
+status=0
+start-hyprland -- --config "$work/hyprland.lua" || status=$?
+# The shell's device watcher outlives a shell that goes down with its
+# compositor; the fake seat's one is recognisable by its path.
+[[ -z $input_env ]] || pkill -f -- "inotifywait .*$work/input" || true
+rm -rf "$work"
+exit "$status"

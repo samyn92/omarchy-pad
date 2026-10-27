@@ -1,0 +1,22 @@
+#!/bin/bash
+
+# Plugs a fake keyboard into the empty seat of a tests/try session, or takes it
+# out again, the way the lock sees a real one come and go.
+#
+#   tests/plug WORK_DIR [--unplug]
+
+set -euo pipefail
+
+input=${1:?usage: tests/plug WORK_DIR [--unplug]}/input
+device="$input/sys/class/input/event7/device"
+
+if [[ ${2:-} == "--unplug" ]]; then
+  rm -rf "$input/sys/class/input/event7" "$input/dev/input/event7"
+  exit
+fi
+
+mkdir -p "$device/capabilities"
+echo "Fake keyboard" >"$device/name"
+# The keys from Esc to F5, which take in Q, A, Z, M and space.
+echo "10000 fffffffffffffffe" >"$device/capabilities/key"
+touch "$input/dev/input/event7"

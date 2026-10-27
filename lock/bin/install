@@ -1,0 +1,51 @@
+#!/bin/bash
+
+# Builds the lock plugin from Omarchy's own lock plugin and installs it as a
+# clone of omarchy.lock, which the shell then uses in its place. Omarchy's
+# LockView.qml becomes UpstreamLockView.qml under ours; everything else of its
+# is copied unchanged, so run this again after an Omarchy update.
+#
+#   bin/install            install to ~/.config/omarchy/plugins and switch to it
+#   bin/install --to DIR   only assemble the plugin in DIR (the tests use this)
+
+set -euo pipefail
+
+here=$(cd "$(dirname "$0")/.." && pwd)
+floatkey="$here/../floatkey/src"
+upstream="${OMARCHY_PATH:-/usr/share/omarchy}/shell/plugins/lock"
+id=omarchy-pad.lock
+target="$HOME/.config/omarchy/plugins/$id"
+enable=1
+
+if [[ ${1:-} == "--to" ]]; then
+  target=${2:?--to needs a directory}
+  enable=0
+fi
+
+[[ -f $upstream/LockView.qml && -f $upstream/Service.qml ]] || {
+  echo "No Omarchy lock plugin at $upstream" >&2
+  exit 1
+}
+
+stage=$(mktemp -d "$(dirname "$target")/.lock-build.XXXXXX" 2>/dev/null || mktemp -d)
+trap 'rm -rf "$stage"' EXIT
+cp -aL "$upstream/." "$stage/"
+mv "$stage/LockView.qml" "$stage/UpstreamLockView.qml"
+cp "$here/manifest.json" "$here/LockView.qml" "$here/LockKeyboard.qml" "$stage/"
+cp "$floatkey/KeyIcon.qml" "$floatkey/layouts.js" "$stage/"
+
+mkdir -p "$(dirname "$target")"
+rm -rf "$target"
+mv "$stage" "$target"
+trap - EXIT
+echo "Assembled $id in $target"
+
+if (( enable )); then
+  omarchy-shell shell rescanPlugins >/dev/null
+  for _ in {1..40}; do
+    omarchy-plugin-list --json | jq -e --arg id "$id" 'any(.[]; .id == $id)' >/dev/null && break
+    sleep 0.05
+  done
+  omarchy-plugin-enable "$id"
+  echo "The lock screen is now $id; 'omarchy plugin remove $id' goes back to Omarchy's"
+fi
