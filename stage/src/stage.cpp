@@ -47,6 +47,7 @@ Stage::Stage(Hyprland *hyprland, Capture *capture, Snapshots *snapshots, Apps *a
     });
 
     refreshLook();
+    refreshTouch();
     const Monitor m = monitor();
     if (m.ok && m.special == Scratchpad) {
         m_consoleOpen = true;
@@ -123,6 +124,72 @@ QVariantList Stage::windowsOn(const QString &workspace, const QPointF &origin) c
         };
     }
     return windows;
+}
+
+// Every window on screen: the workspace's, the open console's and pinned
+// ones, floating or not.
+QVariantList Stage::visibleWindows(const Monitor &m) const
+{
+    const QPointF origin = m.logical.topLeft();
+    QVariantList windows;
+    for (const QJsonValue &value : m_hyprland->query("clients").array()) {
+        const QJsonObject o = value.toObject();
+        const QString workspace = o.value("workspace").toObject().value("name").toString();
+        const bool pinned = o.value("pinned").toBool();
+        if (!o.value("mapped").toBool() || o.value("hidden").toBool()
+            || (workspace != m.workspaceName && (m.special.isEmpty() || workspace != m.special) && !pinned))
+            continue;
+        const QJsonArray at = o.value("at").toArray(), size = o.value("size").toArray();
+        windows << QVariantMap{
+            {"address", o.value("address").toString()},
+            {"appClass", o.value("class").toString()},
+            {"title", o.value("title").toString()},
+            {"x", at.at(0).toDouble() - origin.x()},
+            {"y", at.at(1).toDouble() - origin.y()},
+            {"w", size.at(0).toDouble()},
+            {"h", size.at(1).toDouble()},
+            {"workspace", workspace},
+            {"floating", o.value("floating").toBool() || pinned},
+            {"fullscreen", o.value("fullscreen").toInt() != 0},
+            {"focus", o.value("focusHistoryID").toInt(1000)},
+        };
+    }
+    return windows;
+}
+
+QVariantMap Stage::windowAt(qreal x, qreal y, const QVariantList &windows, const QString &special)
+{
+    // The open console over everything, then floating windows (the one used
+    // last on top), then a fullscreen or maximized one, then the tiled ones.
+    auto rank = [&special](const QVariantMap &w) {
+        if (!special.isEmpty() && w["workspace"].toString() == special)
+            return 0;
+        return w["floating"].toBool() ? 1 : w["fullscreen"].toBool() ? 2 : 3;
+    };
+    auto rect = [](const QVariantMap &w) { return QRectF(w["x"].toReal(), w["y"].toReal(), w["w"].toReal(), w["h"].toReal()); };
+    QList<QVariantMap> stack;
+    for (const QVariant &v : windows)
+        stack << v.toMap();
+    std::stable_sort(stack.begin(), stack.end(), [&](const QVariantMap &a, const QVariantMap &b) {
+        return rank(a) != rank(b) ? rank(a) < rank(b) : a["focus"].toInt() < b["focus"].toInt();
+    });
+
+    for (const QVariantMap &w : std::as_const(stack)) {
+        // With the console down, only its windows can be pulled away.
+        if (!special.isEmpty() && rank(w) != 0)
+            break;
+        if (!rect(w).contains(x, y))
+            continue;
+        bool alone = true;
+        for (const QVariantMap &other : std::as_const(stack))
+            if (other["address"] != w["address"] && rect(other).intersects(rect(w).adjusted(1, 1, -1, -1)))
+                alone = false;
+        QVariantMap plan = w;
+        plan["edge"] = "close";
+        plan["animated"] = alone;
+        return plan;
+    }
+    return {};
 }
 
 QVariantMap Stage::pickTarget(const QString &edge, qreal x, qreal y, const QVariantList &windows,
@@ -276,7 +343,7 @@ QVariantMap Stage::beginEdge(const QString &edge, qreal x, qreal y)
     }
     result["workspace"] = workspace;
     result["inConsole"] = inConsole;
-    qCDebug(lcStage) << "edge" << result;
+    qCDebug(lcStage) << "edge at" << x << y << result;
     return result;
 }
 
@@ -314,6 +381,7 @@ void Stage::onEvent(const QString &name, const QString &data)
 {
     if (name == "configreloaded") {
         refreshLook();
+        refreshTouch();
         return;
     }
     if (name == "activespecial") {
@@ -423,6 +491,122 @@ void Stage::applyInputRegion(bool force)
     if (force)
         m_window->setMask(QRegion(0, 0, 1, 1));
     m_window->setMask(region);
+}
+
+// How Hyprland puts the touch screen on its output: the turn it gives the
+// touch device and the output's logical size. True when that changed.
+bool Stage::refreshTouch()
+{
+    const int transform = qMax(0, m_hyprland->query("getoption input:touchdevice:transform").object().value("int").toInt());
+    const QString output = m_hyprland->query("getoption input:touchdevice:output").object().value("str").toString();
+    QSizeF size;
+    for (const QJsonValue &value : m_hyprland->query("monitors").array()) {
+        const QJsonObject o = value.toObject();
+        if (o.value("name").toString() != output && !(size.isEmpty() && o.value("focused").toBool()))
+            continue;
+        const double scale = o.value("scale").toDouble(1);
+        double width = o.value("width").toDouble(), height = o.value("height").toDouble();
+        if (o.value("transform").toInt() % 2 == 1)
+            std::swap(width, height);
+        size = QSizeF(width / scale, height / scale);
+        if (o.value("name").toString() == output)
+            break;
+    }
+    if (size.isEmpty() || (transform == m_touchTransform && size == m_touchSize))
+        return false;
+    m_touchTransform = transform;
+    m_touchSize = size;
+    qCDebug(lcStage) << "touch screen turned" << transform << size;
+    return true;
+}
+
+// Fingers are only put on the screen, not asked about: the turn is checked
+// when a hand forms, and if the screen turned since, the fingers down are
+// told again with the new turn.
+void Stage::touch(Touchscreen::Kind kind, int slot, const QPointF &panel, qreal ms)
+{
+    if (m_touchSize.isEmpty())
+        return;
+    QList<Fingers::Event> events;
+    const QPointF at = Fingers::map(panel, m_touchTransform, m_touchSize);
+    switch (kind) {
+    case Touchscreen::Down:
+        qCDebug(lcStage) << "finger" << slot << "at" << at;
+        m_touches.insert(slot, Touch{panel, panel, ms});
+        events = m_fingers.down(slot, at, ms);
+        break;
+    case Touchscreen::Move:
+        if (auto it = m_touches.find(slot); it != m_touches.end())
+            it->now = panel;
+        events = m_fingers.move(slot, at, ms);
+        break;
+    case Touchscreen::Up:
+        m_touches.remove(slot);
+        events = m_fingers.up(slot, ms);
+        break;
+    }
+    handle(events);
+}
+
+void Stage::handle(const QList<Fingers::Event> &events)
+{
+    for (const Fingers::Event &e : events) {
+        switch (e.type) {
+        case Fingers::Event::HandDown: {
+            if (refreshTouch()) {
+                QList<int> fingers = m_touches.keys();
+                std::sort(fingers.begin(), fingers.end(), [this](int a, int b) { return m_touches[a].landed < m_touches[b].landed; });
+                m_fingers.reset();
+                QList<Fingers::Event> again;
+                for (int slot : std::as_const(fingers))
+                    again += m_fingers.down(slot, Fingers::map(m_touches[slot].start, m_touchTransform, m_touchSize),
+                                            m_touches[slot].landed);
+                for (int slot : std::as_const(fingers))
+                    again += m_fingers.move(slot, Fingers::map(m_touches[slot].now, m_touchTransform, m_touchSize),
+                                            m_touches[slot].landed);
+                handle(again);
+                return;
+            }
+            m_locked = m_hyprland->query("locked").object().value("locked").toBool();
+            const Monitor m = monitor();
+            m_handPlan = m_locked || !m.ok ? QVariantMap() : windowAt(e.at.x(), e.at.y(), visibleWindows(m), m.special);
+            qCDebug(lcStage) << "hand" << e.fingers << "at" << e.at << "locked" << m_locked << "on"
+                             << m_handPlan.value("appClass") << m_handPlan.value("address")
+                             << "animated" << m_handPlan.value("animated");
+            m_hand = true;
+            emit handChanged();
+            break;
+        }
+        case Fingers::Event::PullStarted:
+            if (m_handPlan.isEmpty())
+                break;
+            m_pulling = true;
+            emit pullStarted(m_handPlan, e.at, e.ms);
+            break;
+        case Fingers::Event::PullMoved:
+            if (m_pulling)
+                emit pullMoved(e.at, e.ms);
+            break;
+        case Fingers::Event::PullEnded:
+        case Fingers::Event::PullCanceled:
+            if (!m_pulling)
+                break;
+            m_pulling = false;
+            qCDebug(lcStage) << (e.type == Fingers::Event::PullEnded ? "pull ended" : "pull canceled") << "at" << e.at;
+            e.type == Fingers::Event::PullEnded ? emit pullEnded(e.at, e.ms) : emit pullCanceled();
+            break;
+        case Fingers::Event::Swiped:
+            qCDebug(lcStage) << "swiped" << e.direction << "locked" << m_locked;
+            if (!m_locked)
+                emit swiped(e.direction);
+            break;
+        case Fingers::Event::HandUp:
+            m_handPlan.clear();
+            m_hand = false;
+            emit handChanged();
+            break;
+        }
+    }
 }
 
 bool Stage::listen(const QString &socketPath, QString *error)

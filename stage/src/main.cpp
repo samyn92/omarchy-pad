@@ -18,6 +18,7 @@
 #include "ipc.h"
 #include "stage.h"
 #include "theme.h"
+#include "touchscreen.h"
 #include "translator.h"
 
 static const char *usage =
@@ -111,6 +112,10 @@ int main(int argc, char *argv[])
     Apps apps;
     auto *snapshots = new Snapshots;
     Stage stage(&hyprland, &capture, snapshots, &apps);
+    Touchscreen touchscreen;
+    QObject::connect(&touchscreen, &Touchscreen::touched, &stage, &Stage::touch);
+    if (!touchscreen.open())
+        qWarning("stage: no touch screen to read; two- and three-finger gestures are off");
 
     QQmlApplicationEngine engine;
     engine.addImageProvider("icon", new IconProvider);

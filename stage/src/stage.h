@@ -6,6 +6,9 @@
 #include <QTimer>
 #include <QVariantMap>
 
+#include "fingers.h"
+#include "touchscreen.h"
+
 class Apps;
 class Capture;
 class Hyprland;
@@ -17,10 +20,15 @@ class Snapshots;
 // a finger lands on an edge, which window it is about to shrink (or what the
 // scratchpad console holds, with pictures of its hidden windows); when the
 // finger lets go on an app in the launcher, this places the new window where
-// the launcher was.
+// the launcher was. Hands (two or three fingers together, read straight from
+// the touch screen) come through here too: which window they pull down, and
+// where they swipe.
 class Stage : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool consoleOpen READ consoleOpen NOTIFY consoleOpenChanged)
+    // Two or three fingers that landed together are on the screen; the one
+    // finger edge gestures leave them alone.
+    Q_PROPERTY(bool hand READ hand NOTIFY handChanged)
     Q_PROPERTY(QRectF consoleRect READ consoleRect NOTIFY consoleOpenChanged)
     // How Hyprland draws windows: gapsIn, gapsOut, border, rounding, and the
     // active and inactive border colors (#aarrggbb lists, with an angle).
@@ -40,6 +48,10 @@ public:
     bool consoleOpen() const { return m_consoleOpen; }
     QRectF consoleRect() const { return m_consoleRect; }
     QVariantMap look() const { return m_look; }
+    bool hand() const { return m_hand; }
+
+    // A finger from the touch screen (Touchscreen::touched).
+    void touch(Touchscreen::Kind kind, int slot, const QPointF &panel, qreal ms);
 
     // A finger landed on an edge ("right", "bottom" or "top") at x, y in the
     // overlay's coordinates. Returns what the gesture would act on; pictures
@@ -59,6 +71,11 @@ public:
     static QVariantMap pickTarget(const QString &edge, qreal x, qreal y, const QVariantList &windows,
                                   const QRectF &usable, int limit);
     static QRectF consoleBox(const QRectF &usable, int windows);
+    // The window a hand at x, y is on, of the visible ones (as from
+    // visibleWindows), stacked the way Hyprland draws them. Empty when there
+    // is none; `animated` when nothing else shows behind it, so a picture of
+    // it can be pulled away over the wallpaper.
+    static QVariantMap windowAt(qreal x, qreal y, const QVariantList &windows, const QString &special);
     // "ff7aa2f7 33ccffee 45deg" as {colors: ["#ff7aa2f7", ...], angle: 45}.
     static QVariantMap parseGradient(const QString &gradient);
 
@@ -67,6 +84,15 @@ signals:
     void lookChanged();
     void snapshotReady(int id, bool ok);
     void placed(bool ok);
+    void handChanged();
+    // A hand pulls the window in `plan` (from windowAt) down; `at` is where
+    // it has brought its first finger, `ms` the touch screen's clock.
+    void pullStarted(const QVariantMap &plan, const QPointF &at, qreal ms);
+    void pullMoved(const QPointF &at, qreal ms);
+    void pullEnded(const QPointF &at, qreal ms);
+    void pullCanceled();
+    // Three fingers went "left", "right" or "up".
+    void swiped(const QString &direction);
 
 private:
     struct Monitor {
@@ -81,6 +107,9 @@ private:
     Monitor monitor() const;
     void refreshLook();
     QVariantList windowsOn(const QString &workspace, const QPointF &origin) const;
+    QVariantList visibleWindows(const Monitor &m) const;
+    bool refreshTouch();
+    void handle(const QList<Fingers::Event> &events);
     void onEvent(const QString &name, const QString &data);
     void applyInputRegion(bool force);
     void finishPlacement(bool ok);
@@ -100,4 +129,20 @@ private:
     // The window being opened into the space the launcher had.
     QVariantMap m_pending;
     QTimer m_pendingTimeout;
+
+    // Fingers on the touch screen, as the panel reported them, and how
+    // Hyprland turns them onto the screen.
+    struct Touch {
+        QPointF start;
+        QPointF now;
+        qreal landed = 0;
+    };
+    QHash<int, Touch> m_touches;
+    Fingers m_fingers;
+    int m_touchTransform = 0;
+    QSizeF m_touchSize;
+    bool m_hand = false;
+    bool m_pulling = false;
+    bool m_locked = false;
+    QVariantMap m_handPlan;
 };

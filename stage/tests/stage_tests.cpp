@@ -257,6 +257,48 @@ private slots:
 
     // ---- a hand on the touch screen ----
 
+    void aHandPullsTheWindowItIsOn()
+    {
+        auto window = [](const char *address, qreal x, qreal y, qreal w, qreal h, const char *workspace = "1",
+                         bool floating = false, bool fullscreen = false, int focus = 1) {
+            return QVariantMap{{"address", address}, {"x", x}, {"y", y}, {"w", w}, {"h", h}, {"workspace", workspace},
+                               {"floating", floating}, {"fullscreen", fullscreen}, {"focus", focus}};
+        };
+        const QVariantList tiled{window("left", 12, 42, 829, 1146), window("right", 855, 42, 829, 1146)};
+        // Tiled windows have only wallpaper behind them.
+        QVariantMap plan = Stage::windowAt(300, 500, tiled, {});
+        QCOMPARE(plan["address"].toString(), QString("left"));
+        QCOMPARE(plan["edge"].toString(), QString("close"));
+        QVERIFY(plan["animated"].toBool());
+        QCOMPARE(Stage::windowAt(1200, 500, tiled, {})["address"].toString(), QString("right"));
+        // The bar and the gaps are nobody's.
+        QVERIFY(Stage::windowAt(300, 15, tiled, {}).isEmpty());
+
+        // A floating window is on top, and has a window behind it.
+        QVariantList withFloat = tiled;
+        withFloat << window("float", 200, 300, 600, 400, "1", true, false, 0);
+        plan = Stage::windowAt(300, 500, withFloat, {});
+        QCOMPARE(plan["address"].toString(), QString("float"));
+        QVERIFY(!plan["animated"].toBool());
+        // Beside it, the tiled one now has the floating one over it.
+        plan = Stage::windowAt(1200, 500, withFloat, {});
+        QCOMPARE(plan["address"].toString(), QString("right"));
+        QVERIFY(plan["animated"].toBool());
+
+        // A maximized window covers the others.
+        QVariantList maximized = tiled;
+        maximized << window("max", 12, 42, 1672, 1146, "1", false, true);
+        QCOMPARE(Stage::windowAt(1200, 500, maximized, {})["address"].toString(), QString("max"));
+
+        // With the console down, only its windows can go.
+        QVariantList console = tiled;
+        console << window("agent", 261, 30, 1174, 587, "special:scratchpad");
+        plan = Stage::windowAt(600, 300, console, "special:scratchpad");
+        QCOMPARE(plan["address"].toString(), QString("agent"));
+        QVERIFY(!plan["animated"].toBool());
+        QVERIFY(Stage::windowAt(600, 900, console, "special:scratchpad").isEmpty());
+    }
+
     void theTouchScreenTurnsWithTheScreen()
     {
         const QSizeF landscape(1696, 1200), portrait(1200, 1696);

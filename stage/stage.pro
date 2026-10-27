@@ -1,7 +1,7 @@
 QT += core gui qml quick network
 
 CONFIG += c++17 release link_pkgconfig
-PKGCONFIG += wayland-client
+PKGCONFIG += wayland-client libinput libudev
 LIBS += -lLayerShellQtInterface
 TARGET = stage
 TEMPLATE = app
@@ -17,6 +17,7 @@ HEADERS += \
     src/ipc.h \
     src/stage.h \
     src/theme.h \
+    src/touchscreen.h \
     src/translator.h
 
 SOURCES += \
@@ -29,6 +30,7 @@ SOURCES += \
     src/ipc.cpp \
     src/stage.cpp \
     src/theme.cpp \
+    src/touchscreen.cpp \
     src/translator.cpp
 
 RESOURCES += src/resources.qrc
