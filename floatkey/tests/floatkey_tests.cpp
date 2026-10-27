@@ -735,6 +735,9 @@ private slots:
         QCOMPARE(Dictation::stateFor({{"phase", "recording"}}), QString("listening"));
         QCOMPARE(Dictation::stateFor({{"phase", "warming"}}), QString("listening"));
         QCOMPARE(Dictation::stateFor({{"phase", "transcribing"}}), QString("working"));
+        // How a dictation ends stays in the status until the next one.
+        for (const char *ended : {"cancelled", "canceled", "completed", "finished", "failed", "error", "done"})
+            QCOMPARE(Dictation::stateFor({{"phase", ended}}), QString("idle"));
 
         QCOMPARE(Dictation::loudness(QByteArray(640, 0)), 0.0);
         QByteArray loud;

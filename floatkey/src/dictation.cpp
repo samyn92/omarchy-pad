@@ -57,12 +57,16 @@ QString Dictation::defaultProgram()
 QString Dictation::stateFor(const QJsonObject &status)
 {
     const QString phase = status.value("phase").toString();
-    if (phase.isEmpty() || phase == "idle")
-        return "idle";
     // Warming up records already: the voice is not lost.
     if (phase == "recording" || phase == "warming")
         return "listening";
-    return "working";
+    static const QStringList working = {"transcribing", "processing", "cleaning", "pasting", "stopping",
+                                        "working", "loading"};
+    if (working.contains(phase))
+        return "working";
+    // Idle, and every way a dictation ends (cancelled, completed, failed...)
+    // or a phase this doesn't know: ready for the next one.
+    return "idle";
 }
 
 double Dictation::loudness(const QByteArray &samples)
