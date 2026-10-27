@@ -1,0 +1,43 @@
+#!/bin/bash
+
+# post-update hook: when an Omarchy update changed its lock plugin, copies the
+# new files into the omarchy-pad.lock clone (Omarchy's LockView.qml as
+# UpstreamLockView.qml), so the lock screen never runs a stale copy of
+# Omarchy's lock service. The keyboard's own files stay as installed: this
+# never reads the omarchy-pad checkout, so unfinished work there can't reach
+# the lock. Installed by lock/bin/install-hook.
+
+set -euo pipefail
+
+installed="$HOME/.config/omarchy/plugins/omarchy-pad.lock"
+upstream="${OMARCHY_PATH:-/usr/share/omarchy}/shell/plugins/lock"
+
+[[ -f $installed/manifest.json && -f $upstream/LockView.qml && -f $upstream/Service.qml ]] || exit 0
+
+stage=$(mktemp -d "$(dirname "$installed")/.lock-update.XXXXXX")
+trap 'rm -rf "$stage"' EXIT
+cp -a "$installed/." "$stage/"
+
+fresh=$(mktemp -d)
+trap 'rm -rf "$stage" "$fresh"' EXIT
+cp -aL "$upstream/." "$fresh/"
+mv "$fresh/LockView.qml" "$fresh/UpstreamLockView.qml"
+rm -f "$fresh/manifest.json"
+cp -a "$fresh/." "$stage/"
+
+if diff -rq "$stage" "$installed" >/dev/null; then
+  exit 0
+fi
+
+echo "Omarchy's lock plugin changed; updating omarchy-pad.lock"
+# Hidden, so the shell never sees two plugins with the clone's id.
+old="$(dirname "$installed")/.omarchy-pad.lock.old"
+rm -rf "$old"
+mv "$installed" "$old"
+mv "$stage" "$installed"
+rm -rf "$old"
+
+# The update restarted the shell before this hook ran, on the old copy, and a
+# lock service replaced in a running shell does not take over the lock IPC
+# target, so restart it once more. This refuses while the session is locked.
+omarchy-restart-shell || echo "Restart the shell to finish: omarchy restart shell"

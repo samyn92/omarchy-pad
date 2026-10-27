@@ -1,0 +1,9 @@
+#!/bin/bash
+
+# Installs the post-update hook that brings the lock plugin up to date whenever an
+# Omarchy update changes Omarchy's own lock plugin.
+
+set -euo pipefail
+
+here=$(cd "$(dirname "$0")/.." && pwd)
+omarchy-hook-install post-update "$here/hooks/omarchy-pad-lock.hook"

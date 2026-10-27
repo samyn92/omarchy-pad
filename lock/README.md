@@ -49,8 +49,11 @@ This copies Omarchy's lock plugin into `~/.config/omarchy/plugins/omarchy-pad.lo
 with its `LockView.qml` renamed to `UpstreamLockView.qml`, adds this folder's
 `LockView.qml` (which wraps it) and `LockKeyboard.qml`, and floatkey's
 `KeyIcon.qml` and `layouts.js`, then switches the shell to it as a clone of
-`omarchy.lock`. Everything of Omarchy's is copied unchanged, so run it again
-after an Omarchy update. To go back to Omarchy's lock screen:
+`omarchy.lock`. Everything of Omarchy's is copied unchanged, and goes stale
+when an Omarchy update changes it. `bin/install-hook` installs a post-update
+hook that copies Omarchy's new lock files into the installed plugin and
+restarts the shell; it leaves the keyboard's files as they are and never
+reads this checkout. To go back to Omarchy's lock screen:
 
 ```bash
 omarchy plugin remove omarchy-pad.lock
