@@ -34,6 +34,10 @@ static const char *usage =
     "  simulate drag X0 Y0 X1 Y1 [MS]\n"
     "                           a finger landing at X0,Y0 and dragging to X1,Y1, still\n"
     "                           held; then simulate release, pick APP or cancel\n"
+    "  simulate pull X0 Y0 X1 Y1 [MS] [FINGERS]\n"
+    "                           two (or three) fingers landing at X0,Y0 and moving to\n"
+    "                           X1,Y1, as if from the touch screen, still held; then\n"
+    "                           simulate release\n"
     "  quit                     stop\n";
 
 static int runCommand(int argc, char *argv[], const QStringList &args)

@@ -10,6 +10,7 @@
 #include <QLoggingCategory>
 #include <QRegion>
 #include <QWindow>
+#include <chrono>
 #include <cmath>
 #include <limits>
 
@@ -653,6 +654,54 @@ void Stage::handle(const QList<Fingers::Event> &events)
     }
 }
 
+static qreal clockMs()
+{
+    // The touch screen's clock: CLOCK_MONOTONIC, as libinput stamps events.
+    return std::chrono::duration<qreal, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+// Fingers a hand's width apart, on slots no real finger uses.
+static constexpr int SimulatedSlot = 100;
+
+void Stage::simulatePull(const QPointF &from, const QPointF &to, int ms, int fingers)
+{
+    if (m_simulatedFingers)
+        simulateRelease();
+    refreshTouch();
+    m_simulatedFrom = from;
+    m_simulatedTo = to;
+    m_simulatedFingers = fingers;
+    m_simulatedSteps = qMax(1, ms / 16);
+    m_simulatedStep = 0;
+    const qreal now = clockMs();
+    for (int i = 0; i < fingers; ++i)
+        touch(Touchscreen::Down, SimulatedSlot + i,
+              Fingers::unmap(from + QPointF(i * 120, 0), m_touchTransform, m_touchSize), now + i * 10);
+    m_simulated.setInterval(16);
+    m_simulated.disconnect(this);
+    connect(&m_simulated, &QTimer::timeout, this, [this] {
+        m_simulatedStep += 1;
+        const qreal t = qMin(1.0, qreal(m_simulatedStep) / m_simulatedSteps);
+        const QPointF at = m_simulatedFrom + (m_simulatedTo - m_simulatedFrom) * t;
+        const qreal now = clockMs();
+        for (int i = 0; i < m_simulatedFingers; ++i)
+            touch(Touchscreen::Move, SimulatedSlot + i,
+                  Fingers::unmap(at + QPointF(i * 120, 0), m_touchTransform, m_touchSize), now);
+        if (t >= 1)
+            m_simulated.stop();
+    });
+    m_simulated.start();
+}
+
+void Stage::simulateRelease()
+{
+    m_simulated.stop();
+    const qreal now = clockMs();
+    for (int i = 0; i < m_simulatedFingers; ++i)
+        touch(Touchscreen::Up, SimulatedSlot + i, {}, now + i * 10);
+    m_simulatedFingers = 0;
+}
+
 bool Stage::listen(const QString &socketPath, QString *error)
 {
     QLocalServer::removeServer(socketPath);
@@ -694,6 +743,17 @@ QString Stage::command(const QString &line)
     if (verb == "console") {
         words.value(1) == "close" ? closeConsole() : openConsole();
         return "ok";
+    }
+    if (verb == "simulate" && m_window && (words.value(1) == "pull" || (words.value(1) == "release" && m_simulatedFingers))) {
+        // `stage simulate pull 400 300 400 700 [ms] [fingers]`, then `release`:
+        // a hand as the touch screen would report it.
+        if (words.value(1) == "pull")
+            simulatePull({words.value(2).toDouble(), words.value(3).toDouble()},
+                         {words.value(4).toDouble(), words.value(5).toDouble()}, words.value(6, "400").toInt(),
+                         qBound(2, words.value(7, "2").toInt(), 3));
+        else
+            simulateRelease();
+        return "ok " + m_window->property("phase").toString();
     }
     if (verb == "simulate" && m_window) {
         // `stage simulate drag 1693 600 1273 600 [ms]`, then `release`,

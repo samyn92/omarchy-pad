@@ -155,4 +155,12 @@ private:
     // Windows asked to close, kept from animating; a window that stays (it
     // asked about unsaved work, say) gets its animations back.
     QHash<QString, QTimer *> m_closing;
+
+    // A hand without fingers, for `stage simulate pull`: it goes through the
+    // touch screen's path, turn and all.
+    void simulatePull(const QPointF &from, const QPointF &to, int ms, int fingers);
+    void simulateRelease();
+    QTimer m_simulated;
+    QPointF m_simulatedFrom, m_simulatedTo;
+    int m_simulatedFingers = 0, m_simulatedSteps = 1, m_simulatedStep = 0;
 };
