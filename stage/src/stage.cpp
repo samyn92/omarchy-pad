@@ -613,7 +613,8 @@ void Stage::handle(const QList<Fingers::Event> &events)
                 m_handPlan["fromY"] = e.at.y();
                 // Taken now, so the picture is there by the time the hand has moved.
                 if (m_handPlan["animated"].toBool())
-                    m_handPlan["snapshot"] = m_capture->captureWindow(m_handPlan["appClass"].toString(),
+                    m_handPlan["snapshot"] = m_capture->captureWindow(m_handPlan["address"].toString(),
+                                                                      m_handPlan["appClass"].toString(),
                                                                       m_handPlan["title"].toString());
             }
             qCDebug(lcStage) << "hand" << e.fingers << "at" << e.at << "locked" << m_locked << "on"
