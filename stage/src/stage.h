@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QJsonArray>
 #include <QObject>
 #include <QPointer>
 #include <QRectF>
@@ -39,6 +40,8 @@ public:
     // At most this many windows share a workspace, and this many the console.
     static constexpr int WorkspaceLimit = 4;
     static constexpr int ConsoleLimit = 2;
+    // Omarchy binds workspaces 1 to 10; a slide makes no new one past that.
+    static constexpr int LastWorkspace = 10;
 
     Stage(Hyprland *hyprland, Capture *capture, Snapshots *snapshots, Apps *apps, QObject *parent = nullptr);
 
@@ -85,6 +88,9 @@ public:
     // is none; `animated` when nothing else shows behind it, so a picture of
     // it can be pulled away over the wallpaper.
     static QVariantMap windowAt(qreal x, qreal y, const QVariantList &windows, const QString &special);
+    // The workspace three fingers slide to from `current`, of Hyprland's
+    // `workspaces`; 0 when there is none that way.
+    static int neighbourOf(const QJsonArray &workspaces, const QString &monitor, int current, const QString &direction);
     // "ff7aa2f7 33ccffee 45deg" as {colors: ["#ff7aa2f7", ...], angle: 45}.
     static QVariantMap parseGradient(const QString &gradient);
 

@@ -1,4 +1,6 @@
 #include <QDir>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QFile>
 #include <QPainter>
 #include <QPointingDevice>
@@ -384,6 +386,26 @@ private slots:
         QCOMPARE(plan["address"].toString(), QString("agent"));
         QVERIFY(!plan["animated"].toBool());
         QVERIFY(Stage::windowAt(600, 900, console, "special:scratchpad").isEmpty());
+    }
+
+    void slidesReachOneNewWorkspace()
+    {
+        auto ws = [](int id, int windows) {
+            return QJsonObject{{"id", id}, {"monitor", "DSI-1"}, {"windows", windows}};
+        };
+        const QJsonArray two{ws(1, 1), ws(2, 1)};
+        QCOMPARE(Stage::neighbourOf(two, "DSI-1", 1, "left"), 2);
+        QCOMPARE(Stage::neighbourOf(two, "DSI-1", 2, "right"), 1);
+        // Past the last one with windows, an empty one to start something on...
+        QCOMPARE(Stage::neighbourOf(two, "DSI-1", 2, "left"), 3);
+        // ...but only one: from there, only back.
+        const QJsonArray onTheNewOne{ws(1, 1), ws(2, 1), ws(3, 0)};
+        QCOMPARE(Stage::neighbourOf(onTheNewOne, "DSI-1", 3, "left"), 0);
+        QCOMPARE(Stage::neighbourOf(onTheNewOne, "DSI-1", 3, "right"), 2);
+        QCOMPARE(Stage::neighbourOf(two, "DSI-1", 1, "right"), 0);
+        // Gaps are skipped, and Omarchy's last workspace is the last.
+        QCOMPARE(Stage::neighbourOf(QJsonArray{ws(1, 1), ws(4, 2)}, "DSI-1", 1, "left"), 4);
+        QCOMPARE(Stage::neighbourOf(QJsonArray{ws(10, 1)}, "DSI-1", 10, "left"), 0);
     }
 
     void theTouchScreenTurnsWithTheScreen()

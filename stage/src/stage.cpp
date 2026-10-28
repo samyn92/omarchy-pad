@@ -460,17 +460,31 @@ void Stage::openConsole()
 
 // The workspace next to this one on its monitor: the next higher one for
 // fingers going left, as "m+1" would be, the next lower one going right.
+// Past the last one with windows there is one more, empty, like a new page
+// to open something on (Hyprland makes it once it is shown); never two.
 int Stage::neighbour(const Monitor &m, const QString &direction) const
 {
+    return neighbourOf(m_hyprland->query("workspaces").array(), m.name, m.workspace, direction);
+}
+
+int Stage::neighbourOf(const QJsonArray &workspaces, const QString &monitor, int current, const QString &direction)
+{
     int next = 0;
-    for (const QJsonValue &value : m_hyprland->query("workspaces").array()) {
+    int windows = 0;
+    QList<int> taken;
+    for (const QJsonValue &value : workspaces) {
         const QJsonObject o = value.toObject();
         const int id = o.value("id").toInt();
-        if (id <= 0 || o.value("monitor").toString() != m.name)
+        taken << id;
+        if (id <= 0 || o.value("monitor").toString() != monitor)
             continue;
-        if (direction == "left" ? id > m.workspace && (!next || id < next) : id < m.workspace && id > next)
+        if (id == current)
+            windows = o.value("windows").toInt();
+        if (direction == "left" ? id > current && (!next || id < next) : id < current && id > next)
             next = id;
     }
+    if (!next && direction == "left" && windows > 0 && current < LastWorkspace && !taken.contains(current + 1))
+        next = current + 1;
     return next;
 }
 
