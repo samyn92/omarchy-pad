@@ -458,6 +458,49 @@ void Stage::openConsole()
     withoutAnimation("specialWorkspaceIn", [this] { m_hyprland->dispatch("hl.dsp.workspace.toggle_special(\"scratchpad\")"); });
 }
 
+// The workspace next to this one on its monitor: the next higher one for
+// fingers going left, as "m+1" would be, the next lower one going right.
+int Stage::neighbour(const Monitor &m, const QString &direction) const
+{
+    int next = 0;
+    for (const QJsonValue &value : m_hyprland->query("workspaces").array()) {
+        const QJsonObject o = value.toObject();
+        const int id = o.value("id").toInt();
+        if (id <= 0 || o.value("monitor").toString() != m.name)
+            continue;
+        if (direction == "left" ? id > m.workspace && (!next || id < next) : id < m.workspace && id > next)
+            next = id;
+    }
+    return next;
+}
+
+// One picture per window and hand: the slide uses the ones a third finger
+// already asked for, or the window a pull started on.
+int Stage::pictureOf(const QVariantMap &window)
+{
+    const QString address = window["address"].toString();
+    if (!m_pictures.contains(address))
+        m_pictures.insert(address, m_capture->captureWindow(address, window["appClass"].toString(), window["title"].toString()));
+    return m_pictures.value(address);
+}
+
+void Stage::prefetchSlide()
+{
+    const Monitor m = monitor();
+    if (!m.ok || !m.special.isEmpty())
+        return;
+    const QList<int> workspaces{m.workspace, neighbour(m, "left"), neighbour(m, "right")};
+    for (const QJsonValue &value : m_hyprland->query("clients").array()) {
+        const QJsonObject o = value.toObject();
+        const int workspace = o.value("workspace").toObject().value("id").toInt();
+        if (workspace > 0 && workspaces.contains(workspace) && o.value("mapped").toBool() && !o.value("hidden").toBool()
+            && !o.value("pinned").toBool())
+            pictureOf({{"address", o.value("address").toString()}, {"appClass", o.value("class").toString()},
+                       {"title", o.value("title").toString()}});
+    }
+    qCDebug(lcStage) << "pictures ahead of a slide" << m_pictures.size();
+}
+
 // Runs `change` with one of Hyprland's animations switched off, and puts it
 // back the way it was a moment later.
 void Stage::withoutAnimation(const QString &leaf, const std::function<void()> &change)
@@ -494,15 +537,7 @@ QVariantMap Stage::slidePlan(const QString &direction)
     const Monitor m = monitor();
     if (!m.ok || !m.special.isEmpty())
         return {};
-    int next = 0;
-    for (const QJsonValue &value : m_hyprland->query("workspaces").array()) {
-        const QJsonObject o = value.toObject();
-        const int id = o.value("id").toInt();
-        if (id <= 0 || o.value("monitor").toString() != m.name)
-            continue;
-        if (direction == "left" ? id > m.workspace && (!next || id < next) : id < m.workspace && id > next)
-            next = id;
-    }
+    const int next = neighbour(m, direction);
     const QPointF origin = m.logical.topLeft();
     const QJsonArray clients = m_hyprland->query("clients").array();
     auto windows = [&](int workspace) {
@@ -535,7 +570,7 @@ QVariantMap Stage::slidePlan(const QString &direction)
             lowest = qMin(lowest, w["focus"].toInt());
         for (QVariantMap w : std::as_const(list)) {
             w["active"] = w["focus"].toInt() == lowest;
-            w["snapshot"] = m_capture->captureWindow(w["address"].toString(), w["appClass"].toString(), w["title"].toString());
+            w["snapshot"] = pictureOf(w);
             out << w;
         }
         return out;
@@ -690,6 +725,13 @@ void Stage::handle(const QList<Fingers::Event> &events)
                 handle(again);
                 return;
             }
+            if (m_hand) {
+                // A third finger: it may be about to slide the workspaces, so
+                // the pictures for that start now rather than once it moves.
+                if (e.fingers == 3 && !m_locked)
+                    prefetchSlide();
+                break;
+            }
             m_locked = m_hyprland->query("locked").object().value("locked").toBool();
             const Monitor m = monitor();
             m_handPlan = m_locked || !m.ok ? QVariantMap() : windowAt(e.at.x(), e.at.y(), visibleWindows(m), m.special);
@@ -698,9 +740,7 @@ void Stage::handle(const QList<Fingers::Event> &events)
                 m_handPlan["fromY"] = e.at.y();
                 // Taken now, so the picture is there by the time the hand has moved.
                 if (m_handPlan["animated"].toBool())
-                    m_handPlan["snapshot"] = m_capture->captureWindow(m_handPlan["address"].toString(),
-                                                                      m_handPlan["appClass"].toString(),
-                                                                      m_handPlan["title"].toString());
+                    m_handPlan["snapshot"] = pictureOf(m_handPlan);
             }
             qCDebug(lcStage) << "hand" << e.fingers << "at" << e.at << "locked" << m_locked << "on"
                              << m_handPlan.value("appClass") << m_handPlan.value("address")
@@ -756,6 +796,7 @@ void Stage::handle(const QList<Fingers::Event> &events)
             break;
         case Fingers::Event::HandUp:
             m_handPlan.clear();
+            m_pictures.clear();
             m_hand = false;
             emit handChanged();
             break;

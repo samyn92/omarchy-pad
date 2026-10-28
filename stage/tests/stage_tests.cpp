@@ -408,7 +408,7 @@ private slots:
         QCOMPARE(kinds(pull(2, 110, 150)), QStringList({"hand", "pull", "ended", "up"}));
         QCOMPARE(kinds(pull(2, 400, 550)), QStringList({"hand", "pull", "ended", "up"}));
         QCOMPARE(kinds(pull(2, 300, 230, 15)), QStringList({"hand", "pull", "ended", "up"}));
-        QCOMPARE(kinds(pull(3, 300, 300)), QStringList({"hand", "pull", "ended", "up"}));
+        QCOMPARE(kinds(pull(3, 300, 300)), QStringList({"hand", "hand", "pull", "ended", "up"}));
         // The pull follows the hand one to one.
         const QList<Fingers::Event> events = pull(2, 300, 300);
         const QPointF start = events.first().at;
@@ -456,14 +456,14 @@ private slots:
     void threeFingersSlideAndSwipe()
     {
         // Sideways they slide, from the start, the way they go.
-        QCOMPARE(kinds(swipe(-400, 0)), QStringList({"hand", "slide", "slid", "up"}));
+        QCOMPARE(kinds(swipe(-400, 0)), QStringList({"hand", "hand", "slide", "slid", "up"}));
         QCOMPARE(last(swipe(-400, 0), Fingers::Event::SlideStarted).direction, QString("left"));
         QCOMPARE(last(swipe(400, 30), Fingers::Event::SlideEnded).direction, QString("right"));
         // Up they swipe once they lift.
         QCOMPARE(swiped(swipe(0, -300)), QString("up"));
         QCOMPARE(swiped(swipe(0, -100)), QString());   // too short
         // Between two directions, nothing.
-        QCOMPARE(kinds(swipe(300, -250)), QStringList({"hand", "up"}));
+        QCOMPARE(kinds(swipe(300, -250)), QStringList({"hand", "hand", "up"}));
     }
 
     void theHandEndsAtItsFirstLift()

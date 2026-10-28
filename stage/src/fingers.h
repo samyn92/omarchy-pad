@@ -19,7 +19,7 @@ class Fingers {
 public:
     struct Event {
         enum Type {
-            HandDown,      // a hand formed; `at` is its first finger
+            HandDown,      // a hand formed (again when a third finger joins); `at` is its first finger
             PullStarted,   // it moves down together; `at` is where the hand brought its first finger
             PullMoved,
             PullEnded,     // a finger lifted

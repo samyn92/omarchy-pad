@@ -128,6 +128,9 @@ private:
     QVariantList visibleWindows(const Monitor &m) const;
     bool refreshTouch();
     QVariantMap slidePlan(const QString &direction);
+    int neighbour(const Monitor &m, const QString &direction) const;
+    int pictureOf(const QVariantMap &window);
+    void prefetchSlide();
     void withoutAnimation(const QString &leaf, const std::function<void()> &change);
     void handle(const QList<Fingers::Event> &events);
     void onEvent(const QString &name, const QString &data);
@@ -166,6 +169,7 @@ private:
     bool m_sliding = false;
     bool m_locked = false;
     QVariantMap m_handPlan;
+    QHash<QString, int> m_pictures;   // this hand's pictures, by window address
     // Windows asked to close, kept from animating; a window that stays (it
     // asked about unsaved work, say) gets its animations back.
     QHash<QString, QTimer *> m_closing;

@@ -39,9 +39,10 @@ Window {
     readonly property bool closing: edge === "close"
     readonly property bool showing: closing && plan.animated === true && ready[plan.snapshot] === true
     // Three fingers sliding the workspaces: `pull` is how far the next one
-    // has come in, once every picture is there.
+    // has come in, once this workspace's pictures are there (the next one's
+    // show their app until theirs arrive).
     readonly property bool sliding: edge === "slide"
-    readonly property bool slideShowing: sliding && allReady(plan.current) && allReady(plan.nextWindows || [])
+    readonly property bool slideShowing: sliding && allReady(plan.current)
     readonly property real slideOffset: sliding ? (plan.direction === "left" ? -pull : pull) : 0
     readonly property rect closingOuter: closing ? Qt.rect(plan.x - border, plan.y - border, plan.w + 2 * border, plan.h + 2 * border)
                                                  : Qt.rect(0, 0, 0, 0)
@@ -635,6 +636,8 @@ Window {
             Image {
                 anchors.fill: parent
                 source: win.showing ? "image://snapshot/" + win.plan.snapshot : ""
+                sourceSize: Qt.size(win.closingOuter.width * Screen.devicePixelRatio, win.closingOuter.height * Screen.devicePixelRatio)
+                asynchronous: true
                 cache: false
             }
         }
@@ -696,6 +699,7 @@ Window {
         Repeater {
             model: parent.windows
             delegate: WindowFrame {
+                id: frame
                 required property var modelData
                 x: modelData.x - win.border
                 y: modelData.y - win.border
@@ -704,9 +708,24 @@ Window {
                 border: win.border
                 rounding: win.look && win.look.rounding !== undefined ? win.look.rounding : 0
                 colors: !win.look ? null : modelData.active ? win.look.active : win.look.inactive
+                fill: style.panel
                 Image {
+                    anchors.centerIn: parent
+                    visible: picture.status !== Image.Ready
+                    width: 80
+                    height: 80
+                    sourceSize: Qt.size(160, 160)
+                    source: "image://icon/" + win.iconFor(frame.modelData.appClass)
+                    asynchronous: true
+                }
+                // Asked for only once the capture is in (the provider has
+                // nothing before), off the GUI thread, at the size it shows.
+                Image {
+                    id: picture
                     anchors.fill: parent
-                    source: "image://snapshot/" + parent.parent.modelData.snapshot
+                    source: win.ready[frame.modelData.snapshot] === true ? "image://snapshot/" + frame.modelData.snapshot : ""
+                    sourceSize: Qt.size(frame.modelData.w * Screen.devicePixelRatio, frame.modelData.h * Screen.devicePixelRatio)
+                    asynchronous: true
                     cache: false
                 }
             }

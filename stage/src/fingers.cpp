@@ -41,9 +41,12 @@ QList<Fingers::Event> Fingers::down(int slot, const QPointF &at, qreal ms)
         return {Event{Event::HandDown, m_fingers[m_members.first()].start, ms, int(m_members.size())}};
     }
 
-    // A late third finger still joins, as long as the hand hasn't done anything yet.
-    if (m_members.size() < 3 && ms - m_fingers[m_members.first()].landed <= TogetherMs)
+    // A late third finger still joins, as long as the hand hasn't done anything
+    // yet; the hand is told again, now with three.
+    if (m_members.size() < 3 && ms - m_fingers[m_members.first()].landed <= TogetherMs) {
         m_members << slot;
+        return {Event{Event::HandDown, m_fingers[m_members.first()].start, ms, 3}};
+    }
     return {};
 }
 

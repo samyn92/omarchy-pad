@@ -23,17 +23,24 @@ void Snapshots::insert(int id, const QImage &image)
 {
     QMutexLocker lock(&m_mutex);
     m_images.insert(id, image);
-    // A gesture needs at most a handful (the screen, a few console windows),
-    // and each full-screen picture is about 31 MB.
-    while (m_images.size() > 4)
+    // A gesture needs at most a handful (a few console windows, or the windows
+    // of three workspaces), and each full-screen picture is about 31 MB.
+    while (m_images.size() > 8)
         m_images.remove(*std::min_element(m_images.keyBegin(), m_images.keyEnd()));
 }
 
-QImage Snapshots::requestImage(const QString &id, QSize *size, const QSize &)
+// Asked for off the GUI thread (asynchronous Images), so scaling a picture
+// down to the size it is shown at costs no frames.
+QImage Snapshots::requestImage(const QString &id, QSize *size, const QSize &requestedSize)
 {
-    QMutexLocker lock(&m_mutex);
-    const QImage image = m_images.value(id.section('?', 0, 0).toInt());
+    QImage image;
+    {
+        QMutexLocker lock(&m_mutex);
+        image = m_images.value(id.section('?', 0, 0).toInt());
+    }
     if (size)
         *size = image.size();
+    if (!image.isNull() && requestedSize.isValid() && requestedSize.width() < image.width())
+        image = image.scaled(requestedSize, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
     return image;
 }
