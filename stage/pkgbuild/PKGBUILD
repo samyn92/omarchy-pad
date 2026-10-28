@@ -16,6 +16,8 @@ pkgver() {
 
 build() {
   cd "$startdir/.."
+  # From scratch, so the commit --version names is the one being packaged.
+  rm -rf build
   ./bin/build
 }
 
