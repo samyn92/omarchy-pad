@@ -1,0 +1,191 @@
+#!/bin/bash
+
+# Opens a nested Hyprland in a window running the bar plugin in a harness shell
+# (tests/harness/shell.qml) with Omarchy's own widgets, never Omarchy's real
+# shell: that would write the real shell.json and own the session's
+# notifications. A stand-in for the drawers plugin records what the bar asks
+# of it, and omarchy-* commands the bar runs are only logged.
+#
+#   tests/try                leaves it open to try by hand; closing the window
+#                            ends it
+#   tests/try --drawers DIR  the same, with the drawers plugin in DIR (a
+#                            shell/drawers folder) instead of the stand-in. Its
+#                            quick settings switches run its own fakes, apart
+#                            from Wi-Fi, which is the real NetworkManager's.
+#   tests/try --check        taps and pulls it with mouse and finger events,
+#                            says what passed, and closes it
+
+set -euo pipefail
+
+here=$(cd "$(dirname "$0")/.." && pwd)
+shell_root="${OMARCHY_PATH:-/usr/share/omarchy}/shell"
+work=$(mktemp -d "${TMPDIR:-/tmp}/bar-try.XXXXXX")
+check=0
+drawers=""
+case "${1:-}" in
+  --check) check=1 ;;
+  --drawers) drawers=$(cd "${2:?--drawers needs a folder}" && pwd) ;;
+esac
+
+mkdir -p "$work/shell/plugins" "$work/bin"
+cp "$here/tests/harness/shell.qml" "$work/shell/"
+ln -s "$shell_root/Commons" "$work/shell/Commons"
+ln -s "$shell_root/Ui" "$work/shell/Ui"
+ln -s "$shell_root/plugins" "$work/shell/omarchy-plugins"
+"$here/../bin/install" --to "$work/shell/plugins" "$(basename "$here")" >/dev/null
+touch "$work/commands.log"
+
+# Stand-ins for what the widgets may run: logged, never run.
+for command in omarchy-bar omarchy-menu-timezone omarchy-launch-wifi omarchy-launch-bluetooth omarchy-launch-audio; do
+  printf '#!/bin/bash\necho "%s $*" >> %s/commands.log\n' "$command" "$work" >"$work/bin/$command"
+  chmod +x "$work/bin/$command"
+done
+
+drawers_env=""
+if [[ -n $drawers ]]; then
+  # As the drawers' own tests/try sets them up: its fakes for what the quick
+  # settings switch, and a config home of its own for the rotation lock's
+  # flag, seeing everything else through links to the real one.
+  mkdir -p "$work/shell/plugins/drawers" "$work/state" "$work/config"
+  cp "$drawers"/*.qml "$drawers/manifest.json" "$drawers/quick-settings-state" "$work/shell/plugins/drawers/"
+  cp "$here/tests/harness/RealDrawers.qml" "$work/shell/"
+  for command in omarchy-brightness-display omarchy-audio-output-sink pactl omarchy-bluetooth-power \
+    iceland-rotate-lock floatkey omarchy-shell; do
+    ln -s "$drawers/tests/fake-bin/fake" "$work/bin/$command"
+  done
+  touch "$work/state/bluetooth"
+  for entry in "${XDG_CONFIG_HOME:-$HOME/.config}"/*; do
+    [[ $(basename "$entry") == iceland ]] || ln -s "$entry" "$work/config/"
+  done
+  drawers_env="hl.env(\"BAR_TRY_DRAWERS\", \"1\")
+hl.env(\"XDG_CONFIG_HOME\", \"$work/config\")
+hl.env(\"DRAWERS_TRY_STATE\", \"$work/state\")
+hl.layer_rule({ match = { namespace = \"^omarchy-pad-drawers\$\" }, no_anim = true, animation = \"none\" })"
+fi
+
+cat >"$work/hyprland.lua" <<LUA
+hl.monitor({ output = "", mode = "1280x800", position = "auto", scale = 1 })
+hl.env("OMARCHY_PATH", "${OMARCHY_PATH:-/usr/share/omarchy}")
+hl.env("PATH", "$work/bin:$PATH")
+$drawers_env
+hl.config({ misc = { disable_hyprland_logo = true, disable_splash_rendering = true } })
+hl.on("hyprland.start", function ()
+  hl.exec_cmd("QT_IM_MODULE=none quickshell -p $work/shell > $work/quickshell.log 2>&1")
+end)
+LUA
+
+if (( ! check )); then
+  echo "Work dir: $work"
+  echo "State:    qs -p $work/shell ipc --any-display call harness state"
+  status=0
+  start-hyprland -- --config "$work/hyprland.lua" || status=$?
+  rm -rf "$work"
+  exit "$status"
+fi
+
+# Its own process group, so ending it ends the nested compositor and
+# everything in it, and nothing else.
+setsid start-hyprland -- --config "$work/hyprland.lua" >"$work/hyprland.log" 2>&1 &
+nested=$!
+finish() {
+  kill -TERM -- "-$nested" 2>/dev/null || true
+  wait "$nested" 2>/dev/null || true
+  rm -rf "$work"
+}
+trap finish EXIT
+
+call() { qs -p "$work/shell" ipc --any-display call harness "$@"; }
+state() { call state | jq -c "$1"; }
+
+for _ in {1..150}; do
+  [[ $(call ready 2>/dev/null) == true ]] && break
+  sleep 0.1
+done
+[[ $(call ready 2>/dev/null) == true ]] || {
+  echo "The harness shell did not come up:" >&2
+  tail -20 "$work/quickshell.log" >&2
+  exit 1
+}
+# Read-only questions to the nested compositor, never the session's.
+instance=$(call instance)
+[[ -n $instance ]] || { echo "No nested Hyprland instance" >&2; exit 1; }
+scratchpad() {
+  HYPRLAND_INSTANCE_SIGNATURE=$instance hyprctl -j monitors | jq -r '.[0].specialWorkspace.name'
+}
+
+failures=0
+expect() {
+  local what=$1 got=$2 want=$3
+  if [[ $got == "$want" ]]; then
+    echo "ok    $what"
+  else
+    echo "FAIL  $what: got $got, want $want"
+    failures=$((failures + 1))
+  fi
+}
+tap() { call press "$1" "$2" >/dev/null; call release >/dev/null; sleep 0.5; }
+# pull WHERE FINGER DY MS: press, move DY down over MS, let go.
+pull() {
+  call clearCalls >/dev/null
+  call press "$1" "$2" >/dev/null
+  call moveBy 0 "$3" "$4" >/dev/null
+  call release >/dev/null
+  sleep "$(awk -v ms="$4" 'BEGIN { print ms / 1000 + 0.4 }')"
+}
+
+expect "the workspaces sit in the middle" "$(state '[.widgets[] | select(.id == "omarchy.workspaces") | .section] | first')" '"center"'
+
+tap omarchy.clock true
+expect "a finger tap on the clock opens its calendar" "$(state .clockOpen)" true
+tap omarchy.clock false
+expect "a mouse click on it closes it" "$(state .clockOpen)" false
+tap omarchy.power true
+expect "a finger tap on the battery opens its panel" "$(state .powerOpen)" true
+
+pull omarchy.clock true 200 600
+expect "a pull from the left third opens notifications" "$(state '.begun + .settled')" '["begin left","settle 1"]'
+expect "the drawer follows the finger" "$(state '.follows > 10')" true
+expect "a pull closes the open panel" "$(state .powerOpen)" false
+expect "and is not a tap" "$(state .clockOpen)" false
+
+pull omarchy.power true 60 600
+expect "a short slow pull from the right third goes back up" "$(state '.begun + .settled')" '["begin right","settle 0"]'
+expect "and is not a tap either" "$(state .powerOpen)" false
+
+pull omarchy.power true 60 60
+expect "a quick flick from the right opens quick settings" "$(state '.settled')" '["settle 1"]'
+
+call clearCalls >/dev/null
+call press omarchy.power true >/dev/null; call moveBy 0 60 60 >/dev/null; sleep 0.4
+call release >/dev/null; sleep 0.3
+expect "but not one that stopped before it let go" "$(state '.settled')" '["settle 0"]'
+
+pull x:0.7 true 200 400
+expect "past two thirds is the right drawer" "$(state '.begun')" '["begin right"]'
+
+call clearCalls >/dev/null
+call press omarchy.clock true >/dev/null; call moveBy 0 200 400 >/dev/null; sleep 0.55
+call addFinger >/dev/null; call moveBy 0 20 100 >/dev/null; call release >/dev/null; sleep 0.5
+expect "a second finger sends the drawer back up" "$(state '.settled')" '["settle 0"]'
+
+pull omarchy.clock false 200 600
+expect "a mouse pulls a drawer down too" "$(state '.begun + .settled')" '["begin left","settle 1"]'
+
+pull x:0.5 true 40 600
+expect "a short pull from the middle leaves the console" "$(scratchpad)" ""
+pull x:0.5 true 300 500
+expect "a long one brings it down" "$(scratchpad)" "special:scratchpad"
+expect "and asks the drawers nothing" "$(state '.calls')" '[]'
+pull x:0.5 true 300 500
+expect "another sends it back up" "$(scratchpad)" ""
+
+expect "nothing was written to shell.json" "$(state '.writes')" '[]'
+expect "the bar stays at the top" "$(state '[.widgets[] | .y + .height] | max <= 30')" true
+expect "no omarchy-bar command ran" "$(grep -c 'omarchy-bar' "$work/commands.log" || true)" 0
+
+if (( failures )); then
+  echo "$failures failed; quickshell said:"
+  grep -iE "warn|error" "$work/quickshell.log" | grep -v "portal" | tail -20 || true
+  exit 1
+fi
+echo "All passed"
