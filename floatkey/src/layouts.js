@@ -10,24 +10,66 @@
 //   {gap: 0.5}        empty space; a touch there goes to the nearest key
 //   {stack: [a, b]}   two half-height keys in one slot, like a Mac's up and
 //                     down arrows
+//   {k: "return", w: 1.5, h: 2, foot: 1.25}
+//                     a key two rows tall whose lower row is only `foot`
+//                     wide, at its right: the L-shaped return of European
+//                     (ISO) keyboards. The row below leaves {gap: 1.25} for it.
 //
 // Every layout has the full keyboard the docked mode shows, and the compact
 // one (letters, numbers, symbols) the floating and corner modes show, the size
 // and shape of an iPhone's.
 
-const fullBottom = [
-    {k: "ctrl", w: 1.25}, {k: "alt"}, {k: "super"}, {k: "esc"}, {k: "globe"}, {k: "mic"},
-    {k: "space", w: 4},
-    {k: "left"}, {stack: [{k: "up"}, {k: "down"}]}, {k: "right"}, {k: "hide", w: 1.25},
-]
-
-function compactBottom(units) {
-    // The return key takes what the 123, globe and space keys leave.
-    return [{k: "numbers", w: 1.3}, {k: "globe", w: 1.2}, {k: "space", w: 5}, {k: "return", w: units - 7.5}]
+// The full keyboard's bottom row, Mac style: control, super (Omarchy's
+// logo), alt and option, then the arrows below the up arrow of the row above.
+// The space bar takes what the width leaves. docked() drops the globe when
+// there is only one layout.
+function fullBottom(units) {
+    return [
+        {k: "ctrl", w: 1.25}, {k: "super"}, {k: "alt"}, {k: "option"}, {k: "esc"}, {k: "globe"}, {k: "mic"},
+        {k: "space", w: units - 10.25},
+        {k: "left"}, {k: "down"}, {k: "right"},
+    ]
 }
 
+// The shift row ends in a short right shift, the up arrow, and the hide key,
+// so the arrows are full keys in an inverted T.
+function shiftRow(keys, units) {
+    return [{k: "shift", w: Math.max(1, units - keys.length - 3)}].concat(keys, [{k: "shift"}, {k: "up"}, {k: "hide"}])
+}
+
+// The full rows as the docked keyboard shows them: without the globe when
+// there is only one layout, its room going to the space bar.
+function docked(rows, globe) {
+    if (globe)
+        return rows
+    return rows.map(row => !row.some(e => e.k === "globe") ? row
+                    : row.filter(e => e.k !== "globe")
+                         .map(e => e.k === "space" ? Object.assign({}, e, {w: e.w + 1}) : e))
+}
+
+// The rows that type, for the lock: no arrows or hide key, their room going
+// to the right shift.
+function typingRows(rows) {
+    return rows.map(function (row) {
+        const kept = row.filter(e => ["up", "down", "left", "right", "hide"].indexOf(e.k) < 0)
+        if (kept.length === row.length)
+            return row
+        const room = rowUnits(row) - rowUnits(kept)
+        const last = kept.length - 1
+        if (kept[last].k === "shift")
+            kept[last] = Object.assign({}, kept[last], {w: (kept[last].w || 1) + room})
+        return kept
+    })
+}
+
+function compactBottom(units) {
+    return pageBottom("numbers", units)
+}
+
+// Return is about a quarter of the row, as on an iPhone; the space bar takes
+// what the 123, globe and return keys leave.
 function pageBottom(back, units) {
-    return [{k: back, w: 1.3}, {k: "globe", w: 1.2}, {k: "space", w: 5}, {k: "return", w: units - 7.5}]
+    return [{k: back, w: 1.3}, {k: "globe", w: 1.2}, {k: "space", w: units - 4.75}, {k: "return", w: 2.25}]
 }
 
 const punctuation = [
@@ -58,14 +100,14 @@ const layouts = {
             letters: [
                 [{c: "`", s: "~"}, {c: "1", s: "!"}, {c: "2", s: "@"}, {c: "3", s: "#"}, {c: "4", s: "$"},
                  {c: "5", s: "%"}, {c: "6", s: "^"}, {c: "7", s: "&"}, {c: "8", s: "*"}, {c: "9", s: "("},
-                 {c: "0", s: ")"}, {c: "-", s: "_"}, {c: "=", s: "+"}, {k: "backspace", w: 1.5}],
+                 {c: "0", s: ")"}, {c: "-", s: "_"}, {c: "=", s: "+"}, {k: "backspace", w: 2}],
                 [{k: "tab", w: 1.5}, "q", "w", "e", "r", "t", "y", "u", "i", "o", "p",
-                 {c: "[", s: "{"}, {c: "]", s: "}"}, {c: "\\", s: "|"}],
+                 {c: "[", s: "{"}, {c: "]", s: "}"}, {c: "\\", s: "|", w: 1.5}],
                 [{k: "caps", w: 1.75}, "a", "s", "d", "f", "g", "h", "j", "k", "l",
-                 {c: ";", s: ":"}, {c: "'", s: "\""}, {k: "return", w: 1.75}],
-                [{k: "shift", w: 2.25}, "z", "x", "c", "v", "b", "n", "m",
-                 {c: ",", s: "<"}, {c: ".", s: ">"}, {c: "/", s: "?"}, {k: "shift", w: 2.25}],
-                fullBottom,
+                 {c: ";", s: ":"}, {c: "'", s: "\""}, {k: "return", w: 2.25}],
+                shiftRow(["z", "x", "c", "v", "b", "n", "m",
+                          {c: ",", s: "<"}, {c: ".", s: ">"}, {c: "/", s: "?"}], 15),
+                fullBottom(15),
             ],
         },
         compact: {
@@ -98,14 +140,14 @@ const layouts = {
             letters: [
                 [{c: "^", s: "°"}, {c: "1", s: "!"}, {c: "2", s: "\""}, {c: "3", s: "§"}, {c: "4", s: "$"},
                  {c: "5", s: "%"}, {c: "6", s: "&"}, {c: "7", s: "/"}, {c: "8", s: "("}, {c: "9", s: ")"},
-                 {c: "0", s: "="}, {c: "ß", s: "?"}, {c: "´", s: "`"}, {k: "backspace", w: 1.5}],
+                 {c: "0", s: "="}, {c: "ß", s: "?"}, {c: "´", s: "`"}, {k: "backspace", w: 2}],
                 [{k: "tab", w: 1.5}, "q", "w", "e", "r", "t", "z", "u", "i", "o", "p", "ü",
-                 {c: "+", s: "*"}, {c: "#", s: "'"}],
+                 {c: "+", s: "*"}, {k: "return", w: 1.5, h: 2, foot: 1.25}],
                 [{k: "caps", w: 1.75}, "a", "s", "d", "f", "g", "h", "j", "k", "l", "ö", "ä",
-                 {k: "return", w: 1.75}],
-                [{k: "shift", w: 1.25}, {c: "<", s: ">"}, "y", "x", "c", "v", "b", "n", "m",
-                 {c: ",", s: ";"}, {c: ".", s: ":"}, {c: "-", s: "_"}, {k: "shift", w: 2.25}],
-                fullBottom,
+                 {c: "#", s: "'"}, {gap: 1.25}],
+                shiftRow([{c: "<", s: ">"}, "y", "x", "c", "v", "b", "n", "m",
+                          {c: ",", s: ";"}, {c: ".", s: ":"}, {c: "-", s: "_"}], 15),
+                fullBottom(15),
             ],
         },
         compact: {
@@ -159,33 +201,64 @@ function xkbNames(prefix, count) {
 }
 
 // A letter whose shift is its capital is a plain letter key; anything else
-// shows its shifted character too.
+// shows its shifted character too. `o` and `os` are what the option key types
+// on it, alone and with shift (AltGr's levels).
 function xkbKey(pair) {
-    const c = pair[0], s = pair[1]
-    if (isLetter(c) && (!s || s === upper(c) || s === c.toUpperCase()))
-        return c
-    return s && s !== c ? {c: c, s: s} : {c: c}
+    const c = pair[0], s = pair[1], o = pair[2] || "", os = pair[3] || ""
+    const letter = isLetter(c) && (!s || s === upper(c) || s === c.toUpperCase())
+    const key = letter || !s || s === c ? {c: c} : {c: c, s: s}
+    if (o && o !== c) {
+        key.o = o
+        if (os && os !== o)
+            key.os = os
+    }
+    return Object.keys(key).length === 1 ? c : key
+}
+
+// A plain letter key, which the small keyboard keeps.
+function isLetterKey(k) {
+    return typeof k === "string" ? isLetter(k) : isLetter(k.c) && k.s === undefined
 }
 
 function fromXkb(code, x) {
     const keys = x.keys
     const pick = names => names.filter(n => keys[n]).map(n => xkbKey(keys[n]))
     const number = pick(["TLDE"].concat(xkbNames("AE", 12)))
-    const top = pick(xkbNames("AD", 12).concat(["BKSL"]))
-    const home = pick(xkbNames("AC", 12))
+    let top = pick(xkbNames("AD", 12).concat(["BKSL"]))
+    let home = pick(xkbNames("AC", 12))
     let bottom = pick(xkbNames("AB", 10))
     // The extra key of ISO keyboards, left of Z, when it types something the
     // other keys don't (< and > on a German one).
+    let iso = false
     if (keys.LSGT) {
         const elsewhere = Object.keys(keys).filter(n => n !== "LSGT")
-                                           .map(n => keys[n].join("")).join("")
-        if (keys.LSGT.some(ch => ch && elsewhere.indexOf(ch) < 0))
+                                           .map(n => keys[n].slice(0, 2).join("")).join("")
+        if (keys.LSGT.slice(0, 2).some(ch => ch && elsewhere.indexOf(ch) < 0)) {
             bottom = [xkbKey(keys.LSGT)].concat(bottom)
+            iso = true
+        }
     }
 
-    const full = 14.5
+    // An ISO keyboard has its L-shaped return over two rows, with the key US
+    // keyboards put above it (# on a German one) at the end of the home row.
+    const full = 15
+    let rows
+    if (iso) {
+        if (keys.BKSL) {
+            top = pick(xkbNames("AD", 12))
+            home = home.concat([xkbKey(keys.BKSL)])
+        }
+        const foot = Math.max(1, full - 1.75 - home.length)
+        rows = [
+            number.concat([{k: "backspace", w: Math.max(1, full - number.length)}]),
+            [{k: "tab", w: 1.5}].concat(top, [{k: "return", w: Math.max(1, full - 1.5 - top.length), h: 2, foot: foot}]),
+            [{k: "caps", w: 1.75}].concat(home, [{gap: foot}]),
+            shiftRow(bottom, full),
+            fullBottom(full),
+        ]
+    }
     const side = (full - home.length) / 2
-    const letters = row => row.filter(k => typeof k === "string")
+    const letters = row => row.filter(isLetterKey).map(k => typeof k === "string" ? k : k.c)
     const ct = letters(top), ch = letters(home), cb = letters(bottom)
     const units = Math.max(ct.length, ch.length, cb.length + 2.6)
     const edge = Math.max(1, (units - cb.length) / 2 - 0.2)
@@ -194,12 +267,12 @@ function fromXkb(code, x) {
     return {
         name: x.name || code,
         full: {
-            letters: [
+            letters: rows || [
                 number.concat([{k: "backspace", w: Math.max(1, full - number.length)}]),
                 [{k: "tab", w: Math.max(1, full - top.length)}].concat(top),
                 [{k: "caps", w: Math.max(1, side)}].concat(home, [{k: "return", w: Math.max(1, side)}]),
-                [{k: "shift", w: Math.max(1, full - 2.25 - bottom.length)}].concat(bottom, [{k: "shift", w: 2.25}]),
-                fullBottom,
+                shiftRow(bottom, full),
+                fullBottom(full),
             ],
         },
         compact: {
@@ -237,8 +310,8 @@ function normalize(entry) {
     if (entry.stack)
         return {kind: "stack", w: entry.w || 1, keys: entry.stack.map(normalize)}
     if (entry.k)
-        return {kind: entry.k, w: entry.w || 1}
-    return {kind: "char", c: entry.c, s: entry.s, w: entry.w || 1}
+        return {kind: entry.k, w: entry.w || 1, h: entry.h, foot: entry.foot}
+    return {kind: "char", c: entry.c, s: entry.s, o: entry.o, os: entry.os, w: entry.w || 1}
 }
 
 function rowUnits(row) {
@@ -273,13 +346,22 @@ function keys(rows) {
             } else if (key.kind !== "gap") {
                 key.ux = x
                 key.row = r
-                key.h = 1
+                key.h = key.h || 1
                 out.push(key)
             }
             x += key.w
         }
     })
     return {units: units, rows: rows.length, keys: out}
+}
+
+// Where a key sits, as one rectangle per part in key units: most keys are one,
+// the L-shaped return is its top row and its foot.
+function parts(k) {
+    if (!k.foot)
+        return [{ux: k.ux, row: k.row, w: k.w, h: k.h}]
+    return [{ux: k.ux, row: k.row, w: k.w, h: 1},
+            {ux: k.ux + k.w - k.foot, row: k.row, w: k.foot, h: k.h}]
 }
 
 function isLetter(ch) {

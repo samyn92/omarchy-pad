@@ -60,9 +60,9 @@ Item {
     // floatkey's full layout without its bottom row of modifiers, arrows and
     // the mic, which have nothing to do in a password.
     function lockRows(code) {
-        const rows = Layouts.layout(code, kb.layoutKeys).full.letters.slice(0, 4)
+        const rows = Layouts.typingRows(Layouts.layout(code, kb.layoutKeys).full.letters.slice(0, 4))
         const globe = kb.layoutCodes.length > 1 ? {k: "globe", w: 1.25} : {gap: 1.25}
-        return rows.concat([[globe, {gap: 2.5}, {k: "space", w: 7}, {gap: 2.5}, {k: "hide", w: 1.25}]])
+        return rows.concat([[globe, {gap: 2.75}, {k: "space", w: 7}, {gap: 2.75}, {k: "hide", w: 1.25}]])
     }
 
     readonly property var model: Layouts.keys(lockRows(layoutCode))
@@ -102,8 +102,15 @@ Item {
         return Qt.rect(padX + k.ux * unitW, padTop + k.row * rowH, k.w * unitW, k.h * rowH)
     }
 
+    // The visible key inside its slot: for the L-shaped return of European
+    // keyboards its top row, and footRect() the rest.
     function capRect(k) {
-        const r = keyRect(k)
+        const r = keyRect(Layouts.parts(k)[0])
+        return Qt.rect(r.x + gapX / 2, r.y + gapY / 2, r.width - gapX, r.height - gapY)
+    }
+
+    function footRect(k) {
+        const r = keyRect(Layouts.parts(k)[1])
         return Qt.rect(r.x + gapX / 2, r.y + gapY / 2, r.width - gapX, r.height - gapY)
     }
 
@@ -112,16 +119,18 @@ Item {
         const keys = model.keys
         let best = -1, bestDistance = Infinity
         for (let i = 0; i < keys.length; ++i) {
-            const r = keyRect(keys[i])
-            const dx = x < r.x ? r.x - x : x > r.x + r.width ? x - r.x - r.width : 0
-            const dy = y < r.y ? r.y - y : y > r.y + r.height ? y - r.y - r.height : 0
-            const d = dx * dx + dy * dy
-            if (d < bestDistance) {
-                best = i
-                bestDistance = d
-                if (d === 0)
-                    break
+            for (const part of Layouts.parts(keys[i])) {
+                const r = keyRect(part)
+                const dx = x < r.x ? r.x - x : x > r.x + r.width ? x - r.x - r.width : 0
+                const dy = y < r.y ? r.y - y : y > r.y + r.height ? y - r.y - r.height : 0
+                const d = dx * dx + dy * dy
+                if (d < bestDistance) {
+                    best = i
+                    bestDistance = d
+                }
             }
+            if (bestDistance === 0)
+                break
         }
         return best
     }
@@ -326,6 +335,9 @@ Item {
             readonly property bool cornerLabel: ["tab", "caps", "shift", "backspace", "return"].indexOf(k.kind) >= 0
             readonly property bool leftSide: k.ux + k.w / 2 < kb.model.units / 2
             readonly property color ink: on ? keyStyle.accentText : inert ? keyStyle.faint : keyStyle.label
+            readonly property color fill: on ? kb.accent
+                : down && !inert ? (letterLike ? keyStyle.keyDown : keyStyle.specialDown)
+                : letterLike ? keyStyle.key : keyStyle.special
 
             x: kb.padX + k.ux * kb.unitW
             y: kb.padTop + k.row * kb.rowH
@@ -340,6 +352,15 @@ Item {
                 radius: face.radius
                 color: keyStyle.shadow
             }
+            Rectangle {
+                x: foot.x
+                y: foot.y + 1.5
+                width: foot.width
+                height: foot.height
+                radius: foot.radius
+                color: keyStyle.shadow
+                visible: foot.visible
+            }
 
             Rectangle {
                 id: face
@@ -349,14 +370,25 @@ Item {
                 width: cap.width
                 height: cap.height
                 radius: keyStyle.keyRadius
-                color: cell.on ? kb.accent
-                     : cell.down && !cell.inert ? (cell.letterLike ? keyStyle.keyDown : keyStyle.specialDown)
-                     : cell.letterLike ? keyStyle.key : keyStyle.special
+                color: cell.fill
+            }
+
+            // The lower row of an L-shaped return.
+            Rectangle {
+                id: foot
+                readonly property rect cap: cell.k.foot ? kb.footRect(cell.k) : Qt.rect(0, 0, 0, 0)
+                visible: !!cell.k.foot
+                x: cap.x - cell.x
+                y: cap.y - cell.y
+                width: cap.width
+                height: cap.height
+                radius: keyStyle.keyRadius
+                color: cell.fill
             }
 
             Text {
                 visible: !cell.dual && cell.icon === ""
-                anchors.fill: face
+                anchors.fill: cell.k.foot ? foot : face
                 anchors.leftMargin: cell.cornerLabel ? 10 : 3
                 anchors.rightMargin: cell.cornerLabel ? 10 : 3
                 anchors.bottomMargin: cell.cornerLabel ? 7 : 0

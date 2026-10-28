@@ -85,7 +85,10 @@ QVariantMap read(const QString &layout)
                 const QString base = character(keymap, code, 0);
                 if (base.isEmpty())
                     continue;
-                keys.insert(key, QStringList{base, character(keymap, code, 1)});
+                // Plain, with shift, and the two AltGr levels the option key
+                // reaches (@ and € on a German keyboard).
+                keys.insert(key, QStringList{base, character(keymap, code, 1), character(keymap, code, 2),
+                                             character(keymap, code, 3)});
             }
         }
         xkb_keymap_unref(keymap);

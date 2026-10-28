@@ -9,9 +9,10 @@
 // optional variant in brackets: "fr", "de(nodeadkeys)", "us(dvorak)".
 namespace XkbLayouts {
 
-// {name: "French", keys: {AE01: ["&", "1"], AD01: ["a", "A"], ...}}: the
-// unshifted and shifted character of every key of the main block, by its XKB
-// name. Empty when XKB doesn't know the layout.
+// {name: "French", keys: {AE01: ["&", "1", "", ""], AD01: ["a", "A", "æ", "Æ"], ...}}:
+// what every key of the main block types plain, with shift, with AltGr and
+// with AltGr and shift, by its XKB name. Empty when XKB doesn't know the
+// layout.
 QVariantMap read(const QString &layout);
 
 // The layout's name in XKB's list ("German (no dead keys)"), or empty.

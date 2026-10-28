@@ -63,10 +63,11 @@ placement, and where you left it floating and where you left the orb.
 | Flick down on a key | Types the character shown above it on the full keyboard (`1` → `!`). |
 | Hold or slide the space bar | Turns the keyboard into a trackpad that moves the text cursor; with shift on it selects. |
 | Two quick spaces | Full stop and space. |
-| Tap ctrl, alt or super | Applies to the next key (ctrl, then c is Ctrl+C); double-tap to lock. super then space opens the Omarchy menu. |
-| Hold delete or an arrow | Repeats, faster after a while. |
+| Tap ctrl, alt or super | Applies to the next key (ctrl, then c is Ctrl+C); double-tap to lock. super, with Omarchy's logo, then space opens the Omarchy menu. |
+| Tap option | The next key types what AltGr gives it on a hardware keyboard, and the keys show it: `@` on q, `€` on e, `{` on 7 with a German layout. Double-tap to lock. |
+| Hold delete or an arrow | Repeats, faster after a while. The full keyboard's arrows are an inverted T, up in the shift row. |
 | 123, #+= | Numbers and symbols on the small keyboard; press 123 and slide to a key to type one and come straight back. |
-| 😀 / 🌐 | Emoji, or the next layout when there is more than one. |
+| 😀 / 🌐 | Emoji, or the next layout when there is more than one. On the full keyboard, hold the mic key (or the globe) for emoji. |
 
 Fingers can overlap: keys are typed in the order they went down, and the key
 under the finger when it lifts is the one that counts.
@@ -75,8 +76,9 @@ under the finger when it lifts is the one that counts.
 
 With [Superwhisper](https://superwhisper.com) installed, the floating keyboard
 has a voice orb in the middle of its grabber strip, and the docked one a mic
-key beside the emoji key. Tap it and speak, tap again and Superwhisper types
-what you said into the focused field; or hold it while you talk and let go.
+key left of the space bar. Tap it and speak, tap again and Superwhisper types
+what you said into the focused field; or hold the orb while you talk and let
+go.
 While it listens the orb lights up in the theme's accent and glows with your
 voice, a × beside it (or esc) lets the words go, and the keyboard itself
 glows. It breathes while the words are worked out and shows a tick as they go

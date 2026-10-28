@@ -986,16 +986,46 @@ private slots:
         QCOMPARE(h.keyboard.log, QStringList{"key:Escape:0"});
     }
 
-    void holdingTheMicKeyTalks()
+    void holdingTheMicKeyOpensEmoji()
     {
         Harness h;
         const QPoint mic = h.special("mic");
         h.press(0, mic);
         QTest::qWait(600);
-        QCOMPARE(h.dictation.state(), QString("listening"));
         h.release(0, mic);
-        QCOMPARE(h.dictation.state(), QString("working"));
-        QTRY_COMPARE(voiceLog(h.dir.path()), (QStringList{"start", "stop"}));
+        QCOMPARE(h.keys()->property("page").toString(), QString("emoji"));
+        QCOMPARE(h.dictation.state(), QString("idle"));
+        QVERIFY(voiceLog(h.dir.path()).isEmpty());
+    }
+
+    void optionTypesWhatAltGrWould()
+    {
+        Harness h("docked", {"de"});
+        h.tap(h.special("option"));
+        // The keys show their option characters while it is on.
+        QCOMPARE(h.evaluate(h.keys(), "labelFor(model.keys.find(k => k.c === 'q'))").toString(), QString("@"));
+        h.tap(h.character("q"));
+        h.tap(h.character("q"));
+        QCOMPARE(h.keyboard.log, (QStringList{"type:@:0", "type:q:0"}));
+        // Locked, with shift: the AltGr and shift character.
+        h.tap(h.special("option"));
+        h.tap(h.special("option"));
+        h.tap(h.character("e"));
+        h.tap(h.character("7"));
+        QCOMPARE(h.keyboard.log.mid(2), (QStringList{"type:€:0", "type:{:0"}));
+    }
+
+    void fullKeyboardHasMacStyleBottomAndArrows()
+    {
+        Harness h("docked", {"de"});
+        const QString order = h.evaluate(h.keys(), "model.keys.filter(k => k.row === 4).map(k => k.kind).join(' ')").toString();
+        QCOMPARE(order, QString("ctrl super alt option esc mic space left down right"));
+        // Up sits in the shift row, right above down.
+        QCOMPARE(h.evaluate(h.keys(), "model.keys.find(k => k.kind === 'up').row").toInt(), 3);
+        QCOMPARE(h.evaluate(h.keys(), "model.keys.find(k => k.kind === 'up').ux === model.keys.find(k => k.kind === 'down').ux").toBool(), true);
+        h.tap(h.special("up"));
+        h.tap(h.special("down"));
+        QCOMPARE(h.keyboard.log, (QStringList{"key:Up:0", "key:Down:0"}));
     }
 
     void xkbSaysWhatTheKeysType()
@@ -1003,13 +1033,17 @@ private slots:
         const QVariantMap french = XkbLayouts::read("fr");
         QCOMPARE(french.value("name").toString(), QString("French"));
         const QVariantMap keys = french.value("keys").toMap();
-        QCOMPARE(keys.value("AD01").toStringList(), (QStringList{"a", "A"}));
-        QCOMPARE(keys.value("AE02").toStringList(), (QStringList{"é", "2"}));
+        QCOMPARE(keys.value("AD01").toStringList().mid(0, 2), (QStringList{"a", "A"}));
+        QCOMPARE(keys.value("AE02").toStringList().mid(0, 2), (QStringList{"é", "2"}));
+        // And what AltGr adds, for the option key.
+        const QVariantMap german = XkbLayouts::read("de").value("keys").toMap();
+        QCOMPARE(german.value("AD01").toStringList().value(2), QString("@"));
+        QCOMPARE(german.value("AD03").toStringList().value(2), QString("€"));
         // A dead key shows its accent.
         QCOMPARE(keys.value("AD11").toStringList().value(0), QString("^"));
 
         const QVariantMap dvorak = XkbLayouts::read("us(dvorak)").value("keys").toMap();
-        QCOMPARE(dvorak.value("AD03").toStringList(), (QStringList{".", ">"}));
+        QCOMPARE(dvorak.value("AD03").toStringList().mid(0, 2), (QStringList{".", ">"}));
         QCOMPARE(XkbLayouts::describe("de(nodeadkeys)"), QString("German (no dead keys)"));
         QVERIFY(XkbLayouts::read("zz").isEmpty());
         QVERIFY(XkbLayouts::read("us;rm").isEmpty());
@@ -1120,6 +1154,31 @@ private slots:
         QVERIFY(send->property("offered").toBool());
         QTRY_VERIFY_WITH_TIMEOUT(!send->property("offered").toBool(), 5000);
         QVERIFY(h.keyboard.log.isEmpty());
+    }
+
+    void europeanKeyboardsHaveTheTallReturn()
+    {
+        Harness h("docked", {"de"});
+        // One return, two rows tall, its lower row narrower and to the right.
+        QCOMPARE(h.evaluate(h.keys(), "model.keys.filter(k => k.kind === 'return').length").toInt(), 1);
+        QCOMPARE(h.evaluate(h.keys(), "model.keys.find(k => k.kind === 'return').h").toInt(), 2);
+        // A finger on its lower row presses it...
+        const QPoint foot = h.evaluate(h.keys(), "(function() { const r = footRect(model.keys.find(k => k.kind === 'return'));"
+                                                 " return mapToItem(null, r.x + r.width / 2, r.y + r.height * 0.75) })()")
+                                .toPointF().toPoint();
+        h.tap(foot);
+        QCOMPARE(h.keyboard.log, QStringList{"key:Return:0"});
+        // ...and # sits at the end of the home row, beside it.
+        h.tap(h.character("#"));
+        QCOMPARE(h.keyboard.log.last(), QString("type:#:0"));
+        QCOMPARE(h.evaluate(h.keys(), "model.keys.find(k => k.c === '#').row").toInt(), 2);
+    }
+
+    void usKeyboardKeepsItsWideReturn()
+    {
+        Harness h("docked", {"us"});
+        QCOMPARE(h.evaluate(h.keys(), "model.keys.find(k => k.kind === 'return').h").toInt(), 1);
+        QCOMPARE(h.evaluate(h.keys(), "model.keys.find(k => k.c === '\\\\').row").toInt(), 1);
     }
 };
 

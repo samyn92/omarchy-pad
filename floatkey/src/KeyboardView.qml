@@ -5,8 +5,8 @@ import "layouts.js" as Layouts
 // area hit-tests every finger itself, so fast two-thumb typing lands in the
 // order the keys went down, sliding to the right key before lifting works,
 // and holding a key brings up its accents, the space bar's trackpad or the
-// hide key's placement menu. The mic key is the voice orb: tap to speak, or
-// hold it while talking.
+// hide key's placement menu. The docked keyboard's mic key is the voice orb:
+// tap to speak; held, it opens the emoji.
 Item {
     id: view
 
@@ -21,7 +21,11 @@ Item {
     readonly property var layoutData: Layouts.layout(layoutCode, controller.layoutKeys)
     property string page: "letters"
     readonly property var model: Layouts.keys(page === "emoji" ? []
-                                              : compact ? layoutData.compact[page] : layoutData.full.letters)
+                                              : compact ? layoutData.compact[page]
+                                              : Layouts.docked(layoutData.full.letters, controller.layouts.length > 1))
+
+    // Omarchy's own font, with its logo for the super key.
+    readonly property bool omarchyFont: Qt.fontFamilies().indexOf("omarchy") >= 0
 
     readonly property real padX: compact ? 3 : 6
     readonly property real padTop: compact ? 6 : 8
@@ -36,6 +40,8 @@ Item {
     property int ctrlState: 0
     property int altState: 0
     property int superState: 0
+    // Option, as on a Mac: the keys type their AltGr characters (@, €, {).
+    property int optionState: 0
     property int shiftHolds: 0
     property bool trackpad: false
     property var downKeys: ({})
@@ -76,13 +82,19 @@ Item {
     }
 
     // The visible key inside its slot. Stacked halves line up with their
-    // neighbours' top and bottom edges and keep half a gap between them.
+    // neighbours' top and bottom edges and keep half a gap between them. For
+    // the L-shaped return this is its top row; footRect() is the rest.
     function capRect(k) {
-        const r = keyRect(k)
-        if (k.h >= 1)
+        const r = keyRect(Layouts.parts(k)[0])
+        if (r.height >= rowH - 0.01)
             return Qt.rect(r.x + gapX / 2, r.y + gapY / 2, r.width - gapX, r.height - gapY)
         const top = k.row % 1 < 0.001
         return Qt.rect(r.x + gapX / 2, r.y + (top ? gapY / 2 : gapY / 4), r.width - gapX, r.height - 0.75 * gapY)
+    }
+
+    function footRect(k) {
+        const r = keyRect(Layouts.parts(k)[1])
+        return Qt.rect(r.x + gapX / 2, r.y + gapY / 2, r.width - gapX, r.height - gapY)
     }
 
     // The key under a point, or the nearest one: gaps and the board's edges
@@ -91,16 +103,18 @@ Item {
         const keys = model.keys
         let best = -1, bestDistance = Infinity
         for (let i = 0; i < keys.length; ++i) {
-            const r = keyRect(keys[i])
-            const dx = x < r.x ? r.x - x : x > r.x + r.width ? x - r.x - r.width : 0
-            const dy = y < r.y ? r.y - y : y > r.y + r.height ? y - r.y - r.height : 0
-            const d = dx * dx + dy * dy
-            if (d < bestDistance) {
-                best = i
-                bestDistance = d
-                if (d === 0)
-                    break
+            for (const part of Layouts.parts(keys[i])) {
+                const r = keyRect(part)
+                const dx = x < r.x ? r.x - x : x > r.x + r.width ? x - r.x - r.width : 0
+                const dy = y < r.y ? r.y - y : y > r.y + r.height ? y - r.y - r.height : 0
+                const d = dx * dx + dy * dy
+                if (d < bestDistance) {
+                    best = i
+                    bestDistance = d
+                }
             }
+            if (bestDistance === 0)
+                break
         }
         return best
     }
@@ -119,6 +133,8 @@ Item {
     // ---- labels --------------------------------------------------------
 
     function charFor(k, flick) {
+        if (optionState > 0 && k.o !== undefined)
+            return (shiftState === 1 || shiftHolds > 0) && k.os !== undefined ? k.os : k.o
         if (k.s !== undefined)
             return flick || shiftState === 1 || shiftHolds > 0 ? k.s : k.c
         return shiftState > 0 && Layouts.isLetter(k.c) ? Layouts.upper(k.c) : k.c
@@ -154,6 +170,7 @@ Item {
         case "ctrl": return "ctrl"
         case "alt": return "alt"
         case "super": return "super"
+        case "option": return "option"
         case "esc": return "esc"
         case "numbers": return "123"
         case "symbols": return "#+="
@@ -179,6 +196,7 @@ Item {
         case "ctrl": return ctrlState > 0
         case "alt": return altState > 0
         case "super": return superState > 0
+        case "option": return optionState > 0
         }
         return false
     }
@@ -188,6 +206,7 @@ Item {
         case "ctrl": return ctrlState === 2
         case "alt": return altState === 2
         case "super": return superState === 2
+        case "option": return optionState === 2
         }
         return false
     }
@@ -214,6 +233,8 @@ Item {
             altState = 0
         if (superState === 1)
             superState = 0
+        if (optionState === 1)
+            optionState = 0
     }
 
     function type(text) {
@@ -378,7 +399,7 @@ Item {
             t.mode = "held"
             shiftState = shiftState === 2 ? 0 : 2
             break
-        case "ctrl": case "alt": case "super":
+        case "ctrl": case "alt": case "super": case "option":
             flush()
             t.mode = "held"
             pressModifier(k.kind)
@@ -475,7 +496,7 @@ Item {
             return
         t.x = p.x
         t.y = p.y
-        if (cancelled && t.mode !== "shift" && t.mode !== "talk")
+        if (cancelled && t.mode !== "shift")
             t.mode = "dropped"
         switch (t.mode) {
         case "tap":
@@ -502,9 +523,6 @@ Item {
             break
         case "repeat":
             repeater.end(t.id)
-            break
-        case "talk":
-            dictation.stop()
             break
         case "page":
             slideFromPage(t)
@@ -555,11 +573,13 @@ Item {
             t.mode = "menu"
             setDown(t.index, false)
             menuRequested(capRect(k))
-        } else if (k.kind === "mic" && (dictation.state === "idle" || dictation.state === "done")) {
-            // Hold to talk, let go to type it.
+        } else if (k.kind === "mic" || k.kind === "globe") {
+            // Emoji live behind a long press of the docked keyboard's mic
+            // key, or of the globe when there is one.
             removeFromOrder(id)
-            t.mode = "talk"
-            dictation.start()
+            t.mode = "held"
+            setDown(t.index, false)
+            goTo("emoji")
         }
     }
 
@@ -614,8 +634,6 @@ Item {
         for (const id in touches) {
             if (touches[id].mode === "shift")
                 shiftHolds = Math.max(0, shiftHolds - 1)
-            else if (touches[id].mode === "talk")
-                dictation.stop()
             touches[id].mode = "dropped"
             touches[id].index = -1
         }
@@ -686,6 +704,7 @@ Item {
             readonly property bool letterLike: k.kind === "char" || k.kind === "space"
             readonly property bool on: view.isOn(k)
             readonly property bool dual: !view.compact && k.s !== undefined
+                                         && !(view.optionState > 0 && k.o !== undefined)
             readonly property string icon: view.iconFor(k)
             // The full keyboard writes its edge keys' names into their outer
             // corner, like a 13" iPad.
@@ -693,6 +712,13 @@ Item {
                 && ["tab", "caps", "shift", "backspace", "return"].indexOf(k.kind) >= 0
             readonly property bool leftSide: k.ux + k.w / 2 < view.model.units / 2
             readonly property color ink: on ? view.style.accentText : view.style.label
+            // Super carries Omarchy's logo, from the font its bar uses.
+            readonly property bool logo: k.kind === "super" && view.omarchyFont
+            // The compact keys show a balloon instead of darkening.
+            readonly property color fill: on ? view.style.accent
+                : down && !(view.compact && k.kind === "char")
+                  ? (letterLike ? view.style.keyDown : view.style.specialDown)
+                : letterLike ? view.style.key : view.style.special
 
             x: view.padX + k.ux * view.unitW
             y: view.padTop + k.row * view.rowH
@@ -708,6 +734,15 @@ Item {
                 color: view.style.shadow
                 visible: !view.trackpad
             }
+            Rectangle {
+                x: foot.x
+                y: foot.y + 1.5
+                width: foot.width
+                height: foot.height
+                radius: foot.radius
+                color: view.style.shadow
+                visible: foot.visible && !view.trackpad
+            }
 
             Rectangle {
                 id: face
@@ -718,21 +753,34 @@ Item {
                 height: cap.height
                 radius: view.style.keyRadius
                 opacity: view.trackpad ? 0.4 : 1
-                // The compact keys show a balloon instead of darkening.
-                color: cell.on ? view.style.accent
-                     : cell.down && !(view.compact && cell.k.kind === "char")
-                       ? (cell.letterLike ? view.style.keyDown : view.style.specialDown)
-                     : cell.letterLike ? view.style.key : view.style.special
+                color: cell.fill
+            }
+
+            // The lower row of an L-shaped return.
+            Rectangle {
+                id: foot
+                readonly property rect cap: cell.k.foot ? view.footRect(cell.k) : Qt.rect(0, 0, 0, 0)
+                visible: !!cell.k.foot
+                x: cap.x - cell.x
+                y: cap.y - cell.y
+                width: cap.width
+                height: cap.height
+                radius: view.style.keyRadius
+                opacity: face.opacity
+                color: cell.fill
             }
 
             Text {
-                visible: !cell.dual && cell.icon === "" && !view.trackpad
-                anchors.fill: face
+                visible: !cell.dual && cell.icon === "" && !cell.logo && !view.trackpad
+                anchors.fill: cell.k.foot ? foot : face
                 anchors.leftMargin: cell.cornerLabel ? 10 : 3
                 anchors.rightMargin: cell.cornerLabel ? 10 : 3
                 anchors.bottomMargin: cell.cornerLabel ? 7 : 0
                 text: view.labelFor(cell.k)
-                color: cell.k.kind === "space" ? view.style.faint : cell.ink
+                // With option on, keys it changes nothing on step back.
+                color: cell.k.kind === "space"
+                       || (view.optionState > 0 && cell.k.kind === "char" && cell.k.o === undefined)
+                       ? view.style.faint : cell.ink
                 font.family: view.style.font
                 font.pixelSize: Math.max(10, Math.round(face.height * (cell.k.kind === "char"
                     ? (view.compact ? 0.52 : 0.4) : (view.compact ? 0.34 : 0.27))))
@@ -786,6 +834,15 @@ Item {
                     iconSize: Math.min(face.width, face.height) * 0.5
                     opacity: view.trackpad ? 0.4 : 1
                 }
+            }
+
+            Text {
+                visible: cell.logo && !view.trackpad
+                anchors.centerIn: face
+                text: "\ue900"
+                color: cell.ink
+                font.family: "omarchy"
+                font.pixelSize: Math.round(Math.min(face.width, face.height) * (view.compact ? 0.5 : 0.42))
             }
 
             KeyIcon {
