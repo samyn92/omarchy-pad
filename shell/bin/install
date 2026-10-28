@@ -1,0 +1,88 @@
+#!/bin/bash
+
+# Installs Omarchy Pad's shell plugins: every folder in shell/ with a
+# manifest.json, or the ones named. A folder's bin/, tests/, docs/, README.md
+# and CLAUDE.md are not part of the plugin.
+#
+#   bin/install [NAME...]           install to ~/.config/omarchy/plugins, turn
+#                                   them on (a bar becomes the bar in use) and
+#                                   restart the shell
+#   bin/install --to DIR [NAME...]  only assemble them, each in DIR/NAME (the
+#                                   tests use this)
+
+set -euo pipefail
+
+here=$(cd "$(dirname "$0")/.." && pwd)
+target_root="$HOME/.config/omarchy/plugins"
+enable=1
+if [[ ${1:-} == "--to" ]]; then
+  target_root=${2:?--to needs a directory}
+  enable=0
+  shift 2
+fi
+
+fail() {
+  echo "shell/bin/install: $*" >&2
+  exit 1
+}
+
+names=("$@")
+if (( ${#names[@]} == 0 )); then
+  for dir in "$here"/*/; do
+    [[ -f $dir/manifest.json ]] && names+=("$(basename "$dir")")
+  done
+fi
+(( ${#names[@]} > 0 )) || fail "no plugins in $here"
+
+# Builds the plugin from folder SRC into TARGET, replacing what is there. It is
+# assembled beside TARGET first, hidden, so the shell never sees half of it.
+assemble() {
+  local src=$1 target=$2 name stage
+  name=$(basename "$src")
+  mkdir -p "$(dirname "$target")"
+  stage=$(mktemp -d "$(dirname "$target")/.$name.build.XXXXXX")
+  # shellcheck disable=SC2064 # this call's stage, now
+  trap "rm -rf '$stage'" EXIT
+
+  (cd "$src" && find . -mindepth 1 \
+    \( -path ./bin -o -path ./tests -o -path ./docs \) -prune \
+    -o -type f ! -path ./README.md ! -path ./CLAUDE.md -print0) |
+    (cd "$src" && xargs -0 -r cp --parents -t "$stage")
+  chmod 755 "$stage"
+
+  omarchy-plugin-validate "$stage" >/dev/null || fail "$name does not pass omarchy-plugin-validate"
+  rm -rf "$target"
+  mv "$stage" "$target"
+  trap - EXIT
+}
+
+ids=()
+for name in "${names[@]}"; do
+  [[ -f $here/$name/manifest.json ]] || fail "no plugin folder $here/$name"
+  id=$(jq -r '.id // empty' "$here/$name/manifest.json")
+  [[ -n $id ]] || fail "$name/manifest.json has no id"
+  if (( enable )); then
+    assemble "$here/$name" "$target_root/$id"
+  else
+    assemble "$here/$name" "$target_root/$name"
+  fi
+  echo "Assembled $id"
+  ids+=("$id")
+done
+
+(( enable )) || exit 0
+
+omarchy-shell shell rescanPlugins >/dev/null
+for id in "${ids[@]}"; do
+  for _ in {1..40}; do
+    omarchy-plugin-list --json | jq -e --arg id "$id" 'any(.[]; .id == $id)' >/dev/null && break
+    sleep 0.05
+  done
+  # A bar becomes the bar in use; anything else is turned on.
+  omarchy-plugin-enable "$id"
+done
+
+# The shell reloads its plugins while they are being installed, and a bar can
+# come out of that without its widgets. A fresh start loads them all.
+omarchy-restart-shell >/dev/null || echo "Restart the shell to finish: omarchy restart shell"
+echo "Back to Omarchy's own: 'omarchy bar reset' for the bar, 'omarchy plugin disable <id>' for the rest"
