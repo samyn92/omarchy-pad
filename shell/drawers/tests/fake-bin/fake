@@ -1,0 +1,65 @@
+#!/bin/bash
+
+# Stands in for every command the quick settings drawer runs, so tests/try can
+# throw its switches without dimming the real screen or turning off the real
+# Bluetooth. Each command is a link to this script; it logs what it was asked
+# and keeps its state as files in $DRAWERS_TRY_STATE.
+
+state=${DRAWERS_TRY_STATE:?}
+name=$(basename "$0")
+echo "$name $*" >>"$state/calls.log"
+
+flag() { [[ -e $state/$1 ]]; }
+set_flag() { if [[ $2 == on ]]; then touch "$state/$1"; else rm -f "$state/$1"; fi; }
+value() { cat "$state/$1" 2>/dev/null || echo "$2"; }
+
+case "$name" in
+  omarchy-brightness-display)
+    [[ $1 == --no-osd ]] && shift
+    if [[ -n ${1:-} ]]; then echo "${1%\%}" >"$state/brightness"; else value brightness 60; fi
+    ;;
+  omarchy-audio-output-sink)
+    echo fake_sink
+    ;;
+  pactl)
+    case "$1" in
+      get-sink-volume) echo "Volume: front-left: 40000 /  $(value volume 45)% / -20.00 dB" ;;
+      get-sink-mute) flag muted && echo "Mute: yes" || echo "Mute: no" ;;
+      set-sink-volume) echo "${3%\%}" >"$state/volume" ;;
+      set-sink-mute) [[ $3 == 1 ]] && set_flag muted on || set_flag muted off ;;
+    esac
+    ;;
+  omarchy-bluetooth-power)
+    case "$1" in
+      on|off) set_flag bluetooth "$1" ;;
+      is-on) flag bluetooth ;;
+    esac
+    ;;
+  iceland-rotate-lock)
+    # The flag file the drawer reads, under tests/try's own XDG_CONFIG_HOME.
+    lock=$XDG_CONFIG_HOME/iceland/rotation-locked
+    mkdir -p "${lock%/*}"
+    if [[ $1 == on ]]; then touch "$lock"; else rm -f "$lock"; fi
+    ;;
+  floatkey)
+    case "$1" in
+      show) set_flag keyboard on ;;
+      hide) set_flag keyboard off ;;
+      status) flag keyboard && echo "shown docked us" || echo "hidden docked us" ;;
+    esac
+    ;;
+  omarchy-shell)
+    case "$1 $2" in
+      "notifications isDnd") flag dnd && echo on || echo off ;;
+      "notifications setDnd") set_flag dnd "$3"; flag dnd && echo on || echo off ;;
+      "notifications dismissAll") echo ok ;;
+      "nightlight status") flag nightlight && echo '{"enabled":true}' || echo '{"enabled":false}' ;;
+      "nightlight enable") set_flag nightlight on ;;
+      "nightlight disable") set_flag nightlight off ;;
+      "idle status") flag stay-awake && echo '{"stayAwake":true}' || echo '{"stayAwake":false}' ;;
+      "idle enable") set_flag stay-awake off ;;
+      "idle disable") set_flag stay-awake on ;;
+      "shell summon") echo ok ;;
+    esac
+    ;;
+esac

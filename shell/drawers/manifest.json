@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "omarchy-pad.drawers",
+  "name": "Pull-down drawers",
+  "version": "0.1.0",
+  "author": "Omarchy Pad",
+  "description": "Notifications and quick settings that pull down from the top edge, driven by stage's touch gestures.",
+  "kinds": [
+    "panel"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "panel": "Drawers.qml"
+  }
+}
