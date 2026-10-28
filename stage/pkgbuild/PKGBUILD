@@ -1,5 +1,5 @@
 pkgname=stage
-pkgver=0.2.0
+pkgver=0.2.1
 pkgrel=1
 pkgdesc='iPad-style multitasking gestures for Omarchy on a tablet'
 arch=('x86_64' 'aarch64')
@@ -8,6 +8,11 @@ depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'layer-shell-qt' 'wayland' '
 makedepends=('gcc' 'make' 'wayland-protocols')
 source=()
 sha256sums=()
+
+# Kept in step with VERSION in stage.pro.
+pkgver() {
+  sed -n 's/^VERSION = //p' "$startdir/../stage.pro"
+}
 
 build() {
   cd "$startdir/.."

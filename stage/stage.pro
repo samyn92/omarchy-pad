@@ -4,6 +4,12 @@ CONFIG += c++17 release link_pkgconfig
 PKGCONFIG += wayland-client libinput libudev
 LIBS += -lLayerShellQtInterface
 TARGET = stage
+# The one place stage's version is set: --version and the package read it
+# from here. The commit it was built from comes along, so builds of the same
+# version can be told apart.
+VERSION = 0.2.1
+COMMIT = $$system(git -C $$PWD rev-parse --short HEAD 2>/dev/null)
+DEFINES += STAGE_VERSION=\\\"$$VERSION\\\" STAGE_COMMIT=\\\"$$COMMIT\\\"
 TEMPLATE = app
 
 include(protocols.pri)
