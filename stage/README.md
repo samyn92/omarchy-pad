@@ -18,7 +18,7 @@ the same the other way. Pull the scratchpad console down from the top.
 | One finger in from the **right edge** | Shrinks the window beside your finger sideways; the launcher fills the room |
 | One finger up from the **bottom edge** | Shrinks the window above your finger upward; the launcher fills the room |
 | One finger down from the **top edge** | Pulls Omarchy's scratchpad console down; an empty one offers the launcher |
-| Tap or push up on the dimmed screen | Sends the console back up |
+| Tap or push up on the dimmed screen, or swipe up from the bottom edge | Sends the console back up |
 | Two fingers pulled **down** on a window | The window follows them and, let go far enough or flicked, slides off and closes; a short pull puts it back |
 | Three fingers sideways | Slides this workspace aside for the next or previous one, following your fingers; a quarter of the way or a flick switches, less goes back. Past the last workspace with windows there is one empty one, to start something new on |
 | Three fingers up | Maximizes the focused window |

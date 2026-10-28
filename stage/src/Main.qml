@@ -117,6 +117,10 @@ Window {
     }
 
     function edgeAt(x, y) {
+        // With the console down, the bottom edge sends it back up: a console
+        // whose windows fill the screen leaves no dimmed screen to tap.
+        if (stage.consoleOpen && y >= height - strip * 1.5)
+            return "dismiss"
         if (x >= width - strip * 1.5)
             return "right"
         if (y >= height - strip * 1.5)

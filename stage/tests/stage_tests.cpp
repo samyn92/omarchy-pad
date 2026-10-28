@@ -608,6 +608,17 @@ private slots:
         QCOMPARE(h.fake.log.last(), QString("launch:top:foot:1.00"));
     }
 
+    void swipingUpFromTheBottomSendsTheConsoleUp()
+    {
+        Harness h;
+        h.fake.consoleOpen = true;
+        h.fake.consoleRect = QRectF(0, 30, 1696, 1158);   // its windows fill the screen
+        emit h.fake.consoleOpenChanged();
+        h.swipe(QPoint(800, 1196), QPoint(800, 900));
+        QVERIFY(h.fake.log.contains("closeConsole"));
+        QVERIFY(!h.fake.log.join(' ').contains("begin:bottom"));
+    }
+
     void tappingTheDimmedScreenClosesTheConsole()
     {
         Harness h;
