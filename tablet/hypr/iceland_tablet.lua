@@ -27,3 +27,5 @@ o.bind("SUPER + CTRL + SHIFT + K", "On-screen keyboard", "iceland-osk toggle")
 -- entire overlay.
 hl.layer_rule({ match = { namespace = "^floatkey$" }, no_anim = true, animation = "none" })
 hl.layer_rule({ match = { namespace = "^stage$" }, no_anim = true, animation = "none" })
+-- The pull-down drawers (shell/drawers) follow the finger themselves, on a surface that stays mapped.
+hl.layer_rule({ match = { namespace = "^omarchy-pad-drawers$" }, no_anim = true, animation = "none" })

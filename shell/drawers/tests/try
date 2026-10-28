@@ -1,0 +1,64 @@
+#!/bin/bash
+
+# Opens a nested Hyprland in a window with the drawers plugin under a bar
+# stand-in, so they can be pulled without touching the real shell. The
+# quick settings switches run fakes (tests/fake-bin) that only log and keep
+# state in the work dir; Wi-Fi is the exception, being the real
+# NetworkManager's, so leave that switch alone. Closing the window ends it.
+#
+#   tests/try
+#
+# Drive it from outside with the printed commands: begin, follow, settle,
+# close and state are the plugin's; harness state shows where it is.
+
+set -euo pipefail
+
+here=$(cd "$(dirname "$0")/.." && pwd)
+omarchy_path=${OMARCHY_PATH:-/usr/share/omarchy}
+shell_root="$omarchy_path/shell"
+work=$(mktemp -d "${TMPDIR:-/tmp}/drawers-try.XXXXXX")
+
+mkdir -p "$work/shell/plugins/drawers" "$work/bin" "$work/state" "$work/config"
+cp "$here/tests/harness/shell.qml" "$work/shell/"
+ln -s "$shell_root/Commons" "$work/shell/Commons"
+ln -s "$shell_root/Ui" "$work/shell/Ui"
+cp "$here"/*.qml "$here/manifest.json" "$here/quick-settings-state" "$work/shell/plugins/drawers/"
+
+for command in omarchy-brightness-display omarchy-audio-output-sink pactl omarchy-bluetooth-power \
+  iceland-rotate-lock floatkey omarchy-shell; do
+  ln -s "$here/tests/fake-bin/fake" "$work/bin/$command"
+done
+touch "$work/state/bluetooth"
+
+# A config home of its own for the rotation lock's flag file, seeing
+# everything else (fonts, the theme) through links to the real one.
+for entry in "${XDG_CONFIG_HOME:-$HOME/.config}"/*; do
+  [[ $(basename "$entry") == iceland ]] || ln -s "$entry" "$work/config/"
+done
+
+cat >"$work/hyprland.lua" <<LUA
+hl.monitor({ output = "", mode = "1280x800", position = "auto", scale = 1 })
+hl.env("OMARCHY_PATH", "$omarchy_path")
+hl.env("PATH", "$work/bin:$PATH")
+hl.env("XDG_CONFIG_HOME", "$work/config")
+hl.env("DRAWERS_TRY_STATE", "$work/state")
+hl.env("DRAWERS_TRY_SOCKET", "$work/shell.sock")
+hl.env("QT_IM_MODULE", "none")
+hl.config({ misc = { disable_hyprland_logo = true, disable_splash_rendering = true } })
+hl.layer_rule({ match = { namespace = "^omarchy-pad-drawers\$" }, no_anim = true, animation = "none" })
+hl.on("hyprland.start", function ()
+  hl.exec_cmd("quickshell -p $work/shell > $work/quickshell.log 2>&1")
+end)
+LUA
+
+call="qs -p $work/shell ipc --any-display call"
+echo "Work dir: $work"
+echo "Pull:     $call omarchy-pad.drawers begin right   (or left)"
+echo "          $call omarchy-pad.drawers follow 200"
+echo "          $call omarchy-pad.drawers settle 1      (0 closes)"
+echo "State:    $call harness state"
+echo "Calls:    $work/state/calls.log"
+status=0
+start-hyprland -- --config "$work/hyprland.lua" || status=$?
+rm -rf "$work"
+exit "$status"

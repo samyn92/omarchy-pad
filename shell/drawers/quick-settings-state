@@ -1,0 +1,30 @@
+#!/bin/bash
+
+# Prints what the quick settings drawer shows, one key=value per line, each as
+# soon as it is known: the slow ones (Bluetooth asks bluetoothctl, floatkey a
+# socket) come last, so the rest of the drawer is right without waiting.
+
+brightness=$(omarchy-brightness-display 2>/dev/null) || brightness=unavailable
+echo "brightness=${brightness:-unavailable}"
+
+sink=$(omarchy-audio-output-sink 2>/dev/null)
+if [[ -n $sink ]]; then
+  # pactl translates its output; parse it in the C locale, as
+  # omarchy-audio-output-volume does.
+  volume=$(LC_ALL=C pactl get-sink-volume "$sink" 2>/dev/null |
+    awk 'NR == 1 { for (i = 1; i <= NF; i++) if ($i ~ /%$/) { sub("%", "", $i); print $i; exit } }')
+  echo "volume=${volume:-unavailable}"
+  [[ $(LC_ALL=C pactl get-sink-mute "$sink" 2>/dev/null) == *yes ]] && echo "muted=on" || echo "muted=off"
+else
+  echo "volume=unavailable"
+fi
+
+echo "dnd=$(omarchy-shell notifications isDnd 2>/dev/null)"
+echo "nightlight=$(omarchy-shell nightlight status 2>/dev/null | jq -r '.enabled' 2>/dev/null)"
+echo "stayawake=$(omarchy-shell idle status 2>/dev/null | jq -r '.stayAwake' 2>/dev/null)"
+
+[[ -e ${XDG_CONFIG_HOME:-$HOME/.config}/iceland/rotation-locked ]] && echo "rotationlock=on" || echo "rotationlock=off"
+
+status=$(floatkey status 2>/dev/null) && echo "keyboard=${status%% *}" || echo "keyboard=unavailable"
+
+omarchy-bluetooth-power is-on >/dev/null 2>&1 && echo "bluetooth=on" || echo "bluetooth=off"
