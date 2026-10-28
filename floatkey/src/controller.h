@@ -1,13 +1,16 @@
 #pragma once
 
+#include <QElapsedTimer>
 #include <QObject>
 #include <QPointF>
 #include <QPointer>
 #include <QRect>
+#include <QSet>
 #include <QSettings>
 #include <QStringList>
 #include <QTimer>
 #include <QVariantMap>
+#include <functional>
 
 class QLocalServer;
 class QWindow;
@@ -21,7 +24,8 @@ class Window;
 // compositor which part of the transparent overlay takes touches, and reserves
 // space at the bottom of the screen while the keyboard is docked so windows
 // move up instead of hiding behind it. With fcitx5's floatkey addon it comes
-// up by itself when a text field takes focus, and goes when it loses it.
+// up by itself when a text field takes focus, and goes when it loses it;
+// with a touch screen, only when the user tapped into that field.
 class Controller : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool visible READ isVisible NOTIFY visibleChanged)
@@ -96,6 +100,20 @@ public:
     // a field goes.
     void setHardwareKeyboard(bool attached);
 
+    // There is a touch screen: a field brings the keyboard up only when the
+    // user tapped into it, as on a tablet (unless autoShowAfterTap=false).
+    // Tapping a field in another window, or the window whose field has
+    // focus, counts; a field that takes focus by itself, in a window that
+    // just opened or on a workspace swiped to, leaves the keyboard down until
+    // it's tapped. `windowAt` names the focused window if a point of the
+    // panel (as Taps gives it) is inside it, else returns empty.
+    void setTouchScreen(std::function<QString(const QPointF &panel)> windowAt);
+    // From Taps: a finger came down, and everything lifted again.
+    void touchStarted();
+    void touchEnded(bool tap, const QPointF &panel);
+    // From Hyprland: a window opened, under this address.
+    void windowOpened(const QString &address);
+
 signals:
     void visibleChanged();
     void modeChanged();
@@ -109,6 +127,9 @@ signals:
 private:
     void setShown(bool shown);
     void focusChanged(const QString &fieldType);
+    bool wantedFor(const QString &fieldType) const;
+    bool tappedIntoFocus() const;
+    void showForTap();
     void applyReservation();
     void applyInputRegion(bool force);
 
@@ -142,4 +163,19 @@ private:
     // Shown for the focused field, so it goes when the field loses focus.
     bool m_autoShown = false;
     QTimer m_autoHide;
+
+    // The tap rule (setTouchScreen): where the last tap was and how long ago,
+    // and the windows that opened since a finger last came down.
+    std::function<QString(const QPointF &)> m_windowAt;
+    bool m_autoShowAfterTap = true;
+    bool m_touching = false;
+    bool m_tapCounts = false;
+    bool m_focusedWhileTouching = false;
+    // Up for a tap into the window that had focus, so a window opening
+    // right after takes it down again.
+    bool m_shownForTap = false;
+    QTimer m_tapCheck;
+    QPointF m_tapAt;
+    QElapsedTimer m_sinceTap;
+    QSet<QString> m_newWindows;
 };

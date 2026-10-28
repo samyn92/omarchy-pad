@@ -17,6 +17,13 @@ away when the field loses focus. Apps already tell fcitx5, Omarchy's input metho
 when a field takes focus: GTK and Electron apps over Wayland, Qt apps over
 D-Bus. floatkey ships a small fcitx5 addon that passes this on.
 
+- With a touch screen, only a field you tapped brings it up. Tap a field in
+  another window, or tap the window whose field already has focus, and it
+  comes; a field that takes focus by itself, such as a terminal that just
+  opened or a window on a workspace you swiped to, waits for your tap.
+  floatkey reads the taps from the touch screen (you need to be in the `input`
+  group) and asks Hyprland which window has focus. `autoShowAfterTap=false`
+  brings back coming up for every field.
 - Moving from one field to the next keeps the keyboard up; it only goes once no
   field has focus for a quarter of a second.
 - Hide it in a field and it stays hidden until the next field takes focus.
@@ -104,6 +111,7 @@ compactScale=1.0        ; 0.6–1.8, size of the floating keyboard
 autoCapitalize=false    ; capitalise after . ! ? and return
 doubleSpacePeriod=true
 autoShow=true           ; come up when a text field takes focus
+autoShowAfterTap=true   ; with a touch screen, only for a field you tapped
 autoShowInTerminals=true
 autoShowWithKeyboard=false ; also come up while a hardware keyboard is connected
 ```

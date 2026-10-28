@@ -1,10 +1,10 @@
 pkgname=floatkey
-pkgver=0.5.2
+pkgver=0.5.3
 pkgrel=1
 pkgdesc='iPad-style on-screen keyboard for Omarchy: docked, floating, or tucked into a corner'
 arch=('x86_64' 'aarch64')
 license=('MIT')
-depends=('qt6-base' 'qt6-declarative' 'qt6-multimedia' 'qt6-wayland' 'layer-shell-qt' 'libxkbcommon' 'wayland' 'xkeyboard-config')
+depends=('qt6-base' 'qt6-declarative' 'qt6-multimedia' 'qt6-wayland' 'layer-shell-qt' 'libinput' 'libxkbcommon' 'systemd-libs' 'wayland' 'xkeyboard-config')
 makedepends=('gcc' 'make' 'fcitx5')
 optdepends=('fcitx5: show the keyboard when a text field gets focus'
             'superwhisper-bin: voice typing from the orb and mic key'

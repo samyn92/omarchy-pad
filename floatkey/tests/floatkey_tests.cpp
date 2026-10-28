@@ -22,6 +22,7 @@
 #include "fieldtype.h"
 #include "keyboardwatcher.h"
 #include "keymap.h"
+#include "taps.h"
 #include "theme.h"
 #include "translator.h"
 #include "xkblayouts.h"
@@ -423,6 +424,171 @@ private slots:
         Controller controller(dir.path() + "/floatkey.conf");
         controller.command("focus text");
         QVERIFY(!controller.isVisible());
+    }
+
+    // ---- with a touch screen: only for a tapped field ----
+
+    void tapsAreToldFromSwipes()
+    {
+        Taps taps;
+        QSignalSpy started(&taps, &Taps::started), ended(&taps, &Taps::ended);
+        taps.feed(Taps::Down, 0, {0.3, 0.4});
+        taps.feed(Taps::Move, 0, {0.305, 0.404});   // a finger never sits quite still
+        taps.feed(Taps::Up, 0, {});
+        QCOMPARE(started.count(), 1);
+        QCOMPARE(ended.count(), 1);
+        QCOMPARE(ended.at(0).at(0).toBool(), true);
+        QCOMPARE(ended.at(0).at(1).toPointF(), QPointF(0.3, 0.4));
+
+        taps.feed(Taps::Down, 0, {0.5, 0.95});        // a swipe up from the edge
+        taps.feed(Taps::Move, 0, {0.5, 0.8});
+        taps.feed(Taps::Up, 0, {});
+        QCOMPARE(ended.at(1).at(0).toBool(), false);
+
+        taps.feed(Taps::Down, 0, {0.2, 0.2});        // two fingers
+        taps.feed(Taps::Down, 1, {0.4, 0.2});
+        taps.feed(Taps::Up, 0, {});
+        QCOMPARE(ended.count(), 2);                  // only when the last one lifts
+        taps.feed(Taps::Up, 1, {});
+        QCOMPARE(started.count(), 3);
+        QCOMPARE(ended.at(2).at(0).toBool(), false);
+    }
+
+    // The focused window covers the left half of the panel.
+    static void touchScreen(Controller &controller, QString *window)
+    {
+        controller.setTouchScreen([window](const QPointF &panel) { return panel.x() < 0.5 ? *window : QString(); });
+    }
+
+    static void tap(Controller &controller, const QPointF &at = {0.2, 0.3})
+    {
+        controller.touchStarted();
+        controller.touchEnded(true, at);
+    }
+
+    void fieldThatTakesFocusByItselfWaitsForATap()
+    {
+        QTemporaryDir dir;
+        Controller controller(dir.path() + "/floatkey.conf");
+        QString window = "0xa";
+        touchScreen(controller, &window);
+        controller.command("focus terminal");       // a terminal that just opened
+        QVERIFY(!controller.isVisible());
+        tap(controller, {0.8, 0.3});                // somewhere else: still down
+        QVERIFY(!controller.isVisible());
+        tap(controller);                            // into it: up after a moment
+        QVERIFY(!controller.isVisible());
+        QTRY_VERIFY(controller.isVisible());
+        controller.command("blur");                 // and it goes with the field
+        QTRY_VERIFY(!controller.isVisible());
+    }
+
+    void tappingAFieldBringsItUp()
+    {
+        QTemporaryDir dir;
+        Controller controller(dir.path() + "/floatkey.conf");
+        QString window = "0xa";
+        touchScreen(controller, &window);
+        // Focus comes while the finger is down...
+        controller.touchStarted();
+        controller.command("focus text");
+        QVERIFY(!controller.isVisible());
+        controller.touchEnded(true, {0.2, 0.3});
+        QVERIFY(controller.isVisible());
+        controller.hide();
+        controller.command("blur");
+        // ...or just after it lifted.
+        tap(controller);
+        QTest::qWait(100);
+        controller.command("focus text");
+        QVERIFY(controller.isVisible());
+    }
+
+    void swipeOrLateFocusLeavesItDown()
+    {
+        QTemporaryDir dir;
+        Controller controller(dir.path() + "/floatkey.conf");
+        QString window = "0xa";
+        touchScreen(controller, &window);
+        controller.touchStarted();                  // a workspace swiped to
+        controller.touchEnded(false, {0.2, 0.3});
+        controller.command("focus text");
+        QVERIFY(!controller.isVisible());
+        controller.command("blur");
+        tap(controller);
+        QTest::qWait(800);                          // long after the tap
+        controller.command("focus text");
+        QVERIFY(!controller.isVisible());
+    }
+
+    void windowOpenedByATapWaitsForTheNext()
+    {
+        QTemporaryDir dir;
+        Controller controller(dir.path() + "/floatkey.conf");
+        QString window = "0xb";
+        touchScreen(controller, &window);
+        tap(controller);                            // a launcher's icon...
+        controller.windowOpened("0xb");             // ...opens a terminal right where it was
+        controller.command("focus terminal");
+        QVERIFY(!controller.isVisible());
+        tap(controller);                            // tapped once it's there
+        QTRY_VERIFY(controller.isVisible());
+    }
+
+    void launcherOverTheFocusedWindowDoesntBringItUp()
+    {
+        QTemporaryDir dir;
+        Controller controller(dir.path() + "/floatkey.conf");
+        QString window = "0xa";
+        touchScreen(controller, &window);
+        tap(controller);
+        controller.command("focus terminal");       // the terminal had focus all along
+        controller.hide();
+        // An icon over it, tapped: the new window comes before the wait is over.
+        QSignalSpy changes(&controller, &Controller::visibleChanged);
+        tap(controller);
+        QTest::qWait(150);
+        controller.windowOpened("0xb");
+        window = "0xb";
+        controller.command("focus terminal");
+        QTest::qWait(500);
+        QCOMPARE(changes.count(), 0);
+        // A slower app: the keyboard came up, and goes once its window is there.
+        window = "0xa";
+        controller.command("focus terminal");
+        tap(controller);
+        QTRY_VERIFY(controller.isVisible());
+        controller.windowOpened("0xc");
+        QVERIFY(!controller.isVisible());
+    }
+
+    void hidingItWithATapDoesntBringItBack()
+    {
+        QTemporaryDir dir;
+        Controller controller(dir.path() + "/floatkey.conf");
+        QString window = "0xa";
+        touchScreen(controller, &window);
+        tap(controller);
+        controller.command("focus text");
+        QVERIFY(controller.isVisible());
+        controller.touchStarted();                  // its hide button, over the window
+        controller.hide();
+        controller.touchEnded(true, {0.2, 0.3});
+        QVERIFY(!controller.isVisible());
+    }
+
+    void tapRuleCanBeTurnedOff()
+    {
+        QTemporaryDir dir;
+        QFile settings(dir.path() + "/floatkey.conf");
+        QVERIFY(settings.open(QIODevice::WriteOnly));
+        settings.write("autoShowAfterTap=false\n");
+        settings.close();
+        Controller controller(dir.path() + "/floatkey.conf");
+        QString window = "0xa";
+        touchScreen(controller, &window);
+        controller.command("focus text");
+        QVERIFY(controller.isVisible());
     }
 
     void hardwareKeyboardKeepsItAway()

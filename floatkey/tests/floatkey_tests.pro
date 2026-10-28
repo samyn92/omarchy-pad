@@ -1,6 +1,6 @@
 QT += core gui qml quick testlib network multimedia
 CONFIG += c++20 testcase link_pkgconfig
-PKGCONFIG += wayland-client xkbcommon Fcitx5Utils
+PKGCONFIG += wayland-client xkbcommon libinput libudev Fcitx5Utils
 LIBS += -lLayerShellQtInterface
 TARGET = floatkey_tests
 TEMPLATE = app
@@ -15,6 +15,7 @@ HEADERS += \
     ../src/ipc.h \
     ../src/keyboardwatcher.h \
     ../src/keymap.h \
+    ../src/taps.h \
     ../src/theme.h \
     ../src/translator.h \
     ../src/virtualkeyboard.h \
@@ -27,6 +28,7 @@ SOURCES += \
     ../src/ipc.cpp \
     ../src/keyboardwatcher.cpp \
     ../src/keymap.cpp \
+    ../src/taps.cpp \
     ../src/theme.cpp \
     ../src/translator.cpp \
     ../src/virtualkeyboard.cpp \

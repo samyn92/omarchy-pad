@@ -16,8 +16,10 @@
 
 #include "controller.h"
 #include "dictation.h"
+#include "hyprland.h"
 #include "ipc.h"
 #include "keyboardwatcher.h"
+#include "taps.h"
 #include "theme.h"
 #include "translator.h"
 #include "virtualkeyboard.h"
@@ -108,6 +110,45 @@ static QStringList hyprlandOption(const QString &name)
 }
 
 // Hyprland's input:kb_layout, so the keyboard starts in the user's layout.
+// The window with focus, if a point of the touch panel (as Taps gives it)
+// is inside it: Hyprland turns the touch screen with input:touchdevice and
+// puts it on that output, as stage reckons too.
+static QString focusedWindowAt(const Hyprland &hyprland, const QPointF &panel)
+{
+    const int transform = qMax(0, hyprland.query("getoption input:touchdevice:transform").object().value("int").toInt());
+    const QString output = hyprland.query("getoption input:touchdevice:output").object().value("str").toString();
+    QRectF screen;
+    for (const QJsonValue &value : hyprland.query("monitors").array()) {
+        const QJsonObject o = value.toObject();
+        if (o.value("name").toString() != output && !(screen.isEmpty() && o.value("focused").toBool()))
+            continue;
+        const double scale = o.value("scale").toDouble(1);
+        double width = o.value("width").toDouble(), height = o.value("height").toDouble();
+        // Width and height are the panel's own; a quarter turn swaps them.
+        if (o.value("transform").toInt() % 2 == 1)
+            std::swap(width, height);
+        screen = QRectF(o.value("x").toDouble(), o.value("y").toDouble(), width / scale, height / scale);
+        if (o.value("name").toString() == output)
+            break;
+    }
+    if (screen.isEmpty())
+        return {};
+    const qreal x = panel.x(), y = panel.y();
+    QPointF u;
+    switch (transform & 3) {
+    case 1: u = {1 - y, x}; break;
+    case 2: u = {1 - x, 1 - y}; break;
+    case 3: u = {y, 1 - x}; break;
+    default: u = {x, y}; break;
+    }
+    const QPointF at = screen.topLeft() + QPointF(u.x() * screen.width(), u.y() * screen.height());
+
+    const QJsonObject window = hyprland.query("activewindow").object();
+    const QJsonArray position = window.value("at").toArray(), size = window.value("size").toArray();
+    const QRectF rect(position.at(0).toDouble(), position.at(1).toDouble(), size.at(0).toDouble(), size.at(1).toDouble());
+    return rect.contains(at) ? window.value("address").toString() : QString();
+}
+
 static QStringList hyprlandLayouts()
 {
     QStringList layouts = hyprlandOption("input:kb_layout");
@@ -157,7 +198,7 @@ int main(int argc, char *argv[])
         return 0;
     }
     if (args.contains("--version")) {
-        std::puts("floatkey 0.5.2");
+        std::puts("floatkey 0.5.3");
         return 0;
     }
     if (args.value(0) == "layouts")
@@ -186,7 +227,7 @@ int main(int argc, char *argv[])
     QQuickWindow::setDefaultAlphaBuffer(true);
     QGuiApplication app(argc, argv);
     app.setApplicationName("floatkey");
-    app.setApplicationVersion("0.5.2");
+    app.setApplicationVersion("0.5.3");
     app.setDesktopFileName("floatkey");
     if (QGuiApplication::platformName() != "wayland") {
         std::fputs("floatkey needs a Wayland session\n", stderr);
@@ -222,6 +263,20 @@ int main(int argc, char *argv[])
     controller.setHardwareKeyboard(keyboards.isAttached());
     QObject::connect(&keyboards, &KeyboardWatcher::attachedChanged, &controller,
                      [&] { controller.setHardwareKeyboard(keyboards.isAttached()); });
+
+    // With a touch screen, fields bring the keyboard up only when tapped.
+    Hyprland hyprland;
+    Taps taps;
+    if (hyprland.isAvailable() && taps.open()) {
+        controller.setTouchScreen([&hyprland](const QPointF &panel) { return focusedWindowAt(hyprland, panel); });
+        QObject::connect(&taps, &Taps::started, &controller, &Controller::touchStarted);
+        QObject::connect(&taps, &Taps::ended, &controller, &Controller::touchEnded);
+        QObject::connect(&hyprland, &Hyprland::hyprlandEvent, &controller, [&](const QString &name, const QString &data) {
+            // openwindow>>ADDRESS,WORKSPACE,CLASS,TITLE, the address without its 0x.
+            if (name == "openwindow")
+                controller.windowOpened("0x" + data.section(',', 0, 0));
+        });
+    }
 
     Dictation dictation;
 

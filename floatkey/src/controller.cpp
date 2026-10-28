@@ -18,6 +18,14 @@
 // fcitx5's addon and what floatkey made of it.
 Q_LOGGING_CATEGORY(lcFocus, "floatkey.focus", QtInfoMsg)
 
+// How long after a tap a field's focus still counts as coming from it: the
+// app takes focus as the finger lifts, and fcitx5's addon waits a moment.
+static constexpr int TapReach = 600;
+// How long a tap into the focused window waits for a window it may have
+// opened, and how long after it one still takes the keyboard back down.
+static constexpr int TapWaits = 300;
+static constexpr int TapOpens = 1500;
+
 QStringList Controller::modes()
 {
     return {"docked", "floating", "orb"};
@@ -82,9 +90,13 @@ Controller::Controller(const QString &settingsPath, const QStringList &systemLay
     m_autoShow = m_settings.value("autoShow", true).toBool();
     m_autoShowInTerminals = m_settings.value("autoShowInTerminals", true).toBool();
     m_autoShowWithKeyboard = m_settings.value("autoShowWithKeyboard", false).toBool();
+    m_autoShowAfterTap = m_settings.value("autoShowAfterTap", true).toBool();
 
     // Leaving one field for the next comes as a blur and a focus in quick
     // succession; waiting a moment keeps the keyboard from flickering.
+    m_tapCheck.setSingleShot(true);
+    m_tapCheck.setInterval(TapWaits);
+    connect(&m_tapCheck, &QTimer::timeout, this, &Controller::showForTap);
     m_autoHide.setSingleShot(true);
     m_autoHide.setInterval(250);
     connect(&m_autoHide, &QTimer::timeout, this, [this] {
@@ -285,6 +297,8 @@ void Controller::setDockedHeight(int height)
 void Controller::show()
 {
     m_autoHide.stop();
+    m_tapCheck.stop();
+    m_shownForTap = false;
     m_autoShown = !m_fieldType.isEmpty();
     setShown(true);
 }
@@ -293,6 +307,8 @@ void Controller::show()
 void Controller::hide()
 {
     m_autoHide.stop();
+    m_tapCheck.stop();
+    m_shownForTap = false;
     m_autoShown = false;
     setShown(false);
 }
@@ -319,12 +335,96 @@ void Controller::focusChanged(const QString &fieldType)
         return;
     }
     m_autoHide.stop();
-    const bool wanted = m_autoShow && (fieldType != "terminal" || m_autoShowInTerminals)
-                        && (!m_hardwareKeyboard || m_autoShowWithKeyboard);
-    if (!wanted || m_visible)
+    if (!wantedFor(fieldType) || m_visible)
         return;
+    if (m_windowAt && m_autoShowAfterTap) {
+        // A finger still down decides when it lifts; otherwise the focus
+        // must come right after a tap, into the window tapped.
+        const bool justTapped = m_sinceTap.isValid() && m_sinceTap.elapsed() < TapReach;
+        qCDebug(lcFocus) << "focus after a tap?" << justTapped << "touching" << m_touching;
+        if (m_touching)
+            m_focusedWhileTouching = true;
+        if (m_touching || !justTapped || !tappedIntoFocus())
+            return;
+        m_tapCheck.stop();
+    }
     m_autoShown = true;
     setShown(true);
+}
+
+bool Controller::wantedFor(const QString &fieldType) const
+{
+    return m_autoShow && (fieldType != "terminal" || m_autoShowInTerminals)
+           && (!m_hardwareKeyboard || m_autoShowWithKeyboard);
+}
+
+void Controller::setTouchScreen(std::function<QString(const QPointF &panel)> windowAt)
+{
+    m_windowAt = std::move(windowAt);
+}
+
+void Controller::touchStarted()
+{
+    m_touching = true;
+    // A touch that starts on the keyboard, such as its hide button, is for
+    // the keyboard, never one that brings it back.
+    m_tapCounts = !m_visible;
+    m_focusedWhileTouching = false;
+    m_shownForTap = false;
+    m_tapCheck.stop();
+    m_sinceTap.invalidate();
+    m_newWindows.clear();
+}
+
+void Controller::touchEnded(bool tap, const QPointF &panel)
+{
+    m_touching = false;
+    if (!tap || !m_tapCounts)
+        return;
+    m_tapAt = panel;
+    m_sinceTap.start();
+    if (m_fieldType.isEmpty() || m_visible || !wantedFor(m_fieldType) || !m_windowAt || !m_autoShowAfterTap)
+        return;
+    // The tap moved focus to this field: up at once. A tap into the window
+    // that had focus all along may instead have been on something over it,
+    // a launcher's icon say, so wait a moment for the window it opens.
+    if (m_focusedWhileTouching)
+        showForTap();
+    else
+        m_tapCheck.start();
+}
+
+void Controller::showForTap()
+{
+    const bool into = tappedIntoFocus();
+    qCDebug(lcFocus) << "tap" << m_tapAt << "into the focused window" << into << "waited" << !m_focusedWhileTouching;
+    if (!into || m_fieldType.isEmpty() || m_visible || !wantedFor(m_fieldType))
+        return;
+    m_autoHide.stop();
+    m_autoShown = true;
+    m_shownForTap = !m_focusedWhileTouching;
+    setShown(true);
+}
+
+void Controller::windowOpened(const QString &address)
+{
+    m_newWindows.insert(address);
+    m_tapCheck.stop();
+    // An app slower than the wait: the tap was its launcher's, after all.
+    if (m_shownForTap && m_autoShown && m_sinceTap.isValid() && m_sinceTap.elapsed() < TapOpens) {
+        qCDebug(lcFocus) << "a window opened after the tap: down again";
+        m_shownForTap = false;
+        m_autoShown = false;
+        setShown(false);
+    }
+}
+
+// The tap landed in the focused window, and that window was there before
+// the finger came down: not one the tap opened, say from a launcher.
+bool Controller::tappedIntoFocus() const
+{
+    const QString window = m_windowAt(m_tapAt);
+    return !window.isEmpty() && !m_newWindows.contains(window);
 }
 
 void Controller::toggle()
