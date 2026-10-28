@@ -372,6 +372,33 @@ Item {
     if (open) Hyprland.dispatch('hl.dsp.workspace.toggle_special("scratchpad")')
   }
 
+  // ---- See-through on a tap.
+
+  // A tap on the bar's empty space makes it clear, and the next one brings
+  // back the look it had, through Omarchy's own omarchy-bar background, so
+  // shell.json and Hyprland's blur stay in step as with Omarchy's bar. The look
+  // to come back to is kept in a file, as a restart clears everything else.
+  readonly property string lookFile: (Quickshell.env("XDG_STATE_HOME") || Quickshell.env("HOME") + "/.local/state")
+    + "/omarchy-pad/bar-look"
+
+  FileView {
+    id: lookMemory
+    path: root.lookFile
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+  }
+
+  function toggleTransparency() {
+    if (look === "none") {
+      var back = String(lookMemory.text() || "").trim()
+      run("omarchy-bar background " + (back === "glassy" ? "glassy" : "opaque"))
+      return
+    }
+    var dir = root.lookFile.replace(/\/[^\/]*$/, "")
+    run("mkdir -p " + Util.shellQuote(dir) + " && printf %s " + Util.shellQuote(look)
+      + " > " + Util.shellQuote(root.lookFile) + " && omarchy-bar background none")
+  }
 
   // ---- Hidden by omarchy-toggle-bar.
 
@@ -389,14 +416,8 @@ Item {
     printErrors: false
     onFileChanged: barHiddenProbe.running = true
   }
-  // omarchy-toggle-bar nudges the bar in use after flipping the flag.
-  ShellIpc {
-    target: "omarchy.bar"
-
-    function syncHidden(): void {
-      barHiddenProbe.running = true
-    }
-  }
+  // omarchy-toggle-bar also nudges Omarchy's bar over IPC, as "omarchy.bar";
+  // that target stays Omarchy's, so this bar goes by the watch alone.
 
   Variants {
     model: Quickshell.screens
@@ -431,6 +452,12 @@ Item {
           anchors { top: parent.top; left: parent.left; right: parent.right }
           height: root.barSize
           color: root.background
+
+          // Under the widgets, so only a tap on empty bar space lands here.
+          MouseArea {
+            anchors.fill: parent
+            onClicked: root.toggleTransparency()
+          }
 
           Row {
             anchors { left: parent.left; leftMargin: Style.space(10); verticalCenter: parent.verticalCenter }

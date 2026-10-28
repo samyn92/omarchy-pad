@@ -25,6 +25,8 @@ ShellRoot {
   })
   property var widgets: ({})
   property var writes: []
+  // Omarchy's bar background, as shell.json would say it.
+  property string look: "opaque"
   property var drawerCalls: []
   property real drawerHeight: 400
   // The press in progress: where, and whether a finger made it.
@@ -54,7 +56,7 @@ ShellRoot {
     id: bar
     omarchyPath: Quickshell.env("OMARCHY_PATH")
     barWidgetRegistry: registry
-    barConfig: ({ position: "top", background: "opaque", layout: {} })
+    barConfig: ({ position: "top", background: harness.look, layout: {} })
     shell: host
   }
 
@@ -207,6 +209,9 @@ ShellRoot {
     }
 
     function clearCalls(): void { harness.drawerCalls = [] }
+
+    // What omarchy-bar background would leave in shell.json.
+    function setLook(look: string): void { harness.look = look }
 
     function state(): string {
       function opened(name) {

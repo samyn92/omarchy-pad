@@ -4,8 +4,9 @@
 # manifest.json, or the ones named. A folder's bin/, tests/, docs/, README.md
 # and CLAUDE.md are not part of the plugin.
 #
-#   bin/install [NAME...]           install to ~/.config/omarchy/plugins and
-#                                   turn them on (a bar becomes the bar in use)
+#   bin/install [NAME...]           install to ~/.config/omarchy/plugins, turn
+#                                   them on (a bar becomes the bar in use) and
+#                                   restart the shell
 #   bin/install --to DIR [NAME...]  only assemble them, each in DIR/NAME (the
 #                                   tests use this)
 
@@ -80,4 +81,8 @@ for id in "${ids[@]}"; do
   # A bar becomes the bar in use; anything else is turned on.
   omarchy-plugin-enable "$id"
 done
+
+# The shell reloads its plugins while they are being installed, and a bar can
+# come out of that without its widgets. A fresh start loads them all.
+omarchy-restart-shell >/dev/null || echo "Restart the shell to finish: omarchy restart shell"
 echo "Back to Omarchy's own: 'omarchy bar reset' for the bar, 'omarchy plugin disable <id>' for the rest"

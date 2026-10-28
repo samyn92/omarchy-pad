@@ -6,9 +6,9 @@ one plugin.
 ## The bar (`omarchy-pad.bar`)
 
 A status bar for the tablet, in place of Omarchy's bar. The time and date are
-on the left, and the status icons on the right: Omarchy's indicators (Do Not
-Disturb, night light...), Wi-Fi, Bluetooth, volume and battery. Nothing sits in
-between. The bar always stays at the top, and nothing on it can be dragged
+on the left, the workspaces in the middle, and the status icons on the right:
+Omarchy's indicators (Do Not Disturb, night light...), Wi-Fi, Bluetooth, volume
+and battery. The bar always stays at the top, and nothing on it can be dragged
 around or off.
 
 The widgets are Omarchy's own, so a tap opens the same panels as on Omarchy's
@@ -21,15 +21,18 @@ Pull down from the bar to open a drawer:
 
 - from the left third, notifications;
 - from the right third, quick settings;
-- from the middle, the scratchpad console.
+- from the middle, the scratchpad console; pulling there again sends it back
+  up.
 
 The drawer follows your finger. Let go past about a third of the way down, or
 flick, and it opens; otherwise it goes back up. A mouse can pull them down too.
 The drawers come from the `omarchy-pad.drawers` plugin; without it, pulls from
 the sides do nothing.
 
-The bar uses Omarchy's bar background (`omarchy bar background`), and
-`omarchy toggle bar` hides it as it hides Omarchy's.
+Tap the bar's empty space to make it clear, and tap again for the look it had
+before, opaque or glassy. It is Omarchy's own bar background
+(`omarchy bar background`), so the setting is the same one Omarchy's bar uses.
+`omarchy toggle bar` hides the bar as it hides Omarchy's.
 
 ## Installing
 
@@ -37,9 +40,9 @@ The bar uses Omarchy's bar background (`omarchy bar background`), and
 shell/bin/install
 ```
 
-This puts every plugin here in `~/.config/omarchy/plugins` and turns it on,
-which makes `omarchy-pad.bar` the bar in use. `shell/bin/install bar` installs
-just the bar. Omarchy updates never change these plugins: they only use what
+This puts every plugin here in `~/.config/omarchy/plugins`, turns it on, which
+makes `omarchy-pad.bar` the bar in use, and restarts the shell.
+`shell/bin/install bar` installs just the bar. Omarchy updates never change these plugins: they only use what
 Omarchy offers any bar.
 
 To go back to Omarchy's bar:

@@ -18,6 +18,13 @@ folder with a `manifest.json`; see the README for what is left out).
 - The bar calls the drawers in process, through `IpcRegistry.call` on the
   `omarchy-pad.drawers` target. The middle third's console pull has hook points
   (`consoleBegin`, `consoleFollow`, `consoleEnd`) for stage to take over.
+- It leaves the `omarchy.bar` IPC target to Omarchy's bar (which loads at
+  every shell start before the selected one) and watches the `bar-off` toggle
+  file alone. The empty-space tap runs `omarchy-bar background`, and the look
+  to come back to is kept in `$XDG_STATE_HOME/omarchy-pad/bar-look`.
+- `bin/install` restarts the shell: the plugin reloads it triggers while files
+  change can leave the bar without its widgets (no error is logged; a fresh
+  start always loads them).
 - Try it only with `bar/tests/try` (`--check` runs the taps and pulls and
   exits). Never run Omarchy's full shell nested: it writes the real
   `shell.json` and takes the session's notifications.

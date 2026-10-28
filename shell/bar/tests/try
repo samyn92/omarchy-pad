@@ -27,7 +27,7 @@ case "${1:-}" in
   --drawers) drawers=$(cd "${2:?--drawers needs a folder}" && pwd) ;;
 esac
 
-mkdir -p "$work/shell/plugins" "$work/bin"
+mkdir -p "$work/shell/plugins" "$work/bin" "$work/state"
 cp "$here/tests/harness/shell.qml" "$work/shell/"
 ln -s "$shell_root/Commons" "$work/shell/Commons"
 ln -s "$shell_root/Ui" "$work/shell/Ui"
@@ -67,6 +67,7 @@ cat >"$work/hyprland.lua" <<LUA
 hl.monitor({ output = "", mode = "1280x800", position = "auto", scale = 1 })
 hl.env("OMARCHY_PATH", "${OMARCHY_PATH:-/usr/share/omarchy}")
 hl.env("PATH", "$work/bin:$PATH")
+hl.env("XDG_STATE_HOME", "$work/state")
 $drawers_env
 hl.config({ misc = { disable_hyprland_logo = true, disable_splash_rendering = true } })
 hl.on("hyprland.start", function ()
@@ -182,6 +183,14 @@ expect "another sends it back up" "$(scratchpad)" ""
 expect "nothing was written to shell.json" "$(state '.writes')" '[]'
 expect "the bar stays at the top" "$(state '[.widgets[] | .y + .height] | max <= 30')" true
 expect "no omarchy-bar command ran" "$(grep -c 'omarchy-bar' "$work/commands.log" || true)" 0
+
+tap x:0.3 true
+expect "a tap on empty bar space makes it clear" "$(tail -1 "$work/commands.log")" "omarchy-bar background none"
+expect "remembering the look it had" "$(cat "$work/state/omarchy-pad/bar-look" 2>/dev/null)" opaque
+call setLook none >/dev/null
+tap x:0.3 false
+expect "and the next brings it back" "$(tail -1 "$work/commands.log")" "omarchy-bar background opaque"
+expect "taps on widgets and pulls never did" "$(grep -c 'omarchy-bar' "$work/commands.log")" 2
 
 if (( failures )); then
   echo "$failures failed; quickshell said:"
