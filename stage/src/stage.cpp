@@ -40,6 +40,27 @@ Stage::Stage(Hyprland *hyprland, Capture *capture, Snapshots *snapshots, Apps *a
     connect(&m_pendingTimeout, &QTimer::timeout, this, [this] { finishPlacement(false); });
 
     connect(m_hyprland, &Hyprland::hyprlandEvent, this, &Stage::onEvent);
+    // Several layout events come in a burst; the dividers are found once,
+    // after it.
+    m_dividersLater.setSingleShot(true);
+    m_dividersLater.setInterval(80);
+    connect(&m_dividersLater, &QTimer::timeout, this, [this] {
+        const Monitor m = monitor();
+        QVariantList found;
+        if (m.ok) {
+            const QVariantList windows = windowsOn(m.special.isEmpty() ? m.workspaceName : m.special, m.logical.topLeft());
+            const bool covered = std::any_of(windows.cbegin(), windows.cend(),
+                                             [](const QVariant &w) { return w.toMap().value("fullscreen").toBool(); });
+            const qreal gap = 2 * (m_look.value("gapsIn").toReal() + m_look.value("border").toReal());
+            if (!covered)
+                found = dividersIn(windows, gap);
+        }
+        if (found != m_dividers) {
+            m_dividers = found;
+            qCDebug(lcStage) << "dividers" << m_dividers.size();
+            emit dividersChanged();
+        }
+    });
     connect(m_capture, &Capture::captured, this, [this](int id, const QImage &image) {
         qCDebug(lcStage) << "snapshot" << id << image.size();
         if (!image.isNull())
@@ -48,6 +69,7 @@ Stage::Stage(Hyprland *hyprland, Capture *capture, Snapshots *snapshots, Apps *a
     });
 
     refreshLook();
+    m_dividersLater.start();
     refreshTouch();
     const Monitor m = monitor();
     if (m.ok && m.special == Scratchpad) {
@@ -290,6 +312,70 @@ void Stage::refreshLook()
     }
 }
 
+QVariantList Stage::dividersIn(const QVariantList &windows, qreal gap)
+{
+    struct Piece {
+        qreal at, from, to, start, end;
+        QStringList before, after;
+    };
+    QList<QPair<QRectF, QString>> boxes;
+    for (const QVariant &v : windows) {
+        const QVariantMap w = v.toMap();
+        boxes << qMakePair(QRectF(w["x"].toReal(), w["y"].toReal(), w["w"].toReal(), w["h"].toReal()), w["address"].toString());
+    }
+    QVariantList out;
+    for (const bool vertical : {true, false}) {
+        // Along a vertical line, "across" is x and "along" is y.
+        auto lo = [vertical](const QRectF &r) { return vertical ? r.left() : r.top(); };
+        auto hi = [vertical](const QRectF &r) { return vertical ? r.right() : r.bottom(); };
+        auto alongLo = [vertical](const QRectF &r) { return vertical ? r.top() : r.left(); };
+        auto alongHi = [vertical](const QRectF &r) { return vertical ? r.bottom() : r.right(); };
+        QList<Piece> pieces;
+        for (const auto &[a, aId] : boxes) {
+            for (const auto &[b, bId] : boxes) {
+                const qreal between = lo(b) - hi(a);
+                const qreal from = qMax(alongLo(a), alongLo(b)), to = qMin(alongHi(a), alongHi(b));
+                // One gap apart, side by side for more than a corner.
+                if (between <= 0 || between > gap + 2 || to - from < 1)
+                    continue;
+                pieces << Piece{(hi(a) + lo(b)) / 2, from, to, lo(a), hi(b), {aId}, {bId}};
+            }
+        }
+        std::sort(pieces.begin(), pieces.end(),
+                  [](const Piece &p, const Piece &q) { return p.at != q.at ? p.at < q.at : p.from < q.from; });
+        // Pieces on the same line, one gap or less apart, are one divider: a
+        // window on one side and two stacked on the other meet along one line.
+        QList<Piece> merged;
+        for (const Piece &p : std::as_const(pieces)) {
+            if (!merged.isEmpty() && qAbs(merged.last().at - p.at) < 2 && p.from <= merged.last().to + gap + 2) {
+                Piece &m = merged.last();
+                m.from = qMin(m.from, p.from);
+                m.to = qMax(m.to, p.to);
+                m.start = qMin(m.start, p.start);
+                m.end = qMax(m.end, p.end);
+                for (const QString &id : p.before)
+                    if (!m.before.contains(id))
+                        m.before << id;
+                for (const QString &id : p.after)
+                    if (!m.after.contains(id))
+                        m.after << id;
+            } else {
+                merged << p;
+            }
+        }
+        for (const Piece &m : std::as_const(merged))
+            out << QVariantMap{{"vertical", vertical}, {"at", m.at},         {"from", m.from},     {"to", m.to},
+                               {"start", m.start},     {"end", m.end},       {"before", m.before}, {"after", m.after}};
+    }
+    return out;
+}
+
+void Stage::refreshDividers()
+{
+    if (!m_dividersLater.isActive())
+        m_dividersLater.start();
+}
+
 QRectF Stage::consoleBox(const QRectF &usable, int windows)
 {
     const qreal tall = std::floor(usable.height() * 0.5);
@@ -382,6 +468,12 @@ void Stage::launch(const QVariantMap &plan, const QString &appId, qreal fraction
 
 void Stage::onEvent(const QString &name, const QString &data)
 {
+    // Anything that can move a window moves the lines between them.
+    static const QStringList layoutEvents{"openwindow",  "closewindow", "movewindowv2", "changefloatingmode",
+                                          "fullscreen",  "workspacev2", "activespecial", "configreloaded",
+                                          "monitoradded", "monitorremoved"};
+    if (layoutEvents.contains(name))
+        refreshDividers();
     if (name == "configreloaded") {
         refreshLook();
         refreshTouch();
@@ -498,6 +590,89 @@ int Stage::pictureOf(const QVariantMap &window)
     return m_pictures.value(address);
 }
 
+QVariantMap Stage::beginDivider(const QVariantMap &divider)
+{
+    m_pictures.clear();
+    const Monitor m = monitor();
+    const QStringList before = divider["before"].toStringList(), after = divider["after"].toStringList();
+    QVariantList beforeWindows, afterWindows;
+    for (const QVariant &v : windowsOn(m.special.isEmpty() ? m.workspaceName : m.special, m.logical.topLeft())) {
+        QVariantMap w = v.toMap();
+        const QString address = w["address"].toString();
+        if (!before.contains(address) && !after.contains(address))
+            continue;
+        w["snapshot"] = pictureOf(w);
+        (before.contains(address) ? beforeWindows : afterWindows) << w;
+    }
+    qCDebug(lcStage) << "divider held" << divider["at"] << "between" << before << "and" << after;
+    return {{"edge", "divider"},          {"divider", divider},
+            {"before", beforeWindows},    {"after", afterWindows},
+            {"usable", rectMap(m.usable.translated(-m.logical.topLeft()))},
+            {"inConsole", !m.special.isEmpty()}};
+}
+
+// Hyprland moves a divider by the difference between the size a window
+// beside it is given and the size it has, whichever side the window is on
+// (tried in a nested Hyprland). A window whose far side is the room's edge
+// touches only this divider, so that is the one that moves.
+void Stage::resizeDivider(const QVariantMap &divider, qreal fraction)
+{
+    const bool vertical = divider["vertical"].toBool();
+    const qreal start = divider["start"].toReal(), end = divider["end"].toReal();
+    const qreal shift = start + fraction * (end - start) - divider["at"].toReal();
+    const Monitor m = monitor();
+    const QVariantList windows = windowsOn(m.special.isEmpty() ? m.workspaceName : m.special, m.logical.topLeft());
+    QVariantMap chosen;
+    for (const QVariant &v : windows) {
+        const QVariantMap w = v.toMap();
+        const qreal lo = vertical ? w["x"].toReal() : w["y"].toReal();
+        const qreal hi = lo + (vertical ? w["w"].toReal() : w["h"].toReal());
+        const bool before = divider["before"].toStringList().contains(w["address"].toString());
+        const bool after = divider["after"].toStringList().contains(w["address"].toString());
+        if ((before && qAbs(lo - start) < 2) || (after && qAbs(hi - end) < 2)) {
+            chosen = w;
+            break;
+        }
+        if ((before || after) && chosen.isEmpty())
+            chosen = w;
+    }
+    if (chosen.isEmpty() || qAbs(shift) < 1)
+        return;
+    const qreal width = chosen["w"].toReal() + (vertical ? shift : 0);
+    const qreal height = chosen["h"].toReal() + (vertical ? 0 : shift);
+    qCDebug(lcStage) << "divider to" << fraction << "by" << shift << "through" << chosen["address"];
+    // The pictures already show the new sizes; Hyprland needn't animate there.
+    withoutAnimation("windows", [&] {
+        m_hyprland->dispatch(QString("hl.dsp.window.resize({ x = %1, y = %2, window = \"address:%3\" })")
+                                 .arg(qRound(width))
+                                 .arg(qRound(height))
+                                 .arg(chosen["address"].toString()));
+    });
+    refreshDividers();
+}
+
+void Stage::pushOff(const QStringList &addresses)
+{
+    const Monitor m = monitor();
+    QList<int> taken;
+    for (const QJsonValue &value : m_hyprland->query("workspaces").array())
+        taken << value.toObject().value("id").toInt();
+    int empty = 0;
+    for (int id = 1; id <= LastWorkspace && !empty; ++id)
+        if (!taken.contains(id))
+            empty = id;
+    if (!empty)
+        return;
+    qCDebug(lcStage) << "pushed off" << addresses << "to workspace" << empty;
+    withoutAnimation("windows", [&] {
+        for (const QString &address : addresses)
+            m_hyprland->dispatch(QString("hl.dsp.window.move({ workspace = \"%1\", follow = false, window = \"address:%2\" })")
+                                     .arg(empty)
+                                     .arg(address));
+    });
+    refreshDividers();
+}
+
 void Stage::prefetchSlide()
 {
     const Monitor m = monitor();
@@ -600,6 +775,34 @@ QVariantMap Stage::slidePlan(const QString &direction)
         plan["nextWindows"] = windows(next);
     qCDebug(lcStage) << "slide" << direction << "from" << m.workspace << "to" << next;
     return plan;
+}
+
+QVariantMap Stage::beginLift()
+{
+    const Monitor m = monitor();
+    const QPointF origin = m.logical.topLeft();
+    QVariantList windows = windowsOn(Scratchpad, origin);
+    m_pictures.clear();
+    for (QVariant &v : windows) {
+        QVariantMap w = v.toMap();
+        w["snapshot"] = pictureOf(w);
+        v = w;
+    }
+    return {
+        {"edge", "top"},
+        {"allowed", true},
+        {"empty", windows.isEmpty()},
+        {"lift", true},
+        {"console", rectMap(m_consoleRect)},
+        {"windows", windows},
+        {"usable", rectMap(m.usable.translated(-origin))},
+    };
+}
+
+void Stage::hideConsole()
+{
+    if (m_consoleOpen)
+        withoutAnimation("specialWorkspaceOut", [this] { m_hyprland->dispatch("hl.dsp.workspace.toggle_special(\"scratchpad\")"); });
 }
 
 void Stage::closeConsole()
@@ -902,6 +1105,27 @@ QString Stage::command(const QString &line)
         return QString("ok console=%1 apps=%2").arg(m_consoleOpen ? "open" : "closed").arg(m_apps->rowCount());
     if (verb == "quit") {
         QMetaObject::invokeMethod(QCoreApplication::instance(), &QCoreApplication::quit, Qt::QueuedConnection);
+        return "ok";
+    }
+    if (verb == "top") {
+        // `top begin X Y`, `top follow DISTANCE`, `top end 1|0`: a finger on
+        // the bar pulling the console down, as the bar sees it.
+        const QString action = words.value(1);
+        if (action == "begin") {
+            m_topFrom = QPointF(words.value(2).toDouble(), words.value(3).toDouble());
+            m_topDistance = 0;
+            QVariantMap plan = beginEdge("top", m_topFrom.x(), m_topFrom.y());
+            plan["fromX"] = m_topFrom.x();
+            plan["fromY"] = m_topFrom.y();
+            emit topPulled(plan, m_topFrom);
+        } else if (action == "follow") {
+            m_topDistance = words.value(2).toDouble();
+            emit topMoved(m_topFrom + QPointF(0, m_topDistance));
+        } else if (action == "end") {
+            emit topReleased(m_topFrom + QPointF(0, m_topDistance), words.value(2) == "1");
+        } else {
+            return "error top begin|follow|end";
+        }
         return "ok";
     }
     if (verb == "console") {

@@ -7,7 +7,7 @@ TARGET = stage
 # The one place stage's version is set: --version and the package read it
 # from here. The commit it was built from comes along, so builds of the same
 # version can be told apart.
-VERSION = 0.2.2
+VERSION = 0.3.0
 COMMIT = $$system(git -C $$PWD rev-parse --short HEAD 2>/dev/null)
 DEFINES += STAGE_VERSION=\\\"$$VERSION\\\" STAGE_COMMIT=\\\"$$COMMIT\\\"
 TEMPLATE = app

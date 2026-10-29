@@ -35,6 +35,9 @@ class Stage : public QObject {
     // How Hyprland draws windows: gapsIn, gapsOut, border, rounding, and the
     // active and inactive border colors (#aarrggbb lists, with an angle).
     Q_PROPERTY(QVariantMap look READ look NOTIFY lookChanged)
+    // Where tiled windows meet, so a finger can hold and drag the line between
+    // them (see dividersIn).
+    Q_PROPERTY(QVariantList dividers READ dividers NOTIFY dividersChanged)
 
 public:
     // At most this many windows share a workspace, and this many the console.
@@ -53,6 +56,7 @@ public:
     QRectF consoleRect() const { return m_consoleRect; }
     QVariantMap look() const { return m_look; }
     bool hand() const { return m_hand; }
+    QVariantList dividers() const { return m_dividers; }
 
     // A finger from the touch screen (Touchscreen::touched).
     void touch(Touchscreen::Kind kind, int slot, const QPointF &panel, qreal ms);
@@ -69,7 +73,23 @@ public:
     // (the finger already did), or sends it back up.
     Q_INVOKABLE void openConsole();
     Q_INVOKABLE void closeConsole();
+    // The console going up under a finger: its windows as they are now, with
+    // pictures on their way (beginEdge("top")'s plan, but for an open console).
+    Q_INVOKABLE QVariantMap beginLift();
+    // Takes the console away at once, its pictures already showing.
+    Q_INVOKABLE void hideConsole();
     Q_INVOKABLE void setInputRegion(const QVariantList &rects);
+    // Finds the dividers again, a moment from now (after the layout changes,
+    // or the screen turns).
+    Q_INVOKABLE void refreshDividers();
+    // A finger holds `divider` (one of `dividers`): its windows on both sides,
+    // with pictures on their way, and the usable area.
+    Q_INVOKABLE QVariantMap beginDivider(const QVariantMap &divider);
+    // Moves the divider to `fraction` of the room it splits.
+    Q_INVOKABLE void resizeDivider(const QVariantMap &divider, qreal fraction);
+    // The windows a divider was pushed over leave the split: they go to the
+    // next empty workspace, still running, and the others fill the room.
+    Q_INVOKABLE void pushOff(const QStringList &addresses);
     // Asks the window to close, without Hyprland animating it away a second
     // time (the picture already left); `windowClosed` follows if it does.
     Q_INVOKABLE void closeWindow(const QString &address);
@@ -91,12 +111,24 @@ public:
     // The workspace three fingers slide to from `current`, of Hyprland's
     // `workspaces`; 0 when there is none that way.
     static int neighbourOf(const QJsonArray &workspaces, const QString &monitor, int current, const QString &direction);
+    // Every line where windows meet across one gap (`gap`: the space between
+    // two windows' surfaces, borders and gaps included), each as {vertical,
+    // at (the line), from, to (its extent), before and after (the windows'
+    // addresses on either side), start and end (the room the two sides
+    // share)}. A vertical line has windows left and right of it.
+    static QVariantList dividersIn(const QVariantList &windows, qreal gap);
     // "ff7aa2f7 33ccffee 45deg" as {colors: ["#ff7aa2f7", ...], angle: 45}.
     static QVariantMap parseGradient(const QString &gradient);
 
 signals:
     void consoleOpenChanged();
     void lookChanged();
+    void dividersChanged();
+    // A finger on the bar pulls the console down; the bar sends its pull over
+    // the command socket (`stage top begin|follow|end`) and these follow it.
+    void topPulled(const QVariantMap &plan, const QPointF &at);
+    void topMoved(const QPointF &at);
+    void topReleased(const QPointF &at, bool open);
     void snapshotReady(int id, bool ok);
     void placed(bool ok);
     void handChanged();
@@ -151,6 +183,10 @@ private:
     QLocalServer *m_server = nullptr;
 
     QVariantMap m_look;
+    QPointF m_topFrom;
+    qreal m_topDistance = 0;
+    QVariantList m_dividers;
+    QTimer m_dividersLater;
     bool m_consoleOpen = false;
     QRectF m_consoleRect;
     QList<QRect> m_inputRects;

@@ -17,8 +17,9 @@ the same the other way. Pull the scratchpad console down from the top.
 |---|---|
 | One finger in from the **right edge** | Shrinks the window beside your finger sideways; the launcher fills the room |
 | One finger up from the **bottom edge** | Shrinks the window above your finger upward; the launcher fills the room |
-| One finger down from the **top edge** | Pulls Omarchy's scratchpad console down; an empty one offers the launcher |
-| Tap or push up on the dimmed screen, or swipe up from the bottom edge | Sends the console back up |
+| One finger down from the middle of the **bar** (or the top edge without Omarchy Pad's bar) | Pulls Omarchy's scratchpad console down with the finger; an empty one offers the launcher |
+| Push up on the dimmed screen or from the bottom edge, with the console down | Takes the console up with the finger; a short push puts it back. A tap on the dimmed screen sends it up too |
+| Hold the **line between two windows** (0.2 s, it lights up), then drag | Both windows follow the line, frosted; let go and it lands on a third, a half or two thirds. Pushed to the screen's edge, a single window leaves for an empty workspace of its own |
 | Two fingers pulled **down** on a window | The window follows them and, let go far enough or flicked, slides off and closes; a short pull puts it back |
 | Three fingers sideways | Slides this workspace aside for the next or previous one, following your fingers; a quarter of the way or a flick switches, less goes back. Past the last workspace with windows there is one empty one, to start something new on |
 | Three fingers up | Maximizes the focused window |
@@ -41,6 +42,17 @@ Hyprland has closed it, the others move in. A window with something behind it
 your fingers still sees them, so a page may scroll a little while you pull.
 Try it without touching: `stage simulate pull 1150 300 1150 650`, then
 `stage simulate release`.
+
+Holding a line between windows: stage keeps a grip about 28 px wide along
+every line where tiled windows meet, so the apps never get that touch (a
+browser would open its menu first). The light gathers at the finger in the
+theme's accent while it's held, and bursts when it's grabbed. Try it without
+touching: `stage simulate press X Y` on a line, `stage simulate move X Y`, then
+`stage simulate release`.
+
+Omarchy Pad's bar (`../shell/bar`) hands a pull from its middle to stage over
+the command socket: `stage top begin X Y`, `stage top follow DISTANCE`,
+`stage top end 1|0`.
 
 A workspace holds at most four windows (two each way), the console two. Past
 that, or splitting a window that already shares its width or height, the

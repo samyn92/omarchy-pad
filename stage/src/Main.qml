@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 
 // One transparent overlay over the whole screen. At rest it only takes
 // touches in thin strips along the right, bottom and top edges. A finger that
@@ -97,6 +98,15 @@ Window {
             rects.push(Qt.rect(0, c.y, c.x, c.height))
             rects.push(Qt.rect(c.x + c.width, c.y, width - c.x - c.width, c.height))
         }
+        // A grip along every line between windows, so holding it never reaches
+        // the apps (a browser would open its menu first). They stop short of the
+        // screen's edges, which have gestures of their own.
+        for (const d of stage.dividers) {
+            const from = Math.max(d.from, 20), to = Math.min(d.to, (d.vertical ? height : width) - 20)
+            if (to > from)
+                rects.push(d.vertical ? Qt.rect(d.at - grip / 2, from, grip, to - from)
+                                      : Qt.rect(from, d.at - grip / 2, to - from, grip))
+        }
         return rects
     }
     onInputRectsChanged: stage.setInputRegion(inputRects)
@@ -147,6 +157,11 @@ Window {
         }
         if (phase !== "idle")
             return
+        const held = dividerAt(p.x, p.y)
+        if (held && edgeAt(p.x, p.y) === "") {
+            beginHold(held, p)
+            return
+        }
         const at = edgeAt(p.x, p.y)
         if (at === "")
             return
@@ -175,18 +190,37 @@ Window {
     }
 
     function moved(p) {
+        // A push up on the dimmed screen or the bottom edge takes the console
+        // up with the finger.
+        if (phase === "dismiss") {
+            if (start.y - p.y > 12)
+                beginLift()
+            return
+        }
+        if (phase === "holding") {
+            // Moving away before it's grabbed was a scroll or a slip, not a hold.
+            if (Math.hypot(p.x - start.x, p.y - start.y) > 10)
+                letGo()
+            return
+        }
         if (phase !== "tracking" || closing)
             return
-        const d = distance(p)
+        const d = dividing ? (dividerVertical ? p.x - start.x : p.y - start.y) : distance(p)
         const now = Date.now()
         samples.push({d: d, t: now})
         while (samples.length > 2 && now - samples[0].t > 90)
             samples.shift()
+        if (dividing) {
+            pull = dividerPull(d)
+            return
+        }
         if (!plan.allowed) {
             pull = rubber(d)
         } else if (splitting) {
             const most = span * 0.75
             pull = d <= most ? Math.max(0, d) : most + rubber(d - most)
+        } else if (lifting) {
+            pull = d <= 0 ? Math.max(0, box.height + d) : box.height + rubber(d)
         } else if (edge === "top") {
             pull = d <= box.height ? Math.max(0, d) : box.height + rubber(d - box.height)
         } else {
@@ -205,32 +239,47 @@ Window {
     function released(p) {
         if (phase === "dismiss") {
             phase = "idle"
-            // A tap, or a push upward, on the dimmed screen sends the console back.
-            if (Math.hypot(p.x - start.x, p.y - start.y) < 14 || start.y - p.y > 40)
+            // A tap on the dimmed screen sends the console back.
+            if (Math.hypot(p.x - start.x, p.y - start.y) < 14)
                 stage.closeConsole()
+            return
+        }
+        if (phase === "holding") {
+            letGo()
             return
         }
         if (phase !== "tracking" || closing)
             return
         const v = speed()
+        if (dividing) {
+            releaseDivider(v)
+            return
+        }
         if (!plan.allowed) {
             settle(0, finish)
             return
         }
-        if (edge === "top") {
-            if (pull > box.height * 0.35 || v > 700) {
-                settle(box.height, function () {
-                    if (plan.empty) {
-                        phase = "room"
-                    } else {
-                        phase = "leaving"
-                        stage.openConsole()
-                        leaveTimer.start()
-                    }
-                })
-            } else {
+        if (lifting) {
+            // Up a third of the way, or flicked up, and it's gone; less, and it
+            // comes back down.
+            const up = box.height - pull
+            if (up > box.height * 0.3 || v < -700) {
+                if (!liftHidden)
+                    stage.closeConsole()
                 settle(0, finish)
+            } else {
+                settle(box.height, function () {
+                    if (!liftHidden)
+                        return finish()
+                    phase = "leaving"
+                    stage.openConsole()
+                    leaveTimer.start()
+                })
             }
+            return
+        }
+        if (edge === "top") {
+            settleTop(pull > box.height * 0.35 || v > 700)
             return
         }
         if (fresh) {
@@ -259,6 +308,62 @@ Window {
         settle(0, finish)
     }
 
+    // Down it comes (the console opens, or an empty one offers apps), or back up.
+    function settleTop(open) {
+        if (!open) {
+            settle(0, finish)
+            return
+        }
+        settle(box.height, function () {
+            if (plan.empty) {
+                phase = "room"
+            } else {
+                phase = "leaving"
+                stage.openConsole()
+                leaveTimer.start()
+            }
+        })
+    }
+
+    // ---- the console from the bar, and back up ----
+
+    property bool fromTop: false     // the bar is sending this pull
+    property bool liftHidden: false  // the real console has gone; its pictures are it now
+    readonly property bool lifting: plan !== null && plan.lift === true
+    readonly property bool liftReady: lifting && plan.windows.every(w => ready[w.snapshot] === true)
+    onLiftReadyChanged: {
+        // Pictures in, real console out, in the same frame.
+        if (liftReady && !liftHidden) {
+            liftHidden = true
+            stage.hideConsole()
+        }
+    }
+
+    function beginLift() {
+        plan = stage.beginLift()
+        ready = ({})
+        samples = []
+        veil = 1
+        liftHidden = false
+        phase = "tracking"
+        pull = box.height
+    }
+
+    function topPulled(p, at) {
+        if (phase !== "idle")
+            return
+        plan = p
+        start = Qt.point(p.fromX, p.fromY)
+        ready = ({})
+        pull = 0
+        fraction = 1
+        veil = 1
+        samples = []
+        fromTop = true
+        phase = "tracking"
+        moved(at)
+    }
+
     function finish() {
         phase = "idle"
         plan = null
@@ -267,6 +372,154 @@ Window {
         veil = 1
         launchingIcon = ""
         gone = false
+        holdProgress = 0
+        burst = 0
+        ripple = 0
+        fromTop = false
+        liftHidden = false
+    }
+
+    // ---- holding the line between two windows ----
+
+    // How long a finger holds a divider before it's grabbed, and how wide the
+    // grip along it is (the gap itself is about 14 px).
+    readonly property int holdMs: 200
+    readonly property real grip: 28
+    property real holdProgress: 0   // the light gathering while it's held, 0 to 1
+    property real burst: 0          // the flash as it's grabbed, up to 1 and back
+    property real ripple: 0         // the ring going out from the finger then, 0 to 1
+    property real fingerAlong: 0    // where along the line the finger is
+    readonly property bool dividing: edge === "divider"
+    readonly property var divider: dividing ? plan.divider : null
+    readonly property bool dividerVertical: divider ? divider.vertical : true
+    readonly property real dividerLine: divider ? divider.at + pull : 0
+    // The theme's accent, the colour Omarchy marks what is picked with.
+    readonly property color glowColor: theme.accent || (look && look.active && look.active.colors ? look.active.colors[0] : "#7aa2f7")
+
+    function dividerAt(x, y) {
+        for (const d of stage.dividers) {
+            const across = d.vertical ? x : y, along = d.vertical ? y : x
+            if (Math.abs(across - d.at) <= grip / 2 && along >= d.from && along <= d.to)
+                return d
+        }
+        return null
+    }
+
+    function beginHold(d, p) {
+        plan = stage.beginDivider(d)
+        start = Qt.point(p.x, p.y)
+        fingerAlong = d.vertical ? p.y : p.x
+        pull = 0
+        veil = 1
+        samples = []
+        holdProgress = 0
+        burst = 0
+        ripple = 0
+        phase = "holding"
+        holding.restart()
+    }
+
+    // Lifted, moved away or joined by another finger before it was grabbed:
+    // the light fades and nothing happens.
+    function letGo() {
+        holding.stop()
+        phase = "settling"
+        fading.restart()
+    }
+
+    function grab() {
+        phase = "tracking"
+        samples = []
+        flash.restart()
+    }
+
+    // The line follows the finger across the room it splits, and only gives a
+    // little past its ends.
+    function dividerPull(d) {
+        const lo = divider.start, hi = divider.end, at = divider.at + d
+        if (at < lo)
+            return lo - rubber(lo - at) - divider.at
+        if (at > hi)
+            return hi + rubber(at - hi) - divider.at
+        return d
+    }
+
+    // Let go: on the nearest of a third, a half and two thirds (a flick goes
+    // on to the next one), or, pushed right to an end with a single window
+    // there, that window leaves the split for a workspace of its own, the way
+    // iPadOS does.
+    function releaseDivider(v) {
+        const d = divider, room = d.end - d.start
+        const f = (d.at + pull - d.start) / room
+        const alone = side => side.length === 1 && !plan.inConsole
+        if (f < 0.12 && alone(plan.before)) {
+            settle(d.start - d.at, function () { stage.pushOff(plan.before.map(w => w.address)); leaveDivider() })
+            return
+        }
+        if (f > 0.88 && alone(plan.after)) {
+            settle(d.end - d.at, function () { stage.pushOff(plan.after.map(w => w.address)); leaveDivider() })
+            return
+        }
+        const stops = [1 / 3, 1 / 2, 2 / 3]
+        let choice = stops.reduce((a, b) => Math.abs(b - f) < Math.abs(a - f) ? b : a)
+        if (Math.abs(v) > 900) {
+            const ahead = stops.filter(c => v > 0 ? c > f + 0.02 : c < f - 0.02)
+            if (ahead.length)
+                choice = v > 0 ? ahead[0] : ahead[ahead.length - 1]
+        }
+        settle(d.start + choice * room - d.at, function () {
+            stage.resizeDivider(d, choice)
+            leaveDivider()
+        })
+    }
+
+    // The pictures stay until Hyprland has the windows where they are.
+    function leaveDivider() {
+        phase = "leaving"
+        leaveTimer.start()
+    }
+
+    // A window beside the line, with the line where the finger has it.
+    function paneBox(w, before) {
+        const half = gapIn + border
+        if (dividerVertical)
+            return before ? Qt.rect(w.x, w.y, dividerLine - half - w.x, w.h)
+                          : Qt.rect(dividerLine + half, w.y, w.x + w.w - dividerLine - half, w.h)
+        return before ? Qt.rect(w.x, w.y, w.w, dividerLine - half - w.y)
+                      : Qt.rect(w.x, dividerLine + half, w.w, w.y + w.h - dividerLine - half)
+    }
+
+    // All the windows on both sides, borders included.
+    function dividedRoom() {
+        let x0 = width, y0 = height, x1 = 0, y1 = 0
+        for (const w of plan.before.concat(plan.after)) {
+            x0 = Math.min(x0, w.x - border)
+            y0 = Math.min(y0, w.y - border)
+            x1 = Math.max(x1, w.x + w.w + border)
+            y1 = Math.max(y1, w.y + w.h + border)
+        }
+        return Qt.rect(x0, y0, x1 - x0, y1 - y0)
+    }
+
+    SequentialAnimation {
+        id: holding
+        NumberAnimation { target: win; property: "holdProgress"; from: 0; to: 1; duration: win.holdMs; easing.type: Easing.InOutSine }
+        ScriptAction { script: win.grab() }
+    }
+
+    SequentialAnimation {
+        id: fading
+        NumberAnimation { target: win; property: "holdProgress"; to: 0; duration: 220; easing.type: Easing.OutCubic }
+        ScriptAction { script: win.finish() }
+    }
+
+    ParallelAnimation {
+        id: flash
+        SequentialAnimation {
+            NumberAnimation { target: win; property: "burst"; from: 0; to: 1; duration: 90; easing.type: Easing.OutCubic }
+            NumberAnimation { target: win; property: "burst"; to: 0; duration: 480; easing.type: Easing.OutQuad }
+        }
+        NumberAnimation { target: win; property: "ripple"; from: 0; to: 1; duration: 520; easing.type: Easing.OutCubic }
     }
 
     // ---- three fingers sliding the workspaces ----
@@ -392,7 +645,7 @@ Window {
             duration: 320
             // A little overshoot when it lands somewhere, none on the way back,
             // nor where a workspace lines up with the screen.
-            easing.type: settler.to > 0 && !win.sliding ? Easing.OutBack : Easing.OutCubic
+            easing.type: (settler.to > 0 || win.dividing) && !win.sliding ? Easing.OutBack : Easing.OutCubic
             easing.overshoot: 0.7
         }
         ScriptAction {
@@ -440,8 +693,28 @@ Window {
         }
         // A hand puts down whatever one finger at an edge had started.
         function onHandChanged() {
-            if (stage.hand && (win.phase === "tracking" || win.phase === "dismiss") && !win.closing)
+            if (stage.hand && win.phase === "holding")
+                win.letGo()
+            else if (stage.hand && (win.phase === "tracking" || win.phase === "dismiss") && !win.closing)
                 win.finish()
+        }
+        function onTopPulled(plan, at) { win.topPulled(plan, at) }
+        function onTopMoved(at) {
+            if (win.fromTop)
+                win.moved(at)
+        }
+        function onTopReleased(at, open) {
+            if (!win.fromTop || win.phase !== "tracking")
+                return
+            win.moved(at)
+            win.settleTop(open && win.plan.allowed)
+        }
+        // Hyprland has laid the windows out where the pictures were.
+        function onDividersChanged() {
+            if (win.phase === "leaving" && win.dividing) {
+                leaveTimer.stop()
+                fadeOut.start()
+            }
         }
         function onPullStarted(plan, at, ms) { win.handPulled(plan, at, ms) }
         function onPullMoved(at, ms) { win.handMoved(at, ms) }
@@ -548,7 +821,7 @@ Window {
 
         // The console, pulled down from the top over a darkening screen.
         Rectangle {
-            visible: win.edge === "top"
+            visible: win.edge === "top" && (!win.lifting || win.liftHidden)
             anchors.fill: parent
             color: "black"
             opacity: 0.6 * win.drop
@@ -556,7 +829,7 @@ Window {
 
         Item {
             id: dropped
-            visible: win.edge === "top"
+            visible: win.edge === "top" && (!win.lifting || win.liftHidden)
             x: win.box.x
             width: win.box.width
             height: win.box.height
@@ -676,6 +949,142 @@ Window {
             windows: win.sliding && win.plan.nextWindows ? win.plan.nextWindows : []
         }
 
+        // A divider grabbed: the windows on both sides become frosted pictures
+        // over the wallpaper and follow the line (a picture cut or stretched
+        // never shows through the frost; the app's icon says which is which).
+        Item {
+            visible: win.dividing && win.phase !== "holding"
+            readonly property rect room: win.dividing ? win.dividedRoom() : Qt.rect(0, 0, 0, 0)
+            x: room.x
+            y: room.y
+            width: room.width
+            height: room.height
+            clip: true
+            Image {
+                x: -parent.x
+                y: -parent.y
+                width: win.width
+                height: win.height
+                source: wallpaper.source
+                sourceSize: wallpaper.sourceSize
+                fillMode: Image.PreserveAspectCrop
+            }
+        }
+        Repeater {
+            model: win.dividing && win.phase !== "holding" ? win.plan.before : []
+            delegate: Pane { before: true }
+        }
+        Repeater {
+            model: win.dividing && win.phase !== "holding" ? win.plan.after : []
+            delegate: Pane { before: false }
+        }
+
+        // The light: the line grows out from the finger while it's held, a bloom
+        // gathers under it and the windows' frames light up; then a flash and a
+        // ring as it's grabbed, and the line stays lit while it moves.
+        Item {
+            id: glow
+            visible: win.dividing
+            anchors.fill: parent
+            readonly property real across: win.dividerLine
+            readonly property real along: win.fingerAlong
+            readonly property real from: win.divider ? win.divider.from : 0
+            readonly property real to: win.divider ? win.divider.to : 0
+
+            // How strongly it shines: there from the touch, building to the grab.
+            readonly property real shine: Math.min(1, 0.35 + win.holdProgress)
+
+            Item {
+                id: light
+                anchors.fill: parent
+                visible: false
+                // The line, from the finger out along the divider.
+                Rectangle {
+                    readonly property real reach: 30 + (glow.to - glow.from) * win.holdProgress
+                    readonly property real lo: Math.max(glow.from, glow.along - reach)
+                    readonly property real hi: Math.min(glow.to, glow.along + reach)
+                    x: win.dividerVertical ? glow.across - 4 : lo
+                    y: win.dividerVertical ? lo : glow.across - 4
+                    width: win.dividerVertical ? 8 : hi - lo
+                    height: win.dividerVertical ? hi - lo : 8
+                    radius: 4
+                    color: win.glowColor
+                    // A white-hot middle.
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: win.dividerVertical ? 3 : parent.width
+                        height: win.dividerVertical ? parent.height : 3
+                        radius: 1.5
+                        color: "white"
+                        opacity: 0.85
+                    }
+                }
+                // The bloom under the finger, hot in the middle.
+                Rectangle {
+                    readonly property real size: 36 + 60 * win.holdProgress + 160 * win.burst
+                    x: (win.dividerVertical ? glow.across : glow.along) - size / 2
+                    y: (win.dividerVertical ? glow.along : glow.across) - size / 2
+                    width: size
+                    height: size
+                    radius: size / 2
+                    color: win.glowColor
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: parent.width * 0.4
+                        height: width
+                        radius: width / 2
+                        color: "white"
+                        opacity: 0.7 + 0.3 * win.burst
+                    }
+                }
+                // Both windows' frames light up, brighter as the hold goes on.
+                Repeater {
+                    model: win.dividing ? win.plan.before.map(w => ({w: w, before: true}))
+                                              .concat(win.plan.after.map(w => ({w: w, before: false}))) : []
+                    delegate: Rectangle {
+                        required property var modelData
+                        readonly property rect box: win.paneBox(modelData.w, modelData.before)
+                        x: box.x - win.border - 1
+                        y: box.y - win.border - 1
+                        width: box.width + 2 * win.border + 2
+                        height: box.height + 2 * win.border + 2
+                        color: "transparent"
+                        border.width: 3 + 3 * win.burst
+                        border.color: win.glowColor
+                        opacity: 0.3 + 0.7 * Math.max(win.burst, win.holdProgress * win.holdProgress)
+                    }
+                }
+            }
+            // The halo: every shape above, haloed in the accent.
+            MultiEffect {
+                anchors.fill: light
+                source: light
+                blurMax: 64
+                shadowEnabled: true
+                shadowColor: win.glowColor
+                shadowBlur: 1.0
+                shadowScale: 1.04
+                shadowOpacity: 1
+                shadowHorizontalOffset: 0
+                shadowVerticalOffset: 0
+                brightness: 0.15 + 0.45 * win.burst
+                opacity: glow.shine
+            }
+            Rectangle {
+                readonly property real size: 40 + 340 * win.ripple
+                visible: win.ripple > 0 && win.ripple < 1
+                x: (win.dividerVertical ? glow.across : glow.along) - size / 2
+                y: (win.dividerVertical ? glow.along : glow.across) - size / 2
+                width: size
+                height: size
+                radius: size / 2
+                color: "transparent"
+                border.width: 3
+                border.color: win.glowColor
+                opacity: 1 - win.ripple
+            }
+        }
+
         // The app on its way, where it will appear.
         Image {
             readonly property Item host: win.edge === "top" ? dropped : room
@@ -692,6 +1101,49 @@ Window {
                 NumberAnimation { from: 1; to: 0.9; duration: 520; easing.type: Easing.InOutSine }
                 NumberAnimation { from: 0.9; to: 1; duration: 520; easing.type: Easing.InOutSine }
             }
+        }
+    }
+
+    // A window beside a grabbed divider, frosted, with its app's icon.
+    component Pane: WindowFrame {
+        id: pane
+        required property var modelData
+        property bool before
+        readonly property rect box: win.paneBox(modelData, before)
+        x: box.x - win.border
+        y: box.y - win.border
+        width: Math.max(0, box.width) + 2 * win.border
+        height: Math.max(0, box.height) + 2 * win.border
+        border: win.border
+        rounding: win.look && win.look.rounding !== undefined ? win.look.rounding : 0
+        colors: win.look ? win.look.active : null
+        fill: style.panel
+        Image {
+            id: shot
+            anchors.fill: parent
+            visible: false
+            fillMode: Image.PreserveAspectCrop
+            source: win.ready[pane.modelData.snapshot] === true ? "image://snapshot/" + pane.modelData.snapshot : ""
+            sourceSize: Qt.size(pane.modelData.w * Screen.devicePixelRatio, pane.modelData.h * Screen.devicePixelRatio)
+            asynchronous: true
+            cache: false
+        }
+        MultiEffect {
+            anchors.fill: shot
+            source: shot
+            visible: shot.status === Image.Ready
+            blurEnabled: true
+            blurMax: 40
+            blur: 0.75
+            brightness: -0.06
+        }
+        Image {
+            anchors.centerIn: parent
+            width: 96
+            height: 96
+            sourceSize: Qt.size(192, 192)
+            source: "image://icon/" + win.iconFor(pane.modelData.appClass)
+            asynchronous: true
         }
     }
 
@@ -746,6 +1198,17 @@ Window {
             fakeFinger.steps = Math.max(1, Math.round(ms / fakeFinger.interval))
             fakeFinger.step = 0
             pressed({x: x0, y: y0})
+            fakeFinger.restart()
+        } else if (action === "press") {
+            // Just a finger landing, to hold a divider for real time.
+            fakeFinger.stop()
+            fakeFinger.at = Qt.point(x0, y0)
+            pressed({x: x0, y: y0})
+        } else if (action === "move") {
+            fakeFinger.from = fakeFinger.at
+            fakeFinger.to = Qt.point(x0, y0)
+            fakeFinger.steps = Math.max(1, Math.round((x1 > 0 ? x1 : 300) / fakeFinger.interval))
+            fakeFinger.step = 0
             fakeFinger.restart()
         } else if (action === "release") {
             fakeFinger.stop()

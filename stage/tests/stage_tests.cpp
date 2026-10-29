@@ -27,6 +27,7 @@ class FakeStage : public QObject {
     Q_PROPERTY(QRectF consoleRect MEMBER consoleRect NOTIFY consoleOpenChanged)
     Q_PROPERTY(QVariantMap look MEMBER look CONSTANT)
     Q_PROPERTY(bool hand MEMBER hand NOTIFY handChanged)
+    Q_PROPERTY(QVariantList dividers MEMBER dividers NOTIFY dividersChanged)
 
 public:
     Q_INVOKABLE void closeWindow(const QString &address)
@@ -36,6 +37,35 @@ public:
             QTimer::singleShot(30, this, [this, address] { emit windowClosed(address); });
     }
     Q_INVOKABLE void swipe(const QString &direction) { log << "swipe:" + direction; }
+    Q_INVOKABLE void refreshDividers() {}
+    Q_INVOKABLE QVariantMap beginLift()
+    {
+        QVariantMap plan = plans["top"];
+        plan["lift"] = true;
+        plan["console"] = QVariantMap{{"x", consoleRect.x()}, {"y", consoleRect.y()}, {"w", consoleRect.width()},
+                                      {"h", consoleRect.height()}};
+        QMetaObject::invokeMethod(this, [this] { emit snapshotReady(1, true); }, Qt::QueuedConnection);
+        return plan;
+    }
+    Q_INVOKABLE void hideConsole()
+    {
+        log << "hideConsole";
+        consoleOpen = false;
+        emit consoleOpenChanged();
+    }
+    Q_INVOKABLE QVariantMap beginDivider(const QVariantMap &divider)
+    {
+        QVariantMap plan = plans["divider"];
+        plan["divider"] = divider;
+        QMetaObject::invokeMethod(this, [this] { emit snapshotReady(1, true); }, Qt::QueuedConnection);
+        return plan;
+    }
+    Q_INVOKABLE void resizeDivider(const QVariantMap &, qreal fraction)
+    {
+        log << QString("resize:%1").arg(fraction, 0, 'f', 2);
+        QTimer::singleShot(30, this, [this] { emit dividersChanged(); });
+    }
+    Q_INVOKABLE void pushOff(const QStringList &addresses) { log << "pushoff:" + addresses.join(','); }
     Q_INVOKABLE void switchWorkspace(int id)
     {
         log << "switch:" + QString::number(id);
@@ -73,6 +103,7 @@ public:
     QStringList log;
     QVariantList region;
     bool hand = false;
+    QVariantList dividers;
     bool refuse = false;   // windows that won't close
 
 signals:
@@ -80,6 +111,10 @@ signals:
     void snapshotReady(int id, bool ok);
     void placed(bool ok);
     void handChanged();
+    void dividersChanged();
+    void topPulled(const QVariantMap &plan, const QPointF &at);
+    void topMoved(const QPointF &at);
+    void topReleased(const QPointF &at, bool open);
     void pullStarted(const QVariantMap &plan, const QPointF &at, qreal ms);
     void pullMoved(const QPointF &at, qreal ms);
     void pullEnded(const QPointF &at, qreal ms);
@@ -137,6 +172,16 @@ public:
                                {"current", QVariantList{one}}, {"next", 2}, {"nextWindows", QVariantList{one}},
                                {"fromX", 900}, {"fromY", 600}};
         fake.plans["bottom"] = fake.plans["right"];
+        // Two windows side by side, and the line between them.
+        auto tile = [](const char *address, qreal x) {
+            return QVariantMap{{"address", address}, {"appClass", "foot"}, {"x", x}, {"y", 42}, {"w", 829}, {"h", 1146},
+                               {"snapshot", 1}};
+        };
+        fake.plans["divider"] = {{"edge", "divider"}, {"before", QVariantList{tile("left", 12)}},
+                                 {"after", QVariantList{tile("right", 855)}}, {"usable", rect(0, 30, 1696, 1170)},
+                                 {"inConsole", false}};
+        fake.dividers = {QVariantMap{{"vertical", true}, {"at", 848}, {"from", 42}, {"to", 1188}, {"start", 12},
+                                     {"end", 1684}, {"before", QStringList{"left"}}, {"after", QStringList{"right"}}}};
         fake.plans["bottom"]["edge"] = "bottom";
         fake.plans["top"] = {{"edge", "top"}, {"allowed", true}, {"empty", false},
                              {"console", rect(261, 30, 1174, 585)},
@@ -408,6 +453,51 @@ private slots:
         QCOMPARE(Stage::neighbourOf(QJsonArray{ws(10, 1)}, "DSI-1", 10, "left"), 0);
     }
 
+    void dividersAreWhereWindowsMeet()
+    {
+        auto w = [](const char *address, qreal x, qreal y, qreal width, qreal height) {
+            return QVariantMap{{"address", address}, {"x", x}, {"y", y}, {"w", width}, {"h", height}};
+        };
+        // Two side by side, as on the tablet: one line down the middle.
+        QVariantList found = Stage::dividersIn({w("left", 12, 42, 829, 1146), w("right", 855, 42, 829, 1146)}, 14);
+        QCOMPARE(found.size(), 1);
+        QVariantMap d = found.first().toMap();
+        QVERIFY(d["vertical"].toBool());
+        QCOMPARE(d["at"].toReal(), 848.0);
+        QCOMPARE(d["from"].toReal(), 42.0);
+        QCOMPARE(d["to"].toReal(), 1188.0);
+        QCOMPARE(d["before"].toStringList(), QStringList({"left"}));
+        QCOMPARE(d["after"].toStringList(), QStringList({"right"}));
+        QCOMPARE(d["start"].toReal(), 12.0);
+        QCOMPARE(d["end"].toReal(), 1684.0);
+
+        // Two on top, one under both: a short line between the top two, and
+        // one across the whole width with both of them above it.
+        found = Stage::dividersIn({w("B", 12, 12, 396, 554), w("C", 422, 12, 395, 554), w("A", 12, 580, 805, 554)}, 14);
+        QCOMPARE(found.size(), 2);
+        const QVariantMap between = found.at(0).toMap(), across = found.at(1).toMap();
+        QVERIFY(between["vertical"].toBool());
+        QCOMPARE(between["at"].toReal(), 415.0);
+        QCOMPARE(between["to"].toReal(), 566.0);
+        QVERIFY(!across["vertical"].toBool());
+        QCOMPARE(across["at"].toReal(), 573.0);
+        QCOMPARE(across["before"].toStringList(), QStringList({"B", "C"}));
+        QCOMPARE(across["after"].toStringList(), QStringList({"A"}));
+        QCOMPARE(across["from"].toReal(), 12.0);
+        QCOMPARE(across["to"].toReal(), 817.0);
+        QCOMPARE(across["end"].toReal(), 1134.0);
+
+        // Stacked, as in portrait.
+        found = Stage::dividersIn({w("top", 12, 42, 1176, 812), w("bottom", 12, 868, 1176, 816)}, 14);
+        QCOMPARE(found.size(), 1);
+        QVERIFY(!found.first().toMap()["vertical"].toBool());
+
+        // Alone, too far apart, or meeting only at a corner: no line.
+        QVERIFY(Stage::dividersIn({w("only", 12, 42, 1672, 1146)}, 14).isEmpty());
+        QVERIFY(Stage::dividersIn({w("a", 12, 42, 400, 400), w("b", 600, 42, 400, 400)}, 14).isEmpty());
+        QVERIFY(Stage::dividersIn({w("a", 12, 42, 400, 400), w("b", 426, 456, 400, 400)}, 14).isEmpty());
+    }
+
     void theTouchScreenTurnsWithTheScreen()
     {
         const QSizeF landscape(1696, 1200), portrait(1200, 1696);
@@ -521,6 +611,8 @@ private slots:
     {
         Harness h;
         QVERIFY(h.window);
+        h.fake.dividers.clear();
+        emit h.fake.dividersChanged();
         QCOMPARE(h.fake.region.size(), 3);
         h.fake.consoleOpen = true;
         emit h.fake.consoleOpenChanged();
@@ -608,15 +700,124 @@ private slots:
         QCOMPARE(h.fake.log.last(), QString("launch:top:foot:1.00"));
     }
 
-    void swipingUpFromTheBottomSendsTheConsoleUp()
+    void swipingUpFromTheBottomTakesTheConsoleUp()
     {
         Harness h;
         h.fake.consoleOpen = true;
         h.fake.consoleRect = QRectF(0, 30, 1696, 1158);   // its windows fill the screen
         emit h.fake.consoleOpenChanged();
-        h.swipe(QPoint(800, 1196), QPoint(800, 900));
-        QVERIFY(h.fake.log.contains("closeConsole"));
+        h.swipe(QPoint(800, 1196), QPoint(800, 700), 400, false);
+        // Its pictures follow the finger; the real one is gone already.
+        QCOMPARE(h.phase(), QString("tracking"));
+        QVERIFY(h.fake.log.contains("hideConsole"));
+        QVERIFY(h.pull() < 1158 - 400);
+        h.release(QPoint(800, 700));
+        QTRY_COMPARE(h.phase(), QString("idle"));
+        QVERIFY(!h.fake.log.contains("openConsole"));
         QVERIFY(!h.fake.log.join(' ').contains("begin:bottom"));
+    }
+
+    void aShortPushPutsTheConsoleBack()
+    {
+        Harness h;
+        h.fake.consoleOpen = true;
+        emit h.fake.consoleOpenChanged();
+        h.swipe(QPoint(800, 1000), QPoint(800, 940), 600);
+        QTRY_VERIFY(h.fake.log.contains("openConsole"));
+        QTRY_COMPARE(h.phase(), QString("idle"));
+    }
+
+    void pullingFromTheBarBringsTheConsoleDown()
+    {
+        Harness h;
+        QVariantMap plan = h.fake.plans["top"];
+        plan["fromX"] = 848;
+        plan["fromY"] = 15;
+        emit h.fake.topPulled(plan, QPointF(848, 15));
+        for (int y = 40; y <= 400; y += 40) {
+            QTest::qWait(16);
+            emit h.fake.topMoved(QPointF(848, y));
+        }
+        // The console is where the finger has it.
+        QCOMPARE(qRound(h.pull()), 385);
+        emit h.fake.topReleased(QPointF(848, 400), true);
+        QTRY_VERIFY(h.fake.log.contains("openConsole"));
+        QTRY_COMPARE(h.phase(), QString("idle"));
+    }
+
+    // ---- holding the line between two windows ----
+
+    void theLineBetweenWindowsTakesTouches()
+    {
+        Harness h;
+        // The right and bottom edges, the top strip, and a grip along the line.
+        QCOMPARE(h.fake.region.size(), 4);
+        // It stops short of the bottom edge's strip.
+        QCOMPARE(h.fake.region.last().toRectF(), QRectF(834, 42, 28, 1138));
+    }
+
+    void holdingTheLineGrabsItAndDraggingResizes()
+    {
+        Harness h;
+        h.press(QPoint(848, 600));
+        QTest::qWait(80);
+        QCOMPARE(h.phase(), QString("holding"));
+        QTRY_COMPARE_WITH_TIMEOUT(h.phase(), QString("tracking"), 1000);
+        for (int x = 860; x <= 1100; x += 20) {
+            QTest::qWait(16);
+            h.move(QPoint(x, 600));
+        }
+        QTest::qWait(40);
+        QCOMPARE(qRound(h.pull()), 252);
+        QTest::qWait(200);
+        h.release(QPoint(1100, 600));
+        QTRY_COMPARE(h.fake.log, QStringList({"resize:0.67"}));
+        QTRY_COMPARE(h.phase(), QString("idle"));
+    }
+
+    void aQuickTouchOnTheLineDoesNothing()
+    {
+        Harness h;
+        h.press(QPoint(848, 600));
+        QTest::qWait(60);
+        h.release(QPoint(848, 600));
+        QTRY_COMPARE(h.phase(), QString("idle"));
+        QVERIFY(h.fake.log.isEmpty());
+    }
+
+    void movingAwayBeforeTheGrabLetsGo()
+    {
+        Harness h;
+        h.press(QPoint(848, 600));
+        QTest::qWait(60);
+        h.move(QPoint(848, 640));
+        QTRY_COMPARE(h.phase(), QString("idle"));
+        QTest::qWait(600);
+        QCOMPARE(h.phase(), QString("idle"));
+        QVERIFY(h.fake.log.isEmpty());
+    }
+
+    void aSecondFingerLetsGoOfTheLine()
+    {
+        Harness h;
+        h.press(QPoint(848, 600));
+        QTest::qWait(60);
+        h.handDown();
+        QTRY_COMPARE(h.phase(), QString("idle"));
+    }
+
+    void pushingTheLineToTheEdgeSendsThatWindowAway()
+    {
+        Harness h;
+        h.press(QPoint(848, 600));
+        QTRY_COMPARE_WITH_TIMEOUT(h.phase(), QString("tracking"), 1000);
+        for (int x = 880; x <= 1660; x += 60) {
+            QTest::qWait(16);
+            h.move(QPoint(x, 600));
+        }
+        QTest::qWait(200);
+        h.release(QPoint(1660, 600));
+        QTRY_VERIFY(h.fake.log.contains("pushoff:right"));
     }
 
     void tappingTheDimmedScreenClosesTheConsole()
