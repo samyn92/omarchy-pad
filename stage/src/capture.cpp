@@ -6,14 +6,20 @@
 #include <QScreen>
 #include <QTransform>
 #include <cstring>
+#include <fcntl.h>
+#include <gbm.h>
+#include <libdrm/drm_fourcc.h>
 #include <sys/mman.h>
 #include <unistd.h>
 #include <wayland-client.h>
+#include <xf86drm.h>
 
 #include "ext-foreign-toplevel-list-v1-client-protocol.h"
 #include "ext-image-capture-source-v1-client-protocol.h"
 #include "ext-image-copy-capture-v1-client-protocol.h"
+#include "gpupicture.h"
 #include "hyprland-toplevel-mapping-v1-client-protocol.h"
+#include "linux-dmabuf-v1-client-protocol.h"
 
 // Defined in stage.cpp.
 Q_DECLARE_LOGGING_CATEGORY(lcStage)
@@ -37,6 +43,13 @@ struct Capture::Job {
     size_t size = 0;
     uint32_t width = 0, height = 0, transform = WL_OUTPUT_TRANSFORM_NORMAL;
     int format = -1;
+    // What the compositor offers for a GPU buffer, and the buffer itself.
+    dev_t device = 0;
+    bool hasDevice = false;
+    uint32_t gpuFormat = 0;
+    QList<uint64_t> modifiers;
+    std::shared_ptr<GpuPicture> picture;
+    zwp_linux_buffer_params_v1 *params = nullptr;
     bool finished = false;
     QElapsedTimer clock;
 };
@@ -64,11 +77,24 @@ static int preference(uint32_t format)
     }
 }
 
+// The same for a GPU buffer, as DRM names the formats. Opaque first, as in
+// memory: the picture of a see-through window shows it as the screen does.
+static int gpuPreference(uint32_t format)
+{
+    switch (format) {
+    case DRM_FORMAT_XRGB8888: return 2;
+    case DRM_FORMAT_ARGB8888: return 1;
+    default: return 0;
+    }
+}
+
 Capture::Capture(QObject *parent) : QObject(parent) {}
 
 Capture::~Capture()
 {
     for (Job *job : std::as_const(m_jobs)) {
+        if (job->params)
+            zwp_linux_buffer_params_v1_destroy(job->params);
         if (job->frame)
             ext_image_copy_capture_frame_v1_destroy(job->frame);
         if (job->session)
@@ -101,6 +127,12 @@ Capture::~Capture()
         ext_output_image_capture_source_manager_v1_destroy(m_outputs);
     if (m_copy)
         ext_image_copy_capture_manager_v1_destroy(m_copy);
+    if (m_dmabuf)
+        zwp_linux_dmabuf_v1_destroy(m_dmabuf);
+    if (m_gpu)
+        gbm_device_destroy(m_gpu);
+    if (m_gpuFd >= 0)
+        close(m_gpuFd);
     if (m_shm)
         wl_shm_destroy(m_shm);
     if (m_registry)
@@ -109,12 +141,18 @@ Capture::~Capture()
         wl_event_queue_destroy(m_queue);
 }
 
-void Capture::registryGlobal(void *data, wl_registry *registry, uint32_t name, const char *interface, uint32_t)
+void Capture::registryGlobal(void *data, wl_registry *registry, uint32_t name, const char *interface,
+                             uint32_t version)
 {
     auto *self = static_cast<Capture *>(data);
     auto is = [interface](const wl_interface &i) { return std::strcmp(interface, i.name) == 0; };
     if (is(wl_shm_interface) && !self->m_shm)
         self->m_shm = static_cast<wl_shm *>(wl_registry_bind(registry, name, &wl_shm_interface, 1));
+    // Version 4 at least: it takes DRM_FORMAT_MOD_INVALID for a buffer laid
+    // out the driver's own way, and doesn't list every format on binding.
+    else if (is(zwp_linux_dmabuf_v1_interface) && !self->m_dmabuf && version >= 4)
+        self->m_dmabuf = static_cast<zwp_linux_dmabuf_v1 *>(
+            wl_registry_bind(registry, name, &zwp_linux_dmabuf_v1_interface, 4));
     else if (is(ext_image_copy_capture_manager_v1_interface) && !self->m_copy)
         self->m_copy = static_cast<ext_image_copy_capture_manager_v1 *>(
             wl_registry_bind(registry, name, &ext_image_copy_capture_manager_v1_interface, 1));
@@ -239,6 +277,7 @@ bool Capture::connectToCompositor()
             wl_proxy_set_queue(static_cast<wl_proxy *>(proxy), nullptr);
     };
     release(m_shm);
+    release(m_dmabuf);
     release(m_copy);
     release(m_outputs);
     release(m_toplevelSources);
@@ -316,59 +355,37 @@ int Capture::start(ext_image_capture_source_v1 *source)
             if (preference(format) > (job->format < 0 ? 0 : preference(uint32_t(job->format))))
                 job->format = int(format);
         },
-        // dmabuf_device, dmabuf_format
-        [](void *, ext_image_copy_capture_session_v1 *, wl_array *) {},
-        [](void *, ext_image_copy_capture_session_v1 *, uint32_t, wl_array *) {},
-        // done: the constraints are known, so hand over a buffer and capture
-        [](void *data, ext_image_copy_capture_session_v1 *session) {
+        // dmabuf_device: the GPU the compositor copies with
+        [](void *data, ext_image_copy_capture_session_v1 *, wl_array *device) {
             auto *job = static_cast<Job *>(data);
-            if (job->frame || job->finished)
+            if (device->size == sizeof(dev_t)) {
+                std::memcpy(&job->device, device->data, sizeof(dev_t));
+                job->hasDevice = true;
+            }
+        },
+        // dmabuf_format, with the layouts the compositor can write it in
+        [](void *data, ext_image_copy_capture_session_v1 *, uint32_t format, wl_array *modifiers) {
+            auto *job = static_cast<Job *>(data);
+            if (gpuPreference(format) <= gpuPreference(job->gpuFormat))
+                return;
+            job->gpuFormat = format;
+            job->modifiers.clear();
+            const auto *m = static_cast<const uint64_t *>(modifiers->data);
+            for (size_t i = 0; i < modifiers->size / sizeof(uint64_t); ++i)
+                job->modifiers << m[i];
+        },
+        // done: the constraints are known, so hand over a buffer and capture
+        [](void *data, ext_image_copy_capture_session_v1 *) {
+            auto *job = static_cast<Job *>(data);
+            if (job->frame || job->params || job->finished)
                 return;
             Capture *self = job->owner;
-            if (job->format < 0 || !job->width || !job->height) {
+            if (!job->width || !job->height) {
                 self->finish(job, false);
                 return;
             }
-            const uint32_t stride = job->width * 4;
-            job->size = size_t(stride) * job->height;
-            job->fd = memfd_create("stage-capture", MFD_CLOEXEC);
-            if (job->fd < 0 || ftruncate(job->fd, off_t(job->size)) < 0) {
-                self->finish(job, false);
-                return;
-            }
-            job->data = mmap(nullptr, job->size, PROT_READ | PROT_WRITE, MAP_SHARED, job->fd, 0);
-            if (job->data == MAP_FAILED) {
-                self->finish(job, false);
-                return;
-            }
-            job->pool = wl_shm_create_pool(self->m_shm, job->fd, int32_t(job->size));
-            job->buffer = wl_shm_pool_create_buffer(job->pool, 0, int32_t(job->width), int32_t(job->height),
-                                                    int32_t(stride), uint32_t(job->format));
-            job->frame = ext_image_copy_capture_session_v1_create_frame(session);
-            static const ext_image_copy_capture_frame_v1_listener frameListener = {
-                // transform
-                [](void *data, ext_image_copy_capture_frame_v1 *, uint32_t transform) {
-                    static_cast<Job *>(data)->transform = transform;
-                },
-                // damage, presentation_time
-                [](void *, ext_image_copy_capture_frame_v1 *, int32_t, int32_t, int32_t, int32_t) {},
-                [](void *, ext_image_copy_capture_frame_v1 *, uint32_t, uint32_t, uint32_t) {},
-                // ready
-                [](void *data, ext_image_copy_capture_frame_v1 *) {
-                    auto *job = static_cast<Job *>(data);
-                    job->owner->finish(job, true);
-                },
-                // failed
-                [](void *data, ext_image_copy_capture_frame_v1 *, uint32_t) {
-                    auto *job = static_cast<Job *>(data);
-                    job->owner->finish(job, false);
-                },
-            };
-            ext_image_copy_capture_frame_v1_add_listener(job->frame, &frameListener, job);
-            ext_image_copy_capture_frame_v1_attach_buffer(job->frame, job->buffer);
-            ext_image_copy_capture_frame_v1_damage_buffer(job->frame, 0, 0, int32_t(job->width), int32_t(job->height));
-            ext_image_copy_capture_frame_v1_capture(job->frame);
-            wl_display_flush(self->m_display);
+            if (!self->onGpu(job))
+                self->inMemory(job);
         },
         // stopped
         [](void *data, ext_image_copy_capture_session_v1 *) {
@@ -381,6 +398,138 @@ int Capture::start(ext_image_capture_source_v1 *source)
     return job->id;
 }
 
+// A GPU buffer for the picture, when the compositor offers one and the driver
+// makes it. The capture follows once the compositor has taken the buffer.
+bool Capture::onGpu(Job *job)
+{
+    if (GpuPicture::s_refused || !m_dmabuf || !job->hasDevice || !job->gpuFormat || !openGpu(job->device))
+        return false;
+    job->picture = GpuPicture::allocate(m_gpu, QSize(int(job->width), int(job->height)), job->gpuFormat,
+                                        job->modifiers.constData(), int(job->modifiers.size()));
+    if (!job->picture)
+        return false;
+    const GpuPicture &p = *job->picture;
+    job->params = zwp_linux_dmabuf_v1_create_params(m_dmabuf);
+    for (int i = 0; i < p.planes(); ++i)
+        zwp_linux_buffer_params_v1_add(job->params, p.fd(i), uint32_t(i), p.offset(i), p.stride(i),
+                                       uint32_t(p.modifier() >> 32), uint32_t(p.modifier() & 0xffffffff));
+    static const zwp_linux_buffer_params_v1_listener paramsListener = {
+        // created
+        [](void *data, zwp_linux_buffer_params_v1 *params, wl_buffer *buffer) {
+            auto *job = static_cast<Job *>(data);
+            zwp_linux_buffer_params_v1_destroy(params);
+            job->params = nullptr;
+            job->buffer = buffer;
+            if (job->finished)
+                return;
+            job->owner->captureInto(job);
+        },
+        // failed: the compositor won't take such buffers; memory it is
+        [](void *data, zwp_linux_buffer_params_v1 *params) {
+            auto *job = static_cast<Job *>(data);
+            zwp_linux_buffer_params_v1_destroy(params);
+            job->params = nullptr;
+            job->picture.reset();
+            qCWarning(lcStage) << "the compositor won't take a GPU buffer for a picture; taking pictures the CPU's way";
+            GpuPicture::s_refused = true;
+            if (!job->finished)
+                job->owner->inMemory(job);
+        },
+    };
+    zwp_linux_buffer_params_v1_add_listener(job->params, &paramsListener, job);
+    zwp_linux_buffer_params_v1_create(job->params, int32_t(job->width), int32_t(job->height), job->gpuFormat, 0);
+    wl_display_flush(m_display);
+    return true;
+}
+
+// The GPU the compositor named, opened once through its render node.
+bool Capture::openGpu(dev_t device)
+{
+    if (m_gpu)
+        return m_gpuDevice == device;
+    if (m_gpuTried)
+        return false;
+    m_gpuTried = true;
+    drmDevice *drm = nullptr;
+    if (drmGetDeviceFromDevId(device, 0, &drm) != 0 || !drm)
+        return false;
+    const bool render = drm->available_nodes & (1 << DRM_NODE_RENDER);
+    const QByteArray path = render ? QByteArray(drm->nodes[DRM_NODE_RENDER]) : QByteArray();
+    drmFreeDevice(&drm);
+    if (path.isEmpty())
+        return false;
+    m_gpuFd = open(path.constData(), O_RDWR | O_CLOEXEC);
+    if (m_gpuFd < 0)
+        return false;
+    m_gpu = gbm_create_device(m_gpuFd);
+    if (!m_gpu) {
+        close(m_gpuFd);
+        m_gpuFd = -1;
+        return false;
+    }
+    m_gpuDevice = device;
+    qCDebug(lcStage) << "pictures go through the GPU at" << path;
+    return true;
+}
+
+// The picture in shared memory, read back by the compositor and copied here.
+void Capture::inMemory(Job *job)
+{
+    if (job->format < 0) {
+        finish(job, false);
+        return;
+    }
+    const uint32_t stride = job->width * 4;
+    job->size = size_t(stride) * job->height;
+    job->fd = memfd_create("stage-capture", MFD_CLOEXEC);
+    if (job->fd < 0 || ftruncate(job->fd, off_t(job->size)) < 0) {
+        finish(job, false);
+        return;
+    }
+    job->data = mmap(nullptr, job->size, PROT_READ | PROT_WRITE, MAP_SHARED, job->fd, 0);
+    if (job->data == MAP_FAILED) {
+        finish(job, false);
+        return;
+    }
+    job->pool = wl_shm_create_pool(m_shm, job->fd, int32_t(job->size));
+    job->buffer = wl_shm_pool_create_buffer(job->pool, 0, int32_t(job->width), int32_t(job->height), int32_t(stride),
+                                            uint32_t(job->format));
+    captureInto(job);
+}
+
+void Capture::captureInto(Job *job)
+{
+    job->frame = ext_image_copy_capture_session_v1_create_frame(job->session);
+    static const ext_image_copy_capture_frame_v1_listener frameListener = {
+        // transform
+        [](void *data, ext_image_copy_capture_frame_v1 *, uint32_t transform) {
+            static_cast<Job *>(data)->transform = transform;
+        },
+        // damage, presentation_time
+        [](void *, ext_image_copy_capture_frame_v1 *, int32_t, int32_t, int32_t, int32_t) {},
+        [](void *, ext_image_copy_capture_frame_v1 *, uint32_t, uint32_t, uint32_t) {},
+        // ready
+        [](void *data, ext_image_copy_capture_frame_v1 *) {
+            auto *job = static_cast<Job *>(data);
+            job->owner->finish(job, true);
+        },
+        // failed
+        [](void *data, ext_image_copy_capture_frame_v1 *, uint32_t reason) {
+            auto *job = static_cast<Job *>(data);
+            if (job->picture && reason == EXT_IMAGE_COPY_CAPTURE_FRAME_V1_FAILURE_REASON_BUFFER_CONSTRAINTS) {
+                qCWarning(lcStage) << "the compositor couldn't copy into a GPU buffer; taking pictures the CPU's way";
+                GpuPicture::s_refused = true;
+            }
+            job->owner->finish(job, false);
+        },
+    };
+    ext_image_copy_capture_frame_v1_add_listener(job->frame, &frameListener, job);
+    ext_image_copy_capture_frame_v1_attach_buffer(job->frame, job->buffer);
+    ext_image_copy_capture_frame_v1_damage_buffer(job->frame, 0, 0, int32_t(job->width), int32_t(job->height));
+    ext_image_copy_capture_frame_v1_capture(job->frame);
+    wl_display_flush(m_display);
+}
+
 void Capture::finish(Job *job, bool ok)
 {
     if (job->finished)
@@ -388,7 +537,8 @@ void Capture::finish(Job *job, bool ok)
     job->finished = true;
 
     QImage image;
-    if (ok && job->data != MAP_FAILED) {
+    std::shared_ptr<const GpuPicture> picture = ok ? job->picture : nullptr;
+    if (ok && !picture && job->data != MAP_FAILED) {
         const QImage::Format format = imageFormat(uint32_t(job->format));
         image = QImage(static_cast<const uchar *>(job->data), int(job->width), int(job->height), int(job->width * 4),
                        format).copy();
@@ -404,6 +554,8 @@ void Capture::finish(Job *job, bool ok)
 
     // Wayland objects go once the current dispatch is over.
     QMetaObject::invokeMethod(this, [this, job] {
+        if (job->params)
+            zwp_linux_buffer_params_v1_destroy(job->params);
         if (job->frame)
             ext_image_copy_capture_frame_v1_destroy(job->frame);
         if (job->session)
@@ -424,6 +576,10 @@ void Capture::finish(Job *job, bool ok)
     }, Qt::QueuedConnection);
 
     qCDebug(lcStage) << "capture" << job->id << (ok ? "took" : "failed after") << job->clock.elapsed() << "ms"
-                     << image.size();
-    emit captured(job->id, image);
+                     << (picture ? "on the GPU" : "in memory") << QSize(int(job->width), int(job->height))
+                     << "turned" << job->transform;
+    if (picture)
+        emit capturedOnGpu(job->id, picture, int(job->transform));
+    else
+        emit captured(job->id, image);
 }

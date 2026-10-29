@@ -1,13 +1,13 @@
 QT += core gui qml quick network
 
 CONFIG += c++17 release link_pkgconfig
-PKGCONFIG += wayland-client libinput libudev
+PKGCONFIG += wayland-client libinput libudev gbm libdrm egl
 LIBS += -lLayerShellQtInterface
 TARGET = stage
 # The one place stage's version is set: --version and the package read it
 # from here. The commit it was built from comes along, so builds of the same
 # version can be told apart.
-VERSION = 0.3.0
+VERSION = 0.4.0
 COMMIT = $$system(git -C $$PWD rev-parse --short HEAD 2>/dev/null)
 DEFINES += STAGE_VERSION=\\\"$$VERSION\\\" STAGE_COMMIT=\\\"$$COMMIT\\\"
 TEMPLATE = app
@@ -18,6 +18,7 @@ HEADERS += \
     src/apps.h \
     src/capture.h \
     src/fingers.h \
+    src/gpupicture.h \
     src/hyprland.h \
     src/images.h \
     src/ipc.h \
@@ -31,6 +32,7 @@ SOURCES += \
     src/apps.cpp \
     src/capture.cpp \
     src/fingers.cpp \
+    src/gpupicture.cpp \
     src/hyprland.cpp \
     src/images.cpp \
     src/ipc.cpp \

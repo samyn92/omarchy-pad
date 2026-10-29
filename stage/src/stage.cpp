@@ -8,6 +8,7 @@
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QLoggingCategory>
+#include <QQuickWindow>
 #include <QRegion>
 #include <QWindow>
 #include <chrono>
@@ -16,6 +17,7 @@
 
 #include "apps.h"
 #include "capture.h"
+#include "gpupicture.h"
 #include "hyprland.h"
 #include "images.h"
 #include "ipc.h"
@@ -24,6 +26,16 @@
 Q_LOGGING_CATEGORY(lcStage, "stage", QtInfoMsg)
 
 static const QString Scratchpad = "special:scratchpad";
+// Windows with this tag are see-through, by a rule stage registers. Taking
+// the tag off gives a window back whatever opacity its own rules give it,
+// which setting its opacity directly couldn't undo.
+static const QString HiddenTag = "stage-hidden";
+
+static qreal clockMs()
+{
+    // The touch screen's clock: CLOCK_MONOTONIC, as libinput stamps events.
+    return std::chrono::duration<qreal, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
 
 static QVariantMap rectMap(const QRectF &r)
 {
@@ -67,8 +79,23 @@ Stage::Stage(Hyprland *hyprland, Capture *capture, Snapshots *snapshots, Apps *a
             m_snapshots->insert(id, image);
         emit snapshotReady(id, !image.isNull());
     });
+    connect(m_capture, &Capture::capturedOnGpu, this, [this](int id, std::shared_ptr<const GpuPicture> picture, int turn) {
+        m_snapshots->insert(id, std::move(picture), turn);
+        emit snapshotReady(id, true);
+    });
 
     refreshLook();
+    registerHiding();
+    // A stage that stopped mid-gesture may have left a window hidden.
+    for (const QJsonValue &value : m_hyprland->query("clients").array()) {
+        const QJsonObject o = value.toObject();
+        const QJsonArray tags = o.value("tags").toArray();
+        if (std::any_of(tags.cbegin(), tags.cend(), [](const QJsonValue &t) { return t.toString().startsWith(HiddenTag); })) {
+            const QString window = QString("window = \"address:%1\"").arg(o.value("address").toString());
+            m_hyprland->dispatch(QString("hl.dsp.window.tag({ tag = \"-%1\", %2 })").arg(HiddenTag, window));
+            m_hyprland->dispatch(QString("hl.dsp.window.set_prop({ prop = \"no_anim\", value = \"0\", %1 })").arg(window));
+        }
+    }
     m_dividersLater.start();
     refreshTouch();
     const Monitor m = monitor();
@@ -97,6 +124,61 @@ void Stage::attach(QWindow *window)
     connect(window, &QWindow::visibleChanged, this, [this](bool visible) {
         if (visible)
             applyInputRegion(true);
+    });
+    if (auto *quick = qobject_cast<QQuickWindow *>(window))
+        connect(quick, &QQuickWindow::frameSwapped, this, [this] {
+            if (!m_timing)
+                return;
+            QMutexLocker lock(&m_timingLock);
+            m_frameTimes << clockMs();
+        }, Qt::DirectConnection);
+}
+
+void Stage::startTiming()
+{
+    if (!lcStage().isDebugEnabled())
+        return;
+    QMutexLocker lock(&m_timingLock);
+    m_frameTimes.clear();
+    m_moveTimes.clear();
+    m_timingStart = clockMs();
+    m_timing = true;
+}
+
+// Steps between frames and between finger moves: how many, the usual one,
+// the longest, and how many took more than one and a half usual ones.
+void Stage::reportTiming(const char *what)
+{
+    if (!m_timing)
+        return;
+    QTimer::singleShot(450, this, [this, what] {
+        m_timing = false;
+        QMutexLocker lock(&m_timingLock);
+        auto steps = [](const QList<qreal> &times) {
+            QList<qreal> d;
+            for (qsizetype i = 1; i < times.size(); ++i)
+                d << times[i] - times[i - 1];
+            if (d.isEmpty())
+                return QString("none");
+            QList<qreal> sorted = d;
+            std::sort(sorted.begin(), sorted.end());
+            const qreal usual = sorted[sorted.size() / 2];
+            const auto late = std::count_if(d.cbegin(), d.cend(), [usual](qreal x) { return x > usual * 1.5; });
+            QStringList where;
+            for (qsizetype i = 0; i < d.size(); ++i)
+                if (d[i] > usual * 1.5)
+                    where << QString("%1ms@%2").arg(d[i], 0, 'f', 0).arg(times[i] - times[0], 0, 'f', 0);
+            return QString("%1 every %2 ms, longest %3 ms, %4 late [%5]")
+                .arg(d.size())
+                .arg(usual, 0, 'f', 1)
+                .arg(sorted.last(), 0, 'f', 1)
+                .arg(late)
+                .arg(where.mid(0, 12).join(' '));
+        };
+        if (!m_frameTimes.isEmpty() && !m_moveTimes.isEmpty())
+            qCDebug(lcStage).noquote() << what << "first frame" << m_frameTimes.first() - m_timingStart
+                                       << "ms after the start, first move" << m_moveTimes.first() - m_timingStart;
+        qCDebug(lcStage).noquote() << what << "frames:" << steps(m_frameTimes) << "| moves:" << steps(m_moveTimes);
     });
 }
 
@@ -204,13 +286,8 @@ QVariantMap Stage::windowAt(qreal x, qreal y, const QVariantList &windows, const
             break;
         if (!rect(w).contains(x, y))
             continue;
-        bool alone = true;
-        for (const QVariantMap &other : std::as_const(stack))
-            if (other["address"] != w["address"] && rect(other).intersects(rect(w).adjusted(1, 1, -1, -1)))
-                alone = false;
         QVariantMap plan = w;
         plan["edge"] = "close";
-        plan["animated"] = alone;
         return plan;
     }
     return {};
@@ -436,6 +513,11 @@ QVariantMap Stage::beginEdge(const QString &edge, qreal x, qreal y)
     return result;
 }
 
+int Stage::pictureTurn(int snapshot) const
+{
+    return m_snapshots->turn(snapshot);
+}
+
 void Stage::launch(const QVariantMap &plan, const QString &appId, qreal fraction)
 {
     const Apps::App *app = m_apps->find(appId);
@@ -477,6 +559,8 @@ void Stage::onEvent(const QString &name, const QString &data)
     if (name == "configreloaded") {
         refreshLook();
         refreshTouch();
+        // A reload drops rules that aren't in the config.
+        registerHiding();
         return;
     }
     if (name == "activespecial") {
@@ -509,6 +593,7 @@ void Stage::onEvent(const QString &name, const QString &data)
         const QString address = "0x" + data.section(',', 0, 0);
         if (QTimer *timer = m_closing.take(address))
             timer->deleteLater();
+        m_hidden.remove(address);
         emit windowClosed(address);
         return;
     }
@@ -829,6 +914,43 @@ void Stage::closeWindow(const QString &address)
     timer->start(5000);
 }
 
+// Named, so registering it again (after a reload, or when stage restarts)
+// replaces it rather than adding another.
+void Stage::registerHiding()
+{
+    m_hyprland->eval(QString("hl.window_rule({ name = %1, match = { tag = %1 }, opacity = \"0 override 0 override\" })")
+                         .arg(Hyprland::quote(HiddenTag)));
+}
+
+void Stage::hideWindow(const QString &address)
+{
+    if (m_hidden.contains(address))
+        return;
+    const QString window = QString("window = \"address:%1\"").arg(address);
+    const bool still = m_hyprland->query(QString("getprop address:%1 no_anim").arg(address).toUtf8())
+                           .object()
+                           .value("no_anim")
+                           .toBool();
+    m_hidden.insert(address, still);
+    // Hyprland fades a change of opacity in, and the window must be gone in
+    // the frame the picture takes its place.
+    if (!still)
+        m_hyprland->dispatch(QString("hl.dsp.window.set_prop({ prop = \"no_anim\", value = \"1\", %1 })").arg(window));
+    m_hyprland->dispatch(QString("hl.dsp.window.tag({ tag = \"+%1\", %2 })").arg(HiddenTag, window));
+}
+
+void Stage::showWindow(const QString &address)
+{
+    if (!m_hidden.contains(address))
+        return;
+    const bool still = m_hidden.take(address);
+    const QString window = QString("window = \"address:%1\"").arg(address);
+    m_hyprland->dispatch(QString("hl.dsp.window.tag({ tag = \"-%1\", %2 })").arg(HiddenTag, window));
+    // A window asked to close keeps no_anim until it does (or the close gives up).
+    if (!still && !m_closing.contains(address))
+        m_hyprland->dispatch(QString("hl.dsp.window.set_prop({ prop = \"no_anim\", value = \"0\", %1 })").arg(window));
+}
+
 void Stage::swipe(const QString &direction)
 {
     // Fingers going left bring the next workspace in from the right.
@@ -911,14 +1033,33 @@ void Stage::touch(Touchscreen::Kind kind, int slot, const QPointF &panel, qreal 
         events = m_fingers.down(slot, at, ms);
         break;
     case Touchscreen::Move:
+        // Held until the panel's frame, when every finger that moved has.
         if (auto it = m_touches.find(slot); it != m_touches.end())
             it->now = panel;
-        events = m_fingers.move(slot, at, ms);
-        break;
+        m_moved.insert(slot, {at, ms});
+        return;
     case Touchscreen::Up:
         m_touches.remove(slot);
+        m_moved.remove(slot);
         events = m_fingers.up(slot, ms);
         break;
+    case Touchscreen::Frame: {
+        // Each finger moves the hand's middle; seen one at a time, the hand
+        // would go half a step and then the rest. Only where the whole hand
+        // has come counts.
+        for (auto it = m_moved.cbegin(); it != m_moved.cend(); ++it)
+            events += m_fingers.move(it.key(), it->first, it->second);
+        m_moved.clear();
+        for (const auto type : {Fingers::Event::PullMoved, Fingers::Event::SlideMoved}) {
+            const auto last = std::find_if(events.crbegin(), events.crend(), [type](const Fingers::Event &e) { return e.type == type; });
+            if (last != events.crend()) {
+                const Fingers::Event keep = *last;
+                events.removeIf([type](const Fingers::Event &e) { return e.type == type; });
+                events << keep;
+            }
+        }
+        break;
+    }
     }
     handle(events);
 }
@@ -949,6 +1090,9 @@ void Stage::handle(const QList<Fingers::Event> &events)
                     prefetchSlide();
                 break;
             }
+            // Pictures from a gesture before (holding a line, say) show windows
+            // as they were then.
+            m_pictures.clear();
             m_locked = m_hyprland->query("locked").object().value("locked").toBool();
             const Monitor m = monitor();
             m_handPlan = m_locked || !m.ok ? QVariantMap() : windowAt(e.at.x(), e.at.y(), visibleWindows(m), m.special);
@@ -956,12 +1100,16 @@ void Stage::handle(const QList<Fingers::Event> &events)
                 m_handPlan["fromX"] = e.at.x();
                 m_handPlan["fromY"] = e.at.y();
                 // Taken now, so the picture is there by the time the hand has moved.
-                if (m_handPlan["animated"].toBool())
-                    m_handPlan["snapshot"] = pictureOf(m_handPlan);
+                m_handPlan["snapshot"] = pictureOf(m_handPlan);
+                // How see-through the window is, for its picture.
+                const QString prop = m_handPlan["focus"].toInt() == 0 ? "opacity" : "opacity_inactive";
+                m_handPlan["opacity"] = m_hyprland->query(QString("getprop address:%1 %2").arg(m_handPlan["address"].toString(), prop).toUtf8())
+                                            .object()
+                                            .value(prop)
+                                            .toDouble(1);
             }
             qCDebug(lcStage) << "hand" << e.fingers << "at" << e.at << "locked" << m_locked << "on"
-                             << m_handPlan.value("appClass") << m_handPlan.value("address")
-                             << "animated" << m_handPlan.value("animated");
+                             << m_handPlan.value("appClass") << m_handPlan.value("address");
             m_hand = true;
             emit handChanged();
             break;
@@ -970,11 +1118,17 @@ void Stage::handle(const QList<Fingers::Event> &events)
             if (m_handPlan.isEmpty())
                 break;
             m_pulling = true;
+            startTiming();
             emit pullStarted(m_handPlan, e.at, e.ms);
             break;
         case Fingers::Event::PullMoved:
-            if (m_pulling)
+            if (m_pulling) {
+                if (m_timing) {
+                    QMutexLocker lock(&m_timingLock);
+                    m_moveTimes << clockMs();
+                }
                 emit pullMoved(e.at, e.ms);
+            }
             break;
         case Fingers::Event::PullEnded:
         case Fingers::Event::PullCanceled:
@@ -982,6 +1136,7 @@ void Stage::handle(const QList<Fingers::Event> &events)
                 break;
             m_pulling = false;
             qCDebug(lcStage) << (e.type == Fingers::Event::PullEnded ? "pull ended" : "pull canceled") << "at" << e.at;
+            reportTiming("pull");
             e.type == Fingers::Event::PullEnded ? emit pullEnded(e.at, e.ms) : emit pullCanceled();
             break;
         case Fingers::Event::SlideStarted:
@@ -991,19 +1146,26 @@ void Stage::handle(const QList<Fingers::Event> &events)
             if (m_handPlan.isEmpty())
                 break;
             m_sliding = true;
+            startTiming();
             m_handPlan["fromX"] = e.at.x();
             m_handPlan["fromY"] = e.at.y();
             emit slideStarted(m_handPlan, e.at, e.ms);
             break;
         case Fingers::Event::SlideMoved:
-            if (m_sliding)
+            if (m_sliding) {
+                if (m_timing) {
+                    QMutexLocker lock(&m_timingLock);
+                    m_moveTimes << clockMs();
+                }
                 emit slideMoved(e.at, e.ms);
+            }
             break;
         case Fingers::Event::SlideEnded:
         case Fingers::Event::SlideCanceled:
             if (!m_sliding)
                 break;
             m_sliding = false;
+            reportTiming("slide");
             e.type == Fingers::Event::SlideEnded ? emit slideEnded(e.at, e.ms) : emit slideCanceled();
             break;
         case Fingers::Event::Swiped:
@@ -1019,12 +1181,6 @@ void Stage::handle(const QList<Fingers::Event> &events)
             break;
         }
     }
-}
-
-static qreal clockMs()
-{
-    // The touch screen's clock: CLOCK_MONOTONIC, as libinput stamps events.
-    return std::chrono::duration<qreal, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
 // Fingers a hand's width apart, on slots no real finger uses.
@@ -1054,6 +1210,7 @@ void Stage::simulatePull(const QPointF &from, const QPointF &to, int ms, int fin
         for (int i = 0; i < m_simulatedFingers; ++i)
             touch(Touchscreen::Move, SimulatedSlot + i,
                   Fingers::unmap(at + QPointF(i * 120, 0), m_touchTransform, m_touchSize), now);
+        touch(Touchscreen::Frame, -1, {}, now);
         if (t >= 1)
             m_simulated.stop();
     });
@@ -1085,6 +1242,21 @@ bool Stage::listen(const QString &socketPath, QString *error)
             connect(socket, &QLocalSocket::readyRead, socket, [this, socket] {
                 while (socket->canReadLine()) {
                     const QString line = QString::fromUtf8(socket->readLine()).trimmed();
+                    if (line == "bar here") {
+                        // The bar stays connected; it is there until it hangs up.
+                        if (!m_bars.contains(socket)) {
+                            m_bars.insert(socket);
+                            connect(socket, &QObject::destroyed, this, [this, socket] {
+                                m_bars.remove(socket);
+                                if (m_bars.isEmpty())
+                                    emit barConnectedChanged();
+                            });
+                            if (m_bars.size() == 1)
+                                emit barConnectedChanged();
+                        }
+                        socket->write("ok\n");
+                        continue;
+                    }
                     socket->write(command(line).toUtf8() + '\n');
                 }
                 socket->flush();

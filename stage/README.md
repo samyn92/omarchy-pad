@@ -36,10 +36,13 @@ opens where the launcher was; tap beside the launcher to put things back.
 Two and three fingers come straight from the touch screen (stage opens the
 devices udev tags as touch screens with libinput, so the user has to be in the
 `input` group), because fingers on a window go to that window, not to the
-overlay. A pulled window is a picture of it over the wallpaper it leaves; once
-Hyprland has closed it, the others move in. A window with something behind it
-(floating, or maximized over others) just closes when you let go. The app under
-your fingers still sees them, so a page may scroll a little while you pull.
+overlay. A pulled window is a picture of it, and the real window is hidden
+while the picture is out, so whatever is behind it shows: the wallpaper, other
+windows, the dimmed screen around the console. Any window can be pulled away
+like that, floating ones and the console's too. Once Hyprland has closed it,
+the others move in; a short pull puts the picture back and the window with it.
+The app under your fingers still sees them, so a page may scroll a little
+while you pull.
 Try it without touching: `stage simulate pull 1150 300 1150 650`, then
 `stage simulate release`.
 
@@ -52,7 +55,9 @@ touching: `stage simulate press X Y` on a line, `stage simulate move X Y`, then
 
 Omarchy Pad's bar (`../shell/bar`) hands a pull from its middle to stage over
 the command socket: `stage top begin X Y`, `stage top follow DISTANCE`,
-`stage top end 1|0`.
+`stage top end 1|0`. It stays connected and says `bar here`, and while it is
+connected stage leaves the top edge to the bar, so a pull from the top always
+does what the bar's third under the finger does.
 
 A workspace holds at most four windows (two each way), the console two. Past
 that, or splitting a window that already shares its width or height, the
@@ -86,6 +91,15 @@ gives up, with the wallpaper as Omarchy shows it and a new window frame, at
 the places dwindle will put the two windows (the split line, minus half a gap
 and a border on each side). The console's windows are hidden until it comes
 down, so for those stage takes pictures (ext-image-copy-capture) to move.
+
+Pictures are copied on the GPU when Hyprland and the driver allow it (they
+do on the OnePlus Pad): Hyprland copies the window into a GPU buffer stage
+made, and stage draws that buffer as it is. One is ready in a few
+milliseconds, and nothing stalls. Otherwise they come through memory, which
+takes Hyprland about 60 ms for a full-screen window, during which it draws
+nothing else. To hide the real window, stage registers a window rule that
+makes windows tagged `stage-hidden` see-through and tags the one it pulls;
+taking the tag off gives the window back its own opacity.
 
 Letting go on an app tells Hyprland, over its socket, to focus the window that
 made room, put the next window beside or under it (dwindle's preselect),

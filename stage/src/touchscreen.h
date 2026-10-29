@@ -16,7 +16,9 @@ class Touchscreen : public QObject {
     Q_OBJECT
 
 public:
-    enum Kind { Down, Move, Up };
+    // Frame: the panel has reported every finger that moved together; a
+    // hand's fingers are moved as one then.
+    enum Kind { Down, Move, Up, Frame };
     Q_ENUM(Kind)
 
     explicit Touchscreen(QObject *parent = nullptr);

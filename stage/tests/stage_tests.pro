@@ -1,6 +1,6 @@
 QT += core gui qml quick testlib network
 CONFIG += c++17 testcase link_pkgconfig
-PKGCONFIG += wayland-client libinput libudev
+PKGCONFIG += wayland-client libinput libudev gbm libdrm egl
 LIBS += -lLayerShellQtInterface
 TARGET = stage_tests
 TEMPLATE = app
@@ -13,6 +13,7 @@ HEADERS += \
     ../src/apps.h \
     ../src/capture.h \
     ../src/fingers.h \
+    ../src/gpupicture.h \
     ../src/hyprland.h \
     ../src/images.h \
     ../src/ipc.h \
@@ -26,6 +27,7 @@ SOURCES += \
     ../src/apps.cpp \
     ../src/capture.cpp \
     ../src/fingers.cpp \
+    ../src/gpupicture.cpp \
     ../src/hyprland.cpp \
     ../src/images.cpp \
     ../src/ipc.cpp \

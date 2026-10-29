@@ -18,3 +18,11 @@ touches only in strips along the edges. It talks to Hyprland over its sockets
 - stage itself changes Hyprland's animations for a single toggle and puts
   them back. That is app code over the socket, and fine. Claude's own
   experiments with the live config are not (see the root CLAUDE.md).
+- Window pictures go through `src/gpupicture.*` (a dmabuf Hyprland copies
+  into, drawn as a GL texture) and fall back to shared memory in
+  `src/capture.cpp` when either side refuses. With debug logging, each
+  pull or slide ends with a `frames: … | moves: …` line: the usual step
+  between frames and between finger moves, the longest, and the late ones.
+- A window being pulled is hidden with the `stage-hidden` tag and its
+  `no_anim` (so it goes at once); stage registers the tag's rule itself and
+  takes leftover tags off when it starts.

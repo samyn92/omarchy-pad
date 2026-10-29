@@ -3,6 +3,8 @@
 #include <QFileInfo>
 #include <QIcon>
 
+#include "gpupicture.h"
+
 IconProvider::IconProvider() : QQuickImageProvider(QQuickImageProvider::Pixmap) {}
 
 QPixmap IconProvider::requestPixmap(const QString &id, QSize *size, const QSize &requestedSize)
@@ -17,30 +19,55 @@ QPixmap IconProvider::requestPixmap(const QString &id, QSize *size, const QSize 
     return pixmap;
 }
 
-Snapshots::Snapshots() : QQuickImageProvider(QQuickImageProvider::Image) {}
+Snapshots::Snapshots() : QQuickImageProvider(QQuickImageProvider::Texture) {}
 
 void Snapshots::insert(int id, const QImage &image)
 {
-    QMutexLocker lock(&m_mutex);
-    m_images.insert(id, image);
-    // A gesture needs at most a handful (a few console windows, or the windows
-    // of three workspaces), and each full-screen picture is about 31 MB.
-    while (m_images.size() > 8)
-        m_images.remove(*std::min_element(m_images.keyBegin(), m_images.keyEnd()));
+    keep(id, Picture{image, nullptr, 0});
 }
 
-// Asked for off the GUI thread (asynchronous Images), so scaling a picture
-// down to the size it is shown at costs no frames.
-QImage Snapshots::requestImage(const QString &id, QSize *size, const QSize &requestedSize)
+void Snapshots::insert(int id, std::shared_ptr<const GpuPicture> picture, int turn)
 {
-    QImage image;
+    keep(id, Picture{QImage(), std::move(picture), turn});
+}
+
+void Snapshots::keep(int id, const Picture &picture)
+{
+    QMutexLocker lock(&m_mutex);
+    m_pictures.insert(id, picture);
+    // A gesture needs at most a handful (a few console windows, or the windows
+    // of three workspaces), and each full-screen picture is about 31 MB.
+    while (m_pictures.size() > 8)
+        m_pictures.remove(*std::min_element(m_pictures.keyBegin(), m_pictures.keyEnd()));
+}
+
+int Snapshots::turn(int id)
+{
+    QMutexLocker lock(&m_mutex);
+    return m_pictures.value(id).turn;
+}
+
+// Asked for off the GUI thread (asynchronous Images), so scaling a picture in
+// memory down to the size it is shown at costs no frames. One on the GPU is
+// drawn as it is, scaled as it's drawn.
+QQuickTextureFactory *Snapshots::requestTexture(const QString &id, QSize *size, const QSize &requestedSize)
+{
+    Picture picture;
     {
         QMutexLocker lock(&m_mutex);
-        image = m_images.value(id.section('?', 0, 0).toInt());
+        picture = m_pictures.value(id.section('?', 0, 0).toInt());
     }
+    if (picture.gpu) {
+        if (size)
+            *size = picture.gpu->size();
+        return new GpuPictureFactory(picture.gpu);
+    }
+    QImage image = picture.image;
     if (size)
         *size = image.size();
-    if (!image.isNull() && requestedSize.isValid() && requestedSize.width() < image.width())
+    if (image.isNull())
+        return nullptr;
+    if (requestedSize.isValid() && requestedSize.width() < image.width())
         image = image.scaled(requestedSize, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
-    return image;
+    return QQuickTextureFactory::textureFactoryForImage(image);
 }

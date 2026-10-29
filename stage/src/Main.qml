@@ -2,7 +2,8 @@ import QtQuick
 import QtQuick.Effects
 
 // One transparent overlay over the whole screen. At rest it only takes
-// touches in thin strips along the right, bottom and top edges. A finger that
+// touches in thin strips along the right, bottom and top edges (the top one
+// only without Omarchy Pad's bar, which hands those pulls over itself). A finger that
 // lands there drags the window beside that edge smaller, or the scratchpad
 // console down, and the room it makes becomes the launcher. Pictures of the
 // windows move under the finger; Hyprland only lays out the real ones once
@@ -35,10 +36,11 @@ Window {
     property bool gone: false       // the window pulled away has closed
 
     readonly property string edge: plan ? plan.edge : ""
-    // A window pulled down by a hand: its picture, over the wallpaper it
-    // leaves behind, once the picture is there (until then, the real one).
+    // A window pulled down by a hand: its picture, once it's there (until
+    // then, the real one). The real one is hidden once the picture is drawn
+    // in its place, so what is behind it shows.
     readonly property bool closing: edge === "close"
-    readonly property bool showing: closing && plan.animated === true && ready[plan.snapshot] === true
+    readonly property bool showing: closing && ready[plan.snapshot] === true
     // Three fingers sliding the workspaces: `pull` is how far the next one
     // has come in, once this workspace's pictures are there (the next one's
     // show their app until theirs arrive).
@@ -90,8 +92,11 @@ Window {
     readonly property var inputRects: {
         if (phase !== "idle")
             return [Qt.rect(0, 0, width, height)]
-        const rects = [Qt.rect(width - strip, 0, strip, height), Qt.rect(0, height - strip, width, strip),
-                       Qt.rect(0, 0, width, strip - 2)]
+        const rects = [Qt.rect(width - strip, 0, strip, height), Qt.rect(0, height - strip, width, strip)]
+        // Omarchy Pad's bar hands over pulls from the top itself, by thirds;
+        // a strip of stage's own over it would take some of them first.
+        if (!stage.barConnected)
+            rects.push(Qt.rect(0, 0, width, strip - 2))
         if (stage.consoleOpen) {
             const c = stage.consoleRect
             rects.push(Qt.rect(0, c.y + c.height, width, height - c.y - c.height))
@@ -137,7 +142,7 @@ Window {
             return "bottom"
         if (stage.consoleOpen && !inside(stage.consoleRect, x, y))
             return "dismiss"
-        if (y <= strip * 1.5)
+        if (y <= strip * 1.5 && !stage.barConnected)
             return "top"
         return ""
     }
@@ -365,6 +370,17 @@ Window {
     }
 
     function finish() {
+        hideOnNextFrame = false
+        if (hidden !== "" && !gone) {
+            // The window comes back first, under its picture, and the picture
+            // goes once Hyprland has drawn it, so neither is ever missing.
+            stage.showWindow(hidden)
+            hidden = ""
+            phase = "revealing"
+            revealTimer.start()
+            return
+        }
+        hidden = ""
         phase = "idle"
         plan = null
         pull = 0
@@ -571,6 +587,26 @@ Window {
 
     // ---- a hand pulling a window down ----
 
+    // The window hidden under its picture, and whether to hide it once the
+    // picture is on screen.
+    property string hidden: ""
+    property bool hideOnNextFrame: false
+    readonly property bool pictureInPlace: showing && closingPicture.status === Image.Ready
+    onPictureInPlaceChanged: if (pictureInPlace && hidden === "") hideOnNextFrame = true
+    onFrameSwapped: {
+        if (!hideOnNextFrame || !pictureInPlace)
+            return
+        hideOnNextFrame = false
+        hidden = plan.address
+        stage.hideWindow(hidden)
+    }
+
+    Timer {
+        id: revealTimer
+        interval: 50
+        onTriggered: win.finish()
+    }
+
     function handPulled(p, at, ms) {
         if (phase !== "idle")
             return
@@ -594,10 +630,11 @@ Window {
         pull = d >= 0 ? d : -rubber(-d)
     }
 
-    // Far enough, or quick enough, and the window goes: it is asked to close
-    // as the picture slides off, and the wallpaper under it gives way to the
-    // others once it has. A window that won't close (it asks about unsaved
-    // work) shows again.
+    // Far enough, or quick enough, and the window goes: the picture slides
+    // off, then the window is asked to close and the others move in. Not
+    // sooner: closing makes Hyprland lay the others out again and their apps
+    // draw at their new sizes, which costs the slide frames. A window that
+    // won't close (it asks about unsaved work) shows again.
     function handReleased(at, ms) {
         if (phase !== "tracking" || !closing)
             return
@@ -606,18 +643,15 @@ Window {
             settle(0, finish)
             return
         }
-        stage.closeWindow(plan.address)
         if (!showing) {
+            stage.closeWindow(plan.address)
             finish()
             return
         }
         settle(height - closingOuter.y + 40, function () {
-            if (gone) {
-                finish()
-            } else {
-                phase = "leaving"
-                leaveTimer.start()
-            }
+            phase = "leaving"
+            stage.closeWindow(plan.address)
+            leaveTimer.start()
         })
     }
 
@@ -857,11 +891,12 @@ Window {
                             asynchronous: true
                         }
                     }
-                    Image {
+                    Picture {
                         anchors.fill: parent
-                        visible: win.ready[parent.modelData.snapshot] === true
-                        source: visible ? "image://snapshot/" + parent.modelData.snapshot : ""
-                        cache: false
+                        visible: shown
+                        shown: win.ready[parent.modelData.snapshot] === true
+                        snapshot: parent.modelData.snapshot
+                        sourceSize: Qt.size(width * Screen.devicePixelRatio, height * Screen.devicePixelRatio)
                     }
                 }
             }
@@ -877,30 +912,14 @@ Window {
             }
         }
 
-        // Where the window pulled down was: wallpaper, the way the gaps show
-        // it, until Hyprland has closed it and moves the others in.
-        Item {
-            visible: win.showing && !win.gone
-            x: win.closingOuter.x
-            y: win.closingOuter.y
-            width: win.closingOuter.width
-            height: win.closingOuter.height
-            clip: true
-            Image {
-                x: -parent.x
-                y: -parent.y
-                width: win.width
-                height: win.height
-                source: wallpaper.source
-                sourceSize: wallpaper.sourceSize
-                fillMode: Image.PreserveAspectCrop
-            }
-        }
-
         // The window itself, following the fingers down and a little smaller
         // the farther it goes.
         WindowFrame {
             visible: win.showing
+            // The picture is opaque; a see-through window's shows as the window
+            // does, as one: frame and picture together, not each on its own.
+            opacity: win.plan && win.plan.opacity !== undefined ? win.plan.opacity : 1
+            layer.enabled: opacity < 1
             x: win.closingOuter.x
             y: win.closingOuter.y + win.pull
             width: win.closingOuter.width
@@ -910,12 +929,12 @@ Window {
             border: win.border
             rounding: win.look && win.look.rounding !== undefined ? win.look.rounding : 0
             colors: win.look ? win.look.active : null
-            Image {
+            Picture {
+                id: closingPicture
                 anchors.fill: parent
-                source: win.showing ? "image://snapshot/" + win.plan.snapshot : ""
+                shown: win.showing
+                snapshot: win.showing ? win.plan.snapshot : -1
                 sourceSize: Qt.size(win.closingOuter.width * Screen.devicePixelRatio, win.closingOuter.height * Screen.devicePixelRatio)
-                asynchronous: true
-                cache: false
             }
         }
 
@@ -1118,15 +1137,14 @@ Window {
         rounding: win.look && win.look.rounding !== undefined ? win.look.rounding : 0
         colors: win.look ? win.look.active : null
         fill: style.panel
-        Image {
+        Picture {
             id: shot
             anchors.fill: parent
             visible: false
             fillMode: Image.PreserveAspectCrop
-            source: win.ready[pane.modelData.snapshot] === true ? "image://snapshot/" + pane.modelData.snapshot : ""
+            shown: win.ready[pane.modelData.snapshot] === true
+            snapshot: pane.modelData.snapshot
             sourceSize: Qt.size(pane.modelData.w * Screen.devicePixelRatio, pane.modelData.h * Screen.devicePixelRatio)
-            asynchronous: true
-            cache: false
         }
         MultiEffect {
             anchors.fill: shot
@@ -1174,15 +1192,12 @@ Window {
                     source: "image://icon/" + win.iconFor(frame.modelData.appClass)
                     asynchronous: true
                 }
-                // Asked for only once the capture is in (the provider has
-                // nothing before), off the GUI thread, at the size it shows.
-                Image {
+                Picture {
                     id: picture
                     anchors.fill: parent
-                    source: win.ready[frame.modelData.snapshot] === true ? "image://snapshot/" + frame.modelData.snapshot : ""
+                    shown: win.ready[frame.modelData.snapshot] === true
+                    snapshot: frame.modelData.snapshot
                     sourceSize: Qt.size(frame.modelData.w * Screen.devicePixelRatio, frame.modelData.h * Screen.devicePixelRatio)
-                    asynchronous: true
-                    cache: false
                 }
             }
         }

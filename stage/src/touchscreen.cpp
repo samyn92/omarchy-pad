@@ -97,6 +97,8 @@ void Touchscreen::read()
                                     libinput_event_touch_get_y_transformed(touch, Scale) / Scale);
                 emit touched(type == LIBINPUT_EVENT_TOUCH_DOWN ? Down : Move, slot, panel, ms);
             }
+        } else if (type == LIBINPUT_EVENT_TOUCH_FRAME) {
+            emit touched(Frame, -1, {}, 0);
         }
         libinput_event_destroy(event);
     }

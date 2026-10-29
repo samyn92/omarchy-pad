@@ -1,11 +1,14 @@
 #pragma once
 
 #include <QJsonArray>
+#include <QMutex>
 #include <QObject>
 #include <QPointer>
 #include <QRectF>
+#include <QSet>
 #include <QTimer>
 #include <QVariantMap>
+#include <atomic>
 #include <functional>
 
 #include "fingers.h"
@@ -15,6 +18,7 @@ class Apps;
 class Capture;
 class Hyprland;
 class QLocalServer;
+class QLocalSocket;
 class QWindow;
 class Snapshots;
 
@@ -38,6 +42,9 @@ class Stage : public QObject {
     // Where tiled windows meet, so a finger can hold and drag the line between
     // them (see dividersIn).
     Q_PROPERTY(QVariantList dividers READ dividers NOTIFY dividersChanged)
+    // Omarchy Pad's bar is connected and hands stage the pulls from the top
+    // itself, so stage's own strip along the top edge stands aside.
+    Q_PROPERTY(bool barConnected READ barConnected NOTIFY barConnectedChanged)
 
 public:
     // At most this many windows share a workspace, and this many the console.
@@ -57,6 +64,7 @@ public:
     QVariantMap look() const { return m_look; }
     bool hand() const { return m_hand; }
     QVariantList dividers() const { return m_dividers; }
+    bool barConnected() const { return !m_bars.isEmpty(); }
 
     // A finger from the touch screen (Touchscreen::touched).
     void touch(Touchscreen::Kind kind, int slot, const QPointF &panel, qreal ms);
@@ -69,6 +77,8 @@ public:
     // at `fraction` of the space for the window that made room. `placed`
     // follows once its window is up (or it took too long).
     Q_INVOKABLE void launch(const QVariantMap &plan, const QString &appId, qreal fraction = 0.5);
+    // How a picture lies (a wl_output_transform), so it can be shown upright.
+    Q_INVOKABLE int pictureTurn(int snapshot) const;
     // Brings the console down without Hyprland sliding it in a second time
     // (the finger already did), or sends it back up.
     Q_INVOKABLE void openConsole();
@@ -93,6 +103,12 @@ public:
     // Asks the window to close, without Hyprland animating it away a second
     // time (the picture already left); `windowClosed` follows if it does.
     Q_INVOKABLE void closeWindow(const QString &address);
+    // While a picture of a window moves under the fingers, the real one is
+    // hidden at once, so whatever is behind it shows: the wallpaper, other
+    // windows, the dimmed screen around the console. showWindow gives it back
+    // as it was.
+    Q_INVOKABLE void hideWindow(const QString &address);
+    Q_INVOKABLE void showWindow(const QString &address);
     // What a three-finger swipe does: "left" and "right" go to the next or
     // previous workspace, "up" maximizes the focused window.
     Q_INVOKABLE void swipe(const QString &direction);
@@ -105,8 +121,7 @@ public:
     static QRectF consoleBox(const QRectF &usable, int windows);
     // The window a hand at x, y is on, of the visible ones (as from
     // visibleWindows), stacked the way Hyprland draws them. Empty when there
-    // is none; `animated` when nothing else shows behind it, so a picture of
-    // it can be pulled away over the wallpaper.
+    // is none.
     static QVariantMap windowAt(qreal x, qreal y, const QVariantList &windows, const QString &special);
     // The workspace three fingers slide to from `current`, of Hyprland's
     // `workspaces`; 0 when there is none that way.
@@ -122,6 +137,7 @@ public:
 
 signals:
     void consoleOpenChanged();
+    void barConnectedChanged();
     void lookChanged();
     void dividersChanged();
     // A finger on the bar pulls the console down; the bar sends its pull over
@@ -162,6 +178,7 @@ private:
 
     Monitor monitor() const;
     void refreshLook();
+    void registerHiding();
     QVariantList windowsOn(const QString &workspace, const QPointF &origin) const;
     QVariantList visibleWindows(const Monitor &m) const;
     bool refreshTouch();
@@ -181,6 +198,7 @@ private:
     Apps *m_apps;
     QPointer<QWindow> m_window;
     QLocalServer *m_server = nullptr;
+    QSet<QLocalSocket *> m_bars;    // connections that said `bar here`
 
     QVariantMap m_look;
     QPointF m_topFrom;
@@ -203,6 +221,7 @@ private:
         qreal landed = 0;
     };
     QHash<int, Touch> m_touches;
+    QHash<int, std::pair<QPointF, qreal>> m_moved;   // where fingers moved since the last frame, and when
     Fingers m_fingers;
     int m_touchTransform = 0;
     QSizeF m_touchSize;
@@ -215,6 +234,20 @@ private:
     // Windows asked to close, kept from animating; a window that stays (it
     // asked about unsaved work, say) gets its animations back.
     QHash<QString, QTimer *> m_closing;
+    // Windows hidden by hideWindow, and whether they had no_anim of their own.
+    QHash<QString, bool> m_hidden;
+
+    // With debug logging on, when the overlay's frames reached the screen
+    // (noted from the render thread) and when the fingers moved, while a hand
+    // pulls or slides and the picture settles, so the log can say how
+    // smoothly it went.
+    void startTiming();
+    void reportTiming(const char *what);
+    QMutex m_timingLock;
+    std::atomic<bool> m_timing{false};
+    QList<qreal> m_frameTimes;
+    QList<qreal> m_moveTimes;
+    qreal m_timingStart = 0;
 
     // A hand without fingers, for `stage simulate pull`: it goes through the
     // touch screen's path, turn and all.

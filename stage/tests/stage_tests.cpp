@@ -28,6 +28,7 @@ class FakeStage : public QObject {
     Q_PROPERTY(QVariantMap look MEMBER look CONSTANT)
     Q_PROPERTY(bool hand MEMBER hand NOTIFY handChanged)
     Q_PROPERTY(QVariantList dividers MEMBER dividers NOTIFY dividersChanged)
+    Q_PROPERTY(bool barConnected MEMBER barConnected NOTIFY barConnectedChanged)
 
 public:
     Q_INVOKABLE void closeWindow(const QString &address)
@@ -93,6 +94,9 @@ public:
     }
     Q_INVOKABLE void closeConsole() { log << "closeConsole"; }
     Q_INVOKABLE void setInputRegion(const QVariantList &rects) { region = rects; }
+    Q_INVOKABLE int pictureTurn(int) const { return 0; }
+    Q_INVOKABLE void hideWindow(const QString &address) { hiding << "hide:" + address; }
+    Q_INVOKABLE void showWindow(const QString &address) { hiding << "show:" + address; }
 
     bool consoleOpen = false;
     QRectF consoleRect;
@@ -101,9 +105,11 @@ public:
                      {"inactive", Stage::parseGradient("aa595959 0deg")}};
     QHash<QString, QVariantMap> plans;
     QStringList log;
+    QStringList hiding;   // windows hidden under their pictures, and shown again
     QVariantList region;
     bool hand = false;
     QVariantList dividers;
+    bool barConnected = false;
     bool refuse = false;   // windows that won't close
 
 signals:
@@ -112,6 +118,7 @@ signals:
     void placed(bool ok);
     void handChanged();
     void dividersChanged();
+    void barConnectedChanged();
     void topPulled(const QVariantMap &plan, const QPointF &at);
     void topMoved(const QPointF &at);
     void topReleased(const QPointF &at, bool open);
@@ -164,7 +171,7 @@ public:
                                {"appClass", "foot"}, {"title", "foot"}, {"x", 12}, {"y", 42}, {"w", 1672}, {"h", 1146},
                                {"usable", rect(0, 30, 1696, 1170)}, {"snapshot", 1}, {"workspace", "1"}};
         fake.plans["close"] = {{"edge", "close"}, {"address", "0x9"}, {"appClass", "foot"}, {"title", "foot"},
-                               {"x", 12}, {"y", 42}, {"w", 829}, {"h", 1146}, {"animated", true}, {"snapshot", 1},
+                               {"x", 12}, {"y", 42}, {"w", 829}, {"h", 1146}, {"snapshot", 1},
                                {"fromX", 400}, {"fromY", 300}};
         const QVariantMap one{{"address", "0x9"}, {"appClass", "foot"}, {"x", 12}, {"y", 42}, {"w", 1672}, {"h", 1146},
                               {"active", true}, {"snapshot", 1}};
@@ -236,7 +243,9 @@ public:
     {
         fake.hand = true;
         emit fake.handChanged();
-        emit fake.snapshotReady(fake.plans["close"].value("snapshot").toInt(), true);
+        const int snapshot = fake.plans["close"].value("snapshot").toInt();
+        if (snapshot >= 0)
+            emit fake.snapshotReady(snapshot, true);
     }
     void handPull(qreal dy, int ms, bool lift = true)
     {
@@ -403,21 +412,15 @@ private slots:
         QVariantMap plan = Stage::windowAt(300, 500, tiled, {});
         QCOMPARE(plan["address"].toString(), QString("left"));
         QCOMPARE(plan["edge"].toString(), QString("close"));
-        QVERIFY(plan["animated"].toBool());
         QCOMPARE(Stage::windowAt(1200, 500, tiled, {})["address"].toString(), QString("right"));
         // The bar and the gaps are nobody's.
         QVERIFY(Stage::windowAt(300, 15, tiled, {}).isEmpty());
 
-        // A floating window is on top, and has a window behind it.
+        // A floating window is on top.
         QVariantList withFloat = tiled;
         withFloat << window("float", 200, 300, 600, 400, "1", true, false, 0);
-        plan = Stage::windowAt(300, 500, withFloat, {});
-        QCOMPARE(plan["address"].toString(), QString("float"));
-        QVERIFY(!plan["animated"].toBool());
-        // Beside it, the tiled one now has the floating one over it.
-        plan = Stage::windowAt(1200, 500, withFloat, {});
-        QCOMPARE(plan["address"].toString(), QString("right"));
-        QVERIFY(plan["animated"].toBool());
+        QCOMPARE(Stage::windowAt(300, 500, withFloat, {})["address"].toString(), QString("float"));
+        QCOMPARE(Stage::windowAt(1200, 500, withFloat, {})["address"].toString(), QString("right"));
 
         // A maximized window covers the others.
         QVariantList maximized = tiled;
@@ -427,9 +430,7 @@ private slots:
         // With the console down, only its windows can go.
         QVariantList console = tiled;
         console << window("agent", 261, 30, 1174, 587, "special:scratchpad");
-        plan = Stage::windowAt(600, 300, console, "special:scratchpad");
-        QCOMPARE(plan["address"].toString(), QString("agent"));
-        QVERIFY(!plan["animated"].toBool());
+        QCOMPARE(Stage::windowAt(600, 300, console, "special:scratchpad")["address"].toString(), QString("agent"));
         QVERIFY(Stage::windowAt(600, 900, console, "special:scratchpad").isEmpty());
     }
 
@@ -689,6 +690,22 @@ private slots:
         QTRY_COMPARE(h.phase(), QString("idle"));
     }
 
+    void withTheBarTheTopEdgeIsTheBars()
+    {
+        Harness h;
+        h.fake.dividers.clear();
+        emit h.fake.dividersChanged();
+        h.fake.barConnected = true;
+        emit h.fake.barConnectedChanged();
+        QCOMPARE(h.fake.region.size(), 2);
+        h.swipe(QPoint(800, 3), QPoint(800, 400));
+        QVERIFY(!h.fake.log.contains("openConsole"));
+        QCOMPARE(h.phase(), QString("idle"));
+        h.fake.barConnected = false;
+        emit h.fake.barConnectedChanged();
+        QCOMPARE(h.fake.region.size(), 3);
+    }
+
     void anEmptyConsoleOffersApps()
     {
         Harness h;
@@ -838,9 +855,15 @@ private slots:
         // The picture follows the fingers.
         QVERIFY(h.window->property("showing").toBool());
         QCOMPARE(qRound(h.pull()), 300);
+        // The real window is out of the way while its picture is.
+        QTRY_COMPARE(h.fake.hiding, QStringList({"hide:0x9"}));
         h.handUp(QPointF(400, 600), 1400);
-        QCOMPARE(h.fake.log, QStringList({"close:0x9"}));
+        // Asked once the picture is off the screen.
+        QVERIFY(h.fake.log.isEmpty());
+        QTRY_COMPARE(h.fake.log, QStringList({"close:0x9"}));
         QTRY_COMPARE(h.phase(), QString("idle"));
+        // Closed, it isn't asked back.
+        QCOMPARE(h.fake.hiding, QStringList({"hide:0x9"}));
     }
 
     void aShortSlowPullPutsTheWindowBack()
@@ -850,13 +873,14 @@ private slots:
         QTRY_COMPARE(h.phase(), QString("idle"));
         QVERIFY(h.fake.log.isEmpty());
         QCOMPARE(h.pull(), 0.0);
+        QCOMPARE(h.fake.hiding, QStringList({"hide:0x9", "show:0x9"}));
     }
 
     void aQuickFlickClosesToo()
     {
         Harness h;
         h.handPull(80, 48);
-        QCOMPARE(h.fake.log, QStringList({"close:0x9"}));
+        QTRY_COMPARE(h.fake.log, QStringList({"close:0x9"}));
     }
 
     void aWindowThatStaysShowsAgain()
@@ -864,20 +888,23 @@ private slots:
         Harness h;
         h.fake.refuse = true;
         h.handPull(300, 300);
-        QCOMPARE(h.fake.log, QStringList({"close:0x9"}));
+        QTRY_COMPARE(h.fake.log, QStringList({"close:0x9"}));
         QTRY_COMPARE(h.phase(), QString("leaving"));
         QTRY_COMPARE_WITH_TIMEOUT(h.phase(), QString("idle"), 3000);
+        QCOMPARE(h.fake.hiding, QStringList({"hide:0x9", "show:0x9"}));
     }
 
-    void aCoveredWindowJustCloses()
+    void aWindowWithoutAPictureJustCloses()
     {
         Harness h;
-        h.fake.plans["close"]["animated"] = false;
+        // No picture could be taken (-1, as Capture says).
+        h.fake.plans["close"]["snapshot"] = -1;
         h.handPull(300, 300, false);
         QVERIFY(!h.window->property("showing").toBool());
         h.handUp(QPointF(400, 600), 1400);
         QCOMPARE(h.fake.log, QStringList({"close:0x9"}));
         QCOMPARE(h.phase(), QString("idle"));
+        QVERIFY(h.fake.hiding.isEmpty());
     }
 
     void aHandPutsDownAnEdgeGesture()

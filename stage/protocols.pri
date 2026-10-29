@@ -1,7 +1,9 @@
 # Generates the Wayland protocol glue with wayland-scanner, shared by the app
 # and the tests.
 STAGING = /usr/share/wayland-protocols/staging
+STABLE = /usr/share/wayland-protocols/stable
 WAYLAND_PROTOCOLS = \
+    $$STABLE/linux-dmabuf/linux-dmabuf-v1.xml \
     $$STAGING/ext-image-copy-capture/ext-image-copy-capture-v1.xml \
     $$STAGING/ext-image-capture-source/ext-image-capture-source-v1.xml \
     $$STAGING/ext-foreign-toplevel-list/ext-foreign-toplevel-list-v1.xml \

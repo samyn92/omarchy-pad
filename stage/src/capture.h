@@ -3,6 +3,12 @@
 #include <QHash>
 #include <QImage>
 #include <QObject>
+#include <memory>
+#include <sys/types.h>
+
+class GpuPicture;
+struct gbm_device;
+struct zwp_linux_dmabuf_v1;
 
 class QScreen;
 struct wl_display;
@@ -42,6 +48,10 @@ public:
 
 signals:
     void captured(int id, const QImage &image);
+    // The same, kept on the GPU, when the compositor and the driver allow it
+    // (and then instead of `captured`). `turn` is how the picture lies, as a
+    // wl_output_transform: it isn't turned upright.
+    void capturedOnGpu(int id, std::shared_ptr<const GpuPicture> picture, int turn);
 
 private:
     struct Toplevel {
@@ -51,6 +61,10 @@ private:
     struct Job;
 
     int start(struct ext_image_capture_source_v1 *source);
+    bool onGpu(Job *job);
+    bool openGpu(dev_t device);
+    void inMemory(Job *job);
+    void captureInto(Job *job);
     void finish(Job *job, bool ok);
     void mapToplevel(ext_foreign_toplevel_handle_v1 *handle);
 
@@ -70,6 +84,11 @@ private:
     wl_event_queue *m_queue = nullptr;
     wl_registry *m_registry = nullptr;
     wl_shm *m_shm = nullptr;
+    zwp_linux_dmabuf_v1 *m_dmabuf = nullptr;
+    gbm_device *m_gpu = nullptr;
+    int m_gpuFd = -1;
+    dev_t m_gpuDevice = 0;
+    bool m_gpuTried = false;
     ext_image_copy_capture_manager_v1 *m_copy = nullptr;
     ext_output_image_capture_source_manager_v1 *m_outputs = nullptr;
     ext_foreign_toplevel_image_capture_source_manager_v1 *m_toplevelSources = nullptr;
