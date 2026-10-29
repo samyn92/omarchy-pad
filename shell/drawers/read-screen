@@ -1,0 +1,36 @@
+#!/bin/bash
+
+# Reads the text (text) or the QR code (qr) in an area of the screen and
+# copies it, as Omarchy's omarchy-capture-text and omarchy-capture-qr do, with
+# the same reading and the same notifications. The area is picked as Omarchy's
+# screenshots pick one, on omasnap's overlay, which a finger can drag: those
+# two freeze the screen and pick with slurp, which shows a touch screen
+# nothing to drag on, so a tap seemed to do nothing.
+
+kind=${1:-text}
+
+# omasnap copies the area as a picture. One that was dismissed copies
+# nothing, so the clipboard is told apart from what it held before.
+before=$(wl-paste --type image/png 2>/dev/null | md5sum)
+omasnap --capture-region --copy || exit 1
+after=$(wl-paste --type image/png 2>/dev/null | md5sum)
+[[ $after == "$before" ]] && exit 0
+
+if [[ $kind == qr ]]; then
+  result=$(wl-paste --type image/png | zbarimg -q --raw -Sdisable -Sqrcode.enable - 2>/dev/null)
+  if [[ -z $result ]]; then
+    omarchy-notification-send -g 󰐲 -u critical "$(omarchy-i18n capture.qrNone)" "$(omarchy-i18n capture.qrHelp)"
+    exit 1
+  fi
+  printf '%s' "$result" | wl-copy --sensitive
+  omarchy-notification-send -g 󰐲 "$(omarchy-i18n capture.qrCopied)"
+else
+  text=$(wl-paste --type image/png | tesseract stdin stdout --oem 1 --psm 6 -l "${OMARCHY_OCR_LANGS:-eng}" \
+    --dpi 300 -c preserve_interword_spaces=1 2>/dev/null)
+  if [[ -z ${text//[[:space:]]/} ]]; then
+    omarchy-notification-send -g 󰴑 -u critical "No text found" "Select an area with text in it"
+    exit 1
+  fi
+  printf '%s' "$text" | wl-copy
+  omarchy-notification-send -g 󰴑 "$(omarchy-i18n capture.textCopied)"
+fi

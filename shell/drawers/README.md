@@ -28,9 +28,13 @@ Two drawers that pull down from the top edge, as on an iPad:
   - A grid of four across: Focus (Do Not Disturb), Night Light, Stay Awake
     and rotation lock; Screenshot (the whole screen) and Region; the
     on-screen keyboard and Omarchy's clipboard history; Omarchy's theme and
-    background pickers, and Text and QR code, which read them off an area of
-    the screen. A screenshot or capture starts once the drawer is up and
-    away.
+    background pickers; Text, which copies the words in an area of the screen
+    as text (it reads them, as Omarchy's `omarchy capture text` does), and QR
+    code, which copies what a QR code in an area says. A screenshot or
+    capture starts once the drawer is up and away. Text and QR code have you
+    drag out the area on Omarchy's screenshot overlay, as Region does:
+    Omarchy's own commands for them pick it with `slurp`, which shows a touch
+    screen nothing to drag.
   - The battery, and Omarchy's power profile (Saver, Balanced, Fast).
 
   Pull on down past it (from the bar, or anywhere on the drawer: a finger

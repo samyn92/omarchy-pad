@@ -182,12 +182,13 @@ Scope {
     root.run("profile", ["omarchy-powerprofiles-set", "autodetect", profile])
   }
 
-  // Omarchy's screenshot (fullscreen, region), screen text and QR code
-  // capture. They start once the drawer has gone up, so it isn't in the
-  // picture and a region is picked over what is really there.
+  // Omarchy's screenshot (fullscreen, region), and the text or QR code in
+  // an area read as Omarchy reads them (read-screen, picking the area on the
+  // screenshot overlay, which a finger can drag). They start once the drawer
+  // has gone up, so it isn't in the picture and an area is picked over what
+  // is really there.
   function capture(kind) {
-    var argv = kind === "text" ? ["omarchy-capture-text"]
-      : kind === "qr" ? ["omarchy-capture-qr"]
+    var argv = kind === "text" || kind === "qr" ? ["bash", root.pluginDir + "/read-screen", kind]
       : ["omarchy-capture-screenshot", kind === "region" ? "region" : "fullscreen"]
     root.run("", ["bash", "-c", 'sleep 0.5; exec "$@"', "capture"].concat(argv))
   }

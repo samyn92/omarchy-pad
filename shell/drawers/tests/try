@@ -27,7 +27,7 @@ mkdir -p "$work/shell/plugins/drawers" "$work/bin" "$work/state" "$work/config"
 cp "$here/tests/harness/shell.qml" "$work/shell/"
 ln -s "$shell_root/Commons" "$work/shell/Commons"
 ln -s "$shell_root/Ui" "$work/shell/Ui"
-cp "$here"/*.qml "$here/manifest.json" "$here/quick-settings-state" "$work/shell/plugins/drawers/"
+cp "$here"/*.qml "$here/manifest.json" "$here/quick-settings-state" "$here/read-screen" "$work/shell/plugins/drawers/"
 
 for command in omarchy-brightness-display omarchy-audio-output-sink pactl omarchy-bluetooth-power \
   iceland-rotate-lock floatkey omarchy-shell omarchy-theme-bg-switcher omarchy-agent-usage-update \
