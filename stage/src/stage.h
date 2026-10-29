@@ -1,7 +1,9 @@
 #pragma once
 
 #include <QJsonArray>
+#include <QElapsedTimer>
 #include <QMutex>
+#include <QProcess>
 #include <QObject>
 #include <QPointer>
 #include <QRectF>
@@ -112,6 +114,8 @@ public:
     // What a three-finger swipe does: "left" and "right" go to the next or
     // previous workspace, "up" maximizes the focused window.
     Q_INVOKABLE void swipe(const QString &direction);
+    // Watches the clipboard for copied(); main starts it, the tests don't.
+    void watchClipboard();
     // Shows workspace `id` right away: the fingers already slid it in.
     Q_INVOKABLE void switchWorkspace(int id);
 
@@ -156,6 +160,11 @@ signals:
     void pullCanceled();
     // Three fingers went "left", "right" or "up".
     void swiped(const QString &direction);
+    // Three fingers pinched "in" (copy) or spread "out" (paste); floatkey
+    // has been asked to send the keys.
+    void pinched(const QString &direction);
+    // Something was copied, from anywhere.
+    void copied();
     void windowClosed(const QString &address);
     // Three fingers slide the workspaces; `plan` (from slidePlan) has both
     // sets of windows, `next` the workspace that comes in (none at the end).
@@ -166,6 +175,12 @@ signals:
     void workspaceShown(const QString &name);
 
 private:
+    void sendClipboardKeys(const QString &action);
+
+    QProcess m_clipboardWatch;
+    QElapsedTimer m_clipboardSince;
+    QElapsedTimer m_hushed;
+
     struct Monitor {
         QRectF logical;   // the whole output, in global logical coordinates
         QRectF usable;    // less the bar and anything else reserved
@@ -253,6 +268,7 @@ private:
     // touch screen's path, turn and all.
     void simulatePull(const QPointF &from, const QPointF &to, int ms, int fingers);
     void simulateRelease();
+    void simulatePinch(bool in, int ms);
     QTimer m_simulated;
     QPointF m_simulatedFrom, m_simulatedTo;
     int m_simulatedFingers = 0, m_simulatedSteps = 1, m_simulatedStep = 0;

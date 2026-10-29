@@ -13,7 +13,8 @@
 // milliseconds, it says what the hand does:
 //  - two or three fingers moving down together pull a window down;
 //  - three fingers moving sideways together slide the workspaces;
-//  - three fingers up swipe, once the first of them lifts.
+//  - three fingers up swipe, once the first of them lifts;
+//  - three fingers pinching in or spreading out copy and paste, as on an iPad.
 // A hand ends at its first lift, so the last finger's jump can't move a pull.
 class Fingers {
 public:
@@ -29,6 +30,7 @@ public:
             SlideEnded,
             SlideCanceled,
             Swiped,        // three fingers, `direction` "up"
+            Pinched,       // three fingers came together ("in") or spread ("out")
             HandUp,        // every finger of the hand has lifted
         };
         Type type;
@@ -49,6 +51,12 @@ public:
     // A three-finger swipe up needs this distance, this close to straight up.
     static constexpr qreal SwipeDistance = 150;
     static constexpr qreal SwipeDegrees = 22;
+    // A pinch: the fingers' spread (their mean distance from their middle)
+    // shrinks to this share of what it was, or grows by this factor, and by
+    // at least this far.
+    static constexpr qreal PinchRatio = 0.55;
+    static constexpr qreal SpreadRatio = 1.7;
+    static constexpr qreal PinchDistance = 60;
 
     QList<Event> down(int slot, const QPointF &at, qreal ms);
     QList<Event> move(int slot, const QPointF &at, qreal ms);
@@ -75,6 +83,7 @@ private:
     bool together() const;
     QPointF lead() const { return m_fingers.value(m_members.first()).now; }
     QPointF pullPoint() const;
+    qreal spread(bool atStart) const;
 
     bool everyFingerAlong(const QPointF &t) const;
 
@@ -82,4 +91,5 @@ private:
     QList<int> m_members;           // the hand's fingers, first one first
     State m_state = State::Forming;
     QString m_direction;            // which way a slide goes
+    bool m_parted = false;          // the fingers went apart: only a pinch is left
 };

@@ -36,10 +36,15 @@ static const char *usage =
     "                           held; then simulate release, pick APP or cancel\n"
     "  simulate press X Y       a finger landing and staying (on a divider, it holds it);\n"
     "                           then simulate move X Y [MS] and simulate release\n"
+    "  simulate pinch in|out [MS]\n"
+    "                           three fingers drawing together (copy) or spreading\n"
+    "                           (paste) in the middle of the screen, then lifting\n"
     "  simulate pull X0 Y0 X1 Y1 [MS] [FINGERS]\n"
     "                           two (or three) fingers landing at X0,Y0 and moving to\n"
     "                           X1,Y1, as if from the touch screen, still held; then\n"
     "                           simulate release\n"
+    "  hush                     don't announce the next copy for a moment (floatkey\n"
+    "                           sends it before putting a clip back to paste it)\n"
     "  quit                     stop\n";
 
 static int runCommand(int argc, char *argv[], const QStringList &args)
@@ -120,7 +125,10 @@ int main(int argc, char *argv[])
     Stage stage(&hyprland, &capture, snapshots, &apps);
     Touchscreen touchscreen;
     QObject::connect(&touchscreen, &Touchscreen::touched, &stage, &Stage::touch);
-    if (!touchscreen.open())
+    // A stage in a nested test session must not take the real screen's fingers.
+    if (qEnvironmentVariableIsSet("STAGE_NO_TOUCHSCREEN"))
+        qInfo("stage: not reading the touch screen (STAGE_NO_TOUCHSCREEN)");
+    else if (!touchscreen.open())
         qWarning("stage: no touch screen to read; two- and three-finger gestures are off");
 
     QQmlApplicationEngine engine;
@@ -137,6 +145,7 @@ int main(int argc, char *argv[])
         return 1;
     stage.attach(window);
     window->show();
+    stage.watchClipboard();
 
     QString error;
     if (!stage.listen(socket, &error))

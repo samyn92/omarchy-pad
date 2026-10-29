@@ -9,6 +9,7 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QTemporaryDir>
+#include <QtMath>
 #include <QtTest>
 
 #include "apps.h"
@@ -966,6 +967,31 @@ private slots:
         QVERIFY(h.fake.log.isEmpty());
     }
 
+    void threeFingersPinchToCopyAndSpreadToPaste()
+    {
+        // Three fingers drawing in towards their middle: copy.
+        const QList<Fingers::Event> in = pinch(160, 40);
+        QCOMPARE(last(in, Fingers::Event::Pinched).direction, QString("in"));
+        QVERIFY(!kinds(in).contains("pull"));
+        QVERIFY(!kinds(in).contains("slide"));
+        QVERIFY(swiped(in).isEmpty());
+        // Spreading out from close together: paste.
+        QCOMPARE(last(pinch(40, 170), Fingers::Event::Pinched).direction, QString("out"));
+        // A small squeeze is no pinch, and a hand moving together never is.
+        QCOMPARE(last(pinch(160, 120), Fingers::Event::Pinched).type, Fingers::Event::HandDown);
+        QCOMPARE(last(swipe(-300, 0), Fingers::Event::Pinched).type, Fingers::Event::HandDown);
+        // Two fingers pinching are left to the apps, to zoom.
+        Fingers two;
+        QList<Fingers::Event> events;
+        events += two.down(0, {600, 500}, 0);
+        events += two.down(1, {800, 500}, 10);
+        for (int s = 1; s <= 20; ++s) {
+            events += two.move(0, {600 + 4.0 * s, 500}, 20 + s * 8);
+            events += two.move(1, {800 - 4.0 * s, 500}, 20 + s * 8);
+        }
+        QCOMPARE(last(events, Fingers::Event::Pinched).type, Fingers::Event::HandDown);
+    }
+
 private:
     // A hand of `fingers` 120 px apart lands 20 ms apart at `start` ms, comes
     // `distance` px down (up when negative) in `ms`, leaning `lean` degrees,
@@ -999,6 +1025,26 @@ private:
         for (int s = 1; s <= 30; ++s)
             for (int i = 0; i < 3; ++i)
                 events += f.move(i, {700 + i * 100.0 + dx * s / 30, 500 + dy * s / 30}, 30 + s * 8);
+        for (int i = 0; i < 3; ++i)
+            events += f.up(i, 300 + i * 10);
+        return events;
+    }
+    // Three fingers around a middle, `from` away from it, drawing to `to`.
+    static QList<Fingers::Event> pinch(qreal from, qreal to)
+    {
+        Fingers f;
+        QList<Fingers::Event> events;
+        const QPointF middle(800, 500);
+        const QList<qreal> angles{-90, 30, 150};
+        auto at = [&](int i, qreal r) {
+            const qreal a = qDegreesToRadians(angles[i]);
+            return middle + QPointF(std::cos(a), std::sin(a)) * r;
+        };
+        for (int i = 0; i < 3; ++i)
+            events += f.down(i, at(i, from), i * 15);
+        for (int s = 1; s <= 30; ++s)
+            for (int i = 0; i < 3; ++i)
+                events += f.move(i, at(i, from + (to - from) * s / 30), 30 + s * 8);
         for (int i = 0; i < 3; ++i)
             events += f.up(i, 300 + i * 10);
         return events;

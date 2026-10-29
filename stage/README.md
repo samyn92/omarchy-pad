@@ -24,6 +24,12 @@ the same the other way. Pull the scratchpad console down from the top.
 | Three fingers sideways | Slides this workspace aside for the next or previous one, following your fingers; a quarter of the way or a flick switches, less goes back. Past the last workspace with windows there is one empty one, to start something new on |
 | Three fingers up | Maximizes the focused window |
 | Three fingers down | Pulls the window down, as with two |
+| Three fingers **pinched in** | Copies, as on an iPad (floatkey sends the keys, with shift in a terminal) |
+| Three fingers **spread out** | Pastes |
+
+Whenever anything is copied, by a pinch, a key or an app's menu, a small
+"Copied" pill shows under the bar for a moment. Two fingers pinching are left
+to the apps, for zooming.
 
 While you drag, the window keeps its border at your finger, the wallpaper
 shows through the gap, and the launcher arrives as a window of its own, with
@@ -78,6 +84,7 @@ stage launch firefox console   # ...or in the console
 stage console open             # bring the console down; also close
 stage simulate drag 1693 600 1200 600   # a finger without a hand, still held;
 stage simulate release                  # then release, pick APP or cancel
+stage simulate pinch in                 # three fingers copying; out pastes
 stage quit
 ```
 

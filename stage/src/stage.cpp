@@ -10,7 +10,9 @@
 #include <QLoggingCategory>
 #include <QQuickWindow>
 #include <QRegion>
+#include <QStandardPaths>
 #include <QWindow>
+#include <QtMath>
 #include <chrono>
 #include <cmath>
 #include <limits>
@@ -1168,6 +1170,13 @@ void Stage::handle(const QList<Fingers::Event> &events)
             reportTiming("slide");
             e.type == Fingers::Event::SlideEnded ? emit slideEnded(e.at, e.ms) : emit slideCanceled();
             break;
+        case Fingers::Event::Pinched:
+            qCDebug(lcStage) << "pinched" << e.direction << "locked" << m_locked;
+            if (!m_locked) {
+                sendClipboardKeys(e.direction == "in" ? "copy" : "paste");
+                emit pinched(e.direction);
+            }
+            break;
         case Fingers::Event::Swiped:
             qCDebug(lcStage) << "swiped" << e.direction << "locked" << m_locked;
             if (!m_locked)
@@ -1213,6 +1222,41 @@ void Stage::simulatePull(const QPointF &from, const QPointF &to, int ms, int fin
         touch(Touchscreen::Frame, -1, {}, now);
         if (t >= 1)
             m_simulated.stop();
+    });
+    m_simulated.start();
+}
+
+// Three fingers around the middle of the screen, drawing in from far apart
+// or spreading out from close together, then lifting.
+void Stage::simulatePinch(bool in, int ms)
+{
+    if (m_simulatedFingers)
+        simulateRelease();
+    refreshTouch();
+    const QPointF middle(m_touchSize.width() / 2, m_touchSize.height() / 2);
+    const qreal from = in ? 200 : 45, to = in ? 45 : 220;
+    auto at = [middle](int i, qreal r) {
+        const qreal a = qDegreesToRadians(-90.0 + 120.0 * i);
+        return middle + QPointF(std::cos(a), std::sin(a)) * r;
+    };
+    m_simulatedFingers = 3;
+    m_simulatedSteps = qMax(1, ms / 16);
+    m_simulatedStep = 0;
+    const qreal now = clockMs();
+    for (int i = 0; i < 3; ++i)
+        touch(Touchscreen::Down, SimulatedSlot + i, Fingers::unmap(at(i, from), m_touchTransform, m_touchSize), now + i * 10);
+    m_simulated.setInterval(16);
+    m_simulated.disconnect(this);
+    connect(&m_simulated, &QTimer::timeout, this, [this, at, from, to] {
+        m_simulatedStep += 1;
+        const qreal t = qMin(1.0, qreal(m_simulatedStep) / m_simulatedSteps);
+        const qreal now = clockMs();
+        for (int i = 0; i < 3; ++i)
+            touch(Touchscreen::Move, SimulatedSlot + i,
+                  Fingers::unmap(at(i, from + (to - from) * t), m_touchTransform, m_touchSize), now);
+        touch(Touchscreen::Frame, -1, {}, now);
+        if (t >= 1)
+            simulateRelease();
     });
     m_simulated.start();
 }
@@ -1269,10 +1313,53 @@ bool Stage::listen(const QString &socketPath, QString *error)
 // `stage launch firefox right 0.5` does what letting go on Firefox in the
 // launcher would after a swipe in from the right edge, beside the focused
 // window: handy for scripts, and for trying placement without a finger.
+// floatkey sends them, as Omarchy's universal clipboard keys would: with
+// shift in a terminal. Straight to the running one over its socket, so an
+// older floatkey command on the PATH can't get in the way.
+void Stage::sendClipboardKeys(const QString &action)
+{
+    const QString socket = Ipc::socketPath().replace("/stage-", "/floatkey-");
+    QString reply;
+    const bool sent = Ipc::send(socket, action, &reply, 500);
+    qCDebug(lcStage) << "clipboard" << action << (sent ? reply : QString("no floatkey"));
+}
+
+// wl-paste runs `echo` for every new copy, so each line is one copy. Its
+// first line is what was already on the clipboard. If it ever stops, it
+// starts again.
+void Stage::watchClipboard()
+{
+    const QString wlPaste = QStandardPaths::findExecutable("wl-paste");
+    if (wlPaste.isEmpty())
+        return;
+    if (m_clipboardSince.isValid()) {
+        m_clipboardSince.start();
+        m_clipboardWatch.start(wlPaste, {"--watch", "echo"});
+        return;
+    }
+    connect(&m_clipboardWatch, &QProcess::readyReadStandardOutput, this, [this] {
+        const qsizetype lines = m_clipboardWatch.readAllStandardOutput().count('\n');
+        const bool hushed = m_hushed.isValid() && m_hushed.elapsed() < 1500;
+        if (lines > 0 && m_clipboardSince.elapsed() > 1500 && !hushed)
+            emit copied();
+    });
+    connect(&m_clipboardWatch, &QProcess::finished, this, [this] {
+        QTimer::singleShot(2000, this, &Stage::watchClipboard);
+    });
+    m_clipboardSince.start();
+    m_clipboardWatch.start(wlPaste, {"--watch", "echo"});
+}
+
 QString Stage::command(const QString &line)
 {
     const QStringList words = line.split(' ', Qt::SkipEmptyParts);
     const QString verb = words.value(0);
+    // floatkey puts a clip back on the clipboard to paste it; that's no copy
+    // to announce.
+    if (verb == "hush") {
+        m_hushed.start();
+        return "ok";
+    }
     if (verb == "status")
         return QString("ok console=%1 apps=%2").arg(m_consoleOpen ? "open" : "closed").arg(m_apps->rowCount());
     if (verb == "quit") {
@@ -1303,6 +1390,10 @@ QString Stage::command(const QString &line)
     if (verb == "console") {
         words.value(1) == "close" ? closeConsole() : openConsole();
         return "ok";
+    }
+    if (verb == "simulate" && words.value(1) == "pinch") {
+        simulatePinch(words.value(2) != "out", words.value(3, "300").toInt());
+        return "ok pinch";
     }
     if (verb == "simulate" && m_window && (words.value(1) == "pull" || (words.value(1) == "release" && m_simulatedFingers))) {
         // `stage simulate pull 400 300 400 700 [ms] [fingers]`, then `release`:

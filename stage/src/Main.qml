@@ -757,6 +757,8 @@ Window {
             if (win.phase === "tracking" && win.closing)
                 win.cancel()
         }
+        function onPinched(direction) { clipToast.show(direction === "in" ? "copy" : "paste") }
+        function onCopied() { clipToast.show("copied") }
         function onSwiped(direction) {
             if (win.phase === "idle")
                 stage.swipe(direction)
@@ -1289,5 +1291,14 @@ Window {
         onUpdated: (touchPoints) => win.moved(touchPoints[0])
         onReleased: (touchPoints) => win.released(touchPoints[0])
         onCanceled: (touchPoints) => { if (win.phase === "tracking" && !win.closing) win.cancel() }
+    }
+
+    // What the clipboard just did, under the bar.
+    ClipToast {
+        id: clipToast
+        style: style
+        z: 1000
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: 48
     }
 }

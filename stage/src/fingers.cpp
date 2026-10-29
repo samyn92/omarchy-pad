@@ -60,8 +60,23 @@ QList<Fingers::Event> Fingers::move(int slot, const QPointF &at, qreal ms)
         return {};
 
     const int n = int(m_members.size());
+    // Three fingers drawing in or apart, before anything else has started.
+    if (m_state == State::Forming && n == 3) {
+        const qreal from = spread(true), to = spread(false);
+        const bool in = from - to >= PinchDistance && to <= from * PinchRatio;
+        const bool out = to - from >= PinchDistance && to >= from * SpreadRatio;
+        if (in || out) {
+            m_state = State::Done;
+            return {Event{Event::Pinched, pullPoint(), ms, n, in ? "in" : "out"}};
+        }
+    }
     if (!together()) {
         const State was = m_state;
+        // Fingers parting may still become a pinch; nothing else.
+        if (was == State::Forming && n == 3) {
+            m_parted = true;
+            return {};
+        }
         m_state = State::Done;
         if (was == State::Pulling)
             return {Event{Event::PullCanceled, pullPoint(), ms, n}};
@@ -69,6 +84,8 @@ QList<Fingers::Event> Fingers::move(int slot, const QPointF &at, qreal ms)
             return {Event{Event::SlideCanceled, pullPoint(), ms, n, m_direction}};
         return {};
     }
+    if (m_parted)
+        return {};
     if (m_state == State::Pulling)
         return {Event{Event::PullMoved, pullPoint(), ms, n}};
     if (m_state == State::Sliding)
@@ -110,7 +127,7 @@ QList<Fingers::Event> Fingers::up(int slot, qreal ms)
             events << Event{Event::PullEnded, pullPoint(), ms, int(m_members.size())};
         } else if (m_state == State::Sliding) {
             events << Event{Event::SlideEnded, pullPoint(), ms, int(m_members.size()), m_direction};
-        } else if (m_state == State::Forming && m_members.size() == 3) {
+        } else if (m_state == State::Forming && m_members.size() == 3 && !m_parted) {
             const QPointF t = travel();
             if (length(t) >= SwipeDistance && degreesOff(t, {0, -1}) <= SwipeDegrees)
                 events << Event{Event::Swiped, lead(), ms, 3, "up"};
@@ -124,6 +141,7 @@ QList<Fingers::Event> Fingers::up(int slot, qreal ms)
         events << Event{Event::HandUp, {}, ms, int(m_members.size())};
         m_members.clear();
         m_state = State::Forming;
+        m_parted = false;
     }
     return events;
 }
@@ -133,6 +151,7 @@ void Fingers::reset()
     m_fingers.clear();
     m_members.clear();
     m_state = State::Forming;
+    m_parted = false;
 }
 
 // How far the hand has come: the mean of its fingers' movements.
@@ -158,6 +177,19 @@ bool Fingers::together() const
             return false;
     }
     return true;
+}
+
+// The fingers' mean distance from their middle, where they landed or now.
+qreal Fingers::spread(bool atStart) const
+{
+    QPointF middle;
+    for (int slot : m_members)
+        middle += atStart ? m_fingers[slot].start : m_fingers[slot].now;
+    middle /= qreal(m_members.size());
+    qreal sum = 0;
+    for (int slot : m_members)
+        sum += length((atStart ? m_fingers[slot].start : m_fingers[slot].now) - middle);
+    return sum / qreal(m_members.size());
 }
 
 QPointF Fingers::pullPoint() const
