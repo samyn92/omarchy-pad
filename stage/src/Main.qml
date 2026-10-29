@@ -299,10 +299,12 @@ Window {
             settle(0, finish)
             return
         }
-        // Let go somewhere: the nearest of a third, a half and two thirds;
-        // a short, quick flick makes even halves.
+        // Let go somewhere: the window keeps the share the finger left it,
+        // from a quarter (as far as it goes before it only gives a little) to
+        // four fifths (the room an app needs at least); a short, quick flick,
+        // which has no place to keep, makes even halves.
         const kept = (size - pull) / size
-        let choice = [2 / 3, 1 / 2, 1 / 3].reduce((a, b) => Math.abs(b - kept) < Math.abs(a - kept) ? b : a)
+        let choice = Math.max(0.25, Math.min(0.8, kept))
         if (v > 900 && pull < size * 0.25)
             choice = 1 / 2
         fraction = choice

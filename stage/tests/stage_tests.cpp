@@ -635,17 +635,26 @@ private slots:
     void swipingInFromTheRightMakesRoomForAnApp()
     {
         Harness h;
-        // Leave two thirds to the window, and let go. The node dwindle
-        // splits is the window, its border and half a gap each side.
+        // Leave the window 70% of its room, and let go: it keeps just that,
+        // not the nearest third. The node dwindle splits is the window, its
+        // border and half a gap each side.
         const qreal span = 1672 + 2 * (2 + 5);
-        h.swipe(QPoint(1693, 600), QPoint(1693 - 560, 600));
+        h.swipe(QPoint(1693, 600), QPoint(1693 - 506, 600));
         QTRY_COMPARE(h.phase(), QString("room"));
-        QVERIFY(qAbs(h.pull() - span / 3.0) < 2);
+        QVERIFY(qAbs(h.pull() - span * 0.3) < 2);
         const QPoint foot = h.tile("foot");
         QVERIFY(foot.x() > 1100);
         h.tap(foot);
-        QCOMPARE(h.fake.log.last(), QString("launch:right:foot:0.67"));
+        QCOMPARE(h.fake.log.last(), QString("launch:right:foot:0.70"));
         QTRY_COMPARE(h.phase(), QString("idle"));
+    }
+
+    void pulledPastWhereItGivesItKeepsAQuarter()
+    {
+        Harness h;
+        h.swipe(QPoint(1693, 600), QPoint(1693 - 1500, 600));
+        QTRY_COMPARE(h.phase(), QString("room"));
+        QVERIFY(qAbs(h.pull() - (1672 + 14) * 0.75) < 2);
     }
 
     void aQuickFlickMakesHalves()

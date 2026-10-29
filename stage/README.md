@@ -7,7 +7,7 @@ the same the other way. Pull the scratchpad console down from the top.
 
 ![Dragging in from the right edge](docs/dragging.png)
 
-![Let go: two thirds stay with the window, the launcher takes the rest](docs/split.png)
+![Let go: the window keeps its share, the launcher takes the rest](docs/split.png)
 
 ![Up from the bottom edge, the same the other way](docs/bottom.png)
 
@@ -34,10 +34,11 @@ to the apps, for zooming.
 While you drag, the window keeps its border at your finger, the wallpaper
 shows through the gap, and the launcher arrives as a window of its own, with
 Hyprland's gaps, border colors and rounding, so it already looks like the
-layout it will become. When you let go it lands on a third, a half or two
-thirds, whichever is nearest. A short, quick
-flick makes halves; a short or slow pull springs back. Tap an app and its window
-opens where the launcher was; tap beside the launcher to put things back.
+layout it will become. When you let go, the window keeps just the share your
+finger left it, from a quarter of the room to four fifths (the launcher needs
+at least a fifth). A short, quick flick makes halves; a short or slow pull
+springs back. Tap an app and its window opens where the launcher was, at that
+size; tap beside the launcher to put things back.
 
 Two and three fingers come straight from the touch screen (stage opens the
 devices udev tags as touch screens with libinput, so the user has to be in the
