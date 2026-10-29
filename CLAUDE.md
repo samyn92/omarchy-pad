@@ -34,6 +34,12 @@ run floatkey and stage. Builds go to `<project>/build/` (ignored).
   skill.
 - A fresh build can be tried in place without installing: see the `pad-try`
   skill.
+- `tests/clipboard` checks copy and paste end to end, after building floatkey
+  and stage: a nested Hyprland with no window, a Chromium field and foot,
+  driven by `stage simulate pinch` and floatkey's commands. Run it after
+  touching floatkey's edit keys or clipboard, or stage's pinch. Real fingers
+  can't be simulated there, so what an app does with the touches themselves
+  (a tap that drops the selection) still needs a real try.
 
 ## Working rules
 

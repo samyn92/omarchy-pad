@@ -1,0 +1,230 @@
+#!/bin/bash
+
+# Copy and paste, end to end, in a nested Hyprland that shows no window:
+# this checkout's floatkey and stage run inside it with a text field and a
+# foot terminal, stage's simulated three-finger pinches and floatkey's own
+# commands go through the same paths a finger and a key would, and what the
+# clipboard and the apps got is checked.
+#
+#   tests/clipboard          run the checks; exits 1 if any fails
+#   tests/clipboard --keep   leave the session running afterwards
+#
+# Build floatkey and stage first (their bin/build). Nothing here touches the
+# live session: every hyprctl, floatkey and stage call goes to the nested one,
+# and its settings and clipboard history live in a throwaway directory.
+
+set -uo pipefail
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+floatkey=$root/floatkey/build/floatkey
+stage=$root/stage/build/stage
+keep=false
+[[ ${1:-} == "--keep" ]] && keep=true
+
+for bin in "$floatkey" "$stage"; do
+  [[ -x $bin ]] || { echo "No build at $bin: run its bin/build first" >&2; exit 2; }
+done
+for tool in start-hyprland hyprctl jq foot wl-copy wl-paste chromium; do
+  command -v "$tool" >/dev/null || { echo "Needs $tool" >&2; exit 2; }
+done
+
+work=$(mktemp -d "${TMPDIR:-/tmp}/clipboard-test.XXXXXX")
+mkdir -p "$work/config" "$work/state"
+failures=0
+hyprland_pid=""
+
+# The session always goes, unless asked to stay; the logs stay when
+# something failed.
+cleanup() {
+  if [[ $keep == false && -n $hyprland_pid ]]; then
+    kill "$hyprland_pid" 2>/dev/null
+    wait 2>/dev/null
+    (( failures )) || rm -rf "$work"
+  fi
+}
+trap cleanup EXIT
+
+pass() { printf '  PASS  %s\n' "$1"; }
+fail() { printf '  FAIL  %s\n' "$1"; failures=$((failures + 1)); }
+
+# Waits up to $1 seconds for the command after it to succeed.
+until_true() {
+  local deadline=$((SECONDS + $1)); shift
+  until "$@"; do
+    (( SECONDS >= deadline )) && return 1
+    sleep 0.1
+  done
+}
+
+cat >"$work/hyprland.lua" <<'LUA'
+hl.config({
+  input = { kb_layout = "de" },
+  misc = { disable_hyprland_logo = true, disable_splash_rendering = true },
+  animations = { enabled = false },
+})
+hl.monitor({ output = "", mode = "1280x800", position = "auto", scale = 1 })
+LUA
+
+# ---- the nested session -------------------------------------------------
+
+before=$(hyprctl -j instances | jq -r '.[].instance')
+start-hyprland -- --config "$work/hyprland.lua" >"$work/hyprland.log" 2>&1 &
+
+instance_appears() {
+  instance=$(hyprctl -j instances | jq -r --arg before "$before" \
+    '[.[] | select(.instance as $i | ($before | split("\n") | index($i)) | not)] | first // empty')
+  [[ -n $instance ]]
+}
+if ! until_true 15 instance_appears; then
+  echo "The nested Hyprland didn't start:" >&2
+  tail -20 "$work/hyprland.log" >&2
+  exit 2
+fi
+hyprland_pid=$(jq -r .pid <<<"$instance")
+export HYPRLAND_INSTANCE_SIGNATURE=$(jq -r .instance <<<"$instance")
+export WAYLAND_DISPLAY=$(jq -r .wl_socket <<<"$instance")
+export XDG_CONFIG_HOME=$work/config XDG_STATE_HOME=$work/state
+# The apps must not reach the live session's fcitx5 (or Superwhisper's typing).
+export QT_IM_MODULE=none QT_QPA_PLATFORM=wayland
+unset DISPLAY
+
+# A screen of its own, then the window on the real one goes.
+hyprctl output create headless CLIPTEST >/dev/null
+sleep 0.5
+for output in $(hyprctl -j monitors | jq -r '.[].name | select(. != "CLIPTEST")'); do
+  hyprctl output remove "$output" >/dev/null
+done
+
+# Logging on, for the logs a failure leaves behind.
+STAGE_NO_TOUCHSCREEN=1 QT_FORCE_STDERR_LOGGING=1 QT_LOGGING_RULES="stage.debug=true" \
+  "$stage" >"$work/stage.log" 2>&1 &
+QT_FORCE_STDERR_LOGGING=1 "$floatkey" --hidden >"$work/floatkey.log" 2>&1 &
+if ! until_true 10 sh -c '"$0" status >/dev/null 2>&1 && "$1" status >/dev/null 2>&1' "$floatkey" "$stage"; then
+  echo "floatkey or stage didn't start in the nested session" >&2
+  tail -5 "$work/floatkey.log" "$work/stage.log" >&2
+  exit 2
+fi
+
+focused_class() { hyprctl -j activewindow | jq -r '.class // empty'; }
+clipboard() { timeout 2 wl-paste --no-newline 2>/dev/null; }
+
+# ---- a text field ---------------------------------------------------------
+
+# A Chromium page, like Claude and Helium: a textarea with everything in it
+# selected, logging every change to Chromium's console, which goes to stderr.
+cat >"$work/field.html" <<'HTML'
+<!doctype html>
+<textarea id="field" style="width: 90vw; height: 80vh">copied by a pinch</textarea>
+<script>
+  const field = document.getElementById("field")
+  field.addEventListener("input", () => console.log("TEXT[" + field.value + "]"))
+  window.addEventListener("load", () => { field.focus(); field.select(); console.log("READY") })
+</script>
+HTML
+chromium --user-data-dir="$work/chromium" --ozone-platform=wayland --no-first-run --no-default-browser-check \
+  --disable-features=Translate --password-store=basic --enable-logging=stderr \
+  --app="file://$work/field.html" >"$work/field.log" 2>&1 &
+field_ready() { grep -q '"READY"' "$work/field.log" && [[ -n $(focused_class) ]]; }
+until_true 20 field_ready || { echo "The test field didn't open" >&2; tail -5 "$work/field.log" >&2; exit 2; }
+sleep 0.5
+field_text() { grep -o '"TEXT\[.*\]"' "$work/field.log" | tail -1 | sed 's/^"TEXT\[//; s/\]"$//'; }
+field_is() { [[ $(field_text) == "$1" ]]; }
+
+echo "In a text field ($(focused_class)):"
+
+"$stage" simulate pinch in >/dev/null
+if until_true 3 sh -c '[ "$(timeout 2 wl-paste --no-newline 2>/dev/null)" = "copied by a pinch" ]'; then
+  pass "pinching in copies the selection"
+else
+  fail "pinching in copies the selection (clipboard: '$(clipboard)')"
+fi
+
+printf 'pasted by a spread' | wl-copy --type text/plain
+sleep 0.3
+"$stage" simulate pinch out >/dev/null
+if until_true 3 field_is "pasted by a spread"; then
+  pass "spreading out pastes over the selection"
+else
+  fail "spreading out pastes over the selection (field: '$(field_text)')"
+fi
+
+"$floatkey" selectAll >/dev/null
+sleep 0.2
+"$floatkey" cut >/dev/null
+if until_true 3 field_is "" && [[ $(clipboard) == "pasted by a spread" ]]; then
+  pass "floatkey cut empties the field onto the clipboard"
+else
+  fail "floatkey cut empties the field onto the clipboard (field: '$(field_text)', clipboard: '$(clipboard)')"
+fi
+
+"$floatkey" undo >/dev/null
+if until_true 3 field_is "pasted by a spread"; then
+  pass "floatkey undo brings it back"
+else
+  fail "floatkey undo brings it back (field: '$(field_text)')"
+fi
+
+# Pasting twice in a row, quickly, as a second pinch right after the first.
+"$floatkey" selectAll >/dev/null
+printf 'x' | wl-copy --type text/plain
+sleep 0.3
+"$stage" simulate pinch out 200 >/dev/null
+sleep 0.6
+"$stage" simulate pinch out 200 >/dev/null
+if until_true 3 field_is "xx"; then
+  pass "two spreads in a row paste twice"
+else
+  fail "two spreads in a row paste twice (field: '$(field_text)')"
+fi
+
+# The clipboard page's way: the clip goes back on the clipboard, then the
+# paste keys. A short one is the kind wl-copy would call a file.
+"$floatkey" selectAll >/dev/null
+sleep 0.2
+"$floatkey" clip 42 >/dev/null
+if until_true 3 field_is "42"; then
+  pass "a clip from the clipboard page pastes, short as it is"
+else
+  fail "a clip from the clipboard page pastes, short as it is (field: '$(field_text)')"
+fi
+
+# ---- a terminal -----------------------------------------------------------
+
+# A shell that notes an interrupt (what ctrl+c would send) and the line it reads.
+foot --app-id foot sh -c "trap 'echo INTERRUPTED >> \"$work/foot.out\"' INT
+  IFS= read -r line; printf 'LINE[%s]\n' \"\$line\" >> \"$work/foot.out\"; sleep 30" >/dev/null 2>&1 &
+until_true 10 sh -c '[ "$(hyprctl -j activewindow | jq -r ".class // empty")" = foot ]' \
+  || { echo "foot didn't open" >&2; exit 2; }
+sleep 0.5
+
+echo "In a terminal ($(focused_class)):"
+
+"$stage" simulate pinch in >/dev/null
+sleep 0.8
+if grep -q INTERRUPTED "$work/foot.out" 2>/dev/null; then
+  fail "pinching in sends ctrl+shift+c, never ctrl+c"
+else
+  pass "pinching in sends ctrl+shift+c, never ctrl+c"
+fi
+
+printf 'pasted into foot' | wl-copy --type text/plain
+sleep 0.3
+"$stage" simulate pinch out >/dev/null
+sleep 0.5
+"$floatkey" key Return >/dev/null
+if until_true 3 grep -q 'LINE\[pasted into foot\]' "$work/foot.out"; then
+  pass "spreading out pastes with ctrl+shift+v"
+else
+  fail "spreading out pastes with ctrl+shift+v (read: '$(cat "$work/foot.out" 2>/dev/null)')"
+fi
+
+echo
+if (( failures )); then
+  echo "$failures failed. Logs: $work"
+  exit 1
+fi
+echo "All passed."
+if [[ $keep == true ]]; then
+  echo "Session left running: HYPRLAND_INSTANCE_SIGNATURE=$HYPRLAND_INSTANCE_SIGNATURE WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
+  echo "Logs: $work"
+fi
