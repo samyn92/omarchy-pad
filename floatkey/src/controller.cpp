@@ -3,10 +3,15 @@
 #include <LayerShellQt/window.h>
 #include <QCoreApplication>
 #include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QLoggingCategory>
+#include <QProcess>
 #include <QRegion>
+#include <QRegularExpression>
 #include <QStandardPaths>
 #include <QWindow>
 
@@ -234,6 +239,15 @@ QString Controller::command(const QString &line)
             m_keyboard->typeText((modifiers & VirtualKeyboard::Shift) ? key.toUpper() : key, modifiers);
         else if (!m_keyboard->tapKey(key, modifiers))
             return "error unknown key: " + key;
+    } else if (verb == "clip") {
+        emit clipRequested(argument);
+    } else if (verb == "clipboard") {
+        show();
+        emit pageRequested("clipboard");
+    } else if (editActions().contains(verb)) {
+        if (!m_keyboard || !m_keyboard->isReady())
+            return "error typing is unavailable" + (m_keyboard ? ": " + m_keyboard->error() : QString());
+        edit(verb);
     } else if (verb == "quit")
         QMetaObject::invokeMethod(QCoreApplication::instance(), &QCoreApplication::quit, Qt::QueuedConnection);
     else
@@ -430,6 +444,64 @@ bool Controller::tappedIntoFocus() const
 void Controller::toggle()
 {
     m_visible ? hide() : show();
+}
+
+QStringList Controller::editActions()
+{
+    return {"copy", "cut", "paste", "undo", "redo", "selectAll"};
+}
+
+QPair<QString, int> Controller::editKeys(const QString &action, bool terminal)
+{
+    const int ctrl = VirtualKeyboard::Ctrl, shift = VirtualKeyboard::Shift;
+    if (action == "copy")
+        return terminal ? qMakePair(QString("C"), ctrl | shift) : qMakePair(QString("c"), ctrl);
+    if (action == "paste")
+        return terminal ? qMakePair(QString("V"), ctrl | shift) : qMakePair(QString("v"), ctrl);
+    if (action == "cut")
+        return {"x", ctrl};
+    if (action == "undo")
+        return {"z", ctrl};
+    if (action == "redo")
+        return {"Z", ctrl | shift};
+    if (action == "selectAll")
+        return {"a", ctrl};
+    return {};
+}
+
+// fcitx5 says so only for a terminal that takes text input, so Hyprland is
+// asked too: Omarchy tags its terminals "terminal", and the class list is that
+// tag's own, for a session without Omarchy's rules.
+bool Controller::inTerminal() const
+{
+    if (m_fieldType == "terminal")
+        return true;
+    if (qEnvironmentVariableIsEmpty("HYPRLAND_INSTANCE_SIGNATURE"))
+        return false;
+    QProcess hyprctl;
+    hyprctl.start("hyprctl", {"-j", "activewindow"});
+    if (!hyprctl.waitForFinished(300)) {
+        hyprctl.kill();
+        return false;
+    }
+    const QJsonObject window = QJsonDocument::fromJson(hyprctl.readAllStandardOutput()).object();
+    for (const QJsonValue &tag : window.value("tags").toArray())
+        if (tag.toString().startsWith("terminal"))
+            return true;
+    static const QRegularExpression terminals(
+        "^(Alacritty|kitty|com\\.mitchellh\\.ghostty|foot|org\\.codeberg\\.dnkl\\.foot|wezterm|org\\.omarchy\\..*|TUI\\..*)$");
+    return terminals.match(window.value("class").toString()).hasMatch();
+}
+
+bool Controller::edit(const QString &action)
+{
+    if (!m_keyboard)
+        return false;
+    const QPair<QString, int> keys = editKeys(action, (action == "copy" || action == "paste") && inTerminal());
+    if (!m_keyboard || keys.first.isEmpty())
+        return false;
+    m_keyboard->typeText(keys.first, keys.second);
+    return true;
 }
 
 void Controller::noteEmoji(const QString &emoji)

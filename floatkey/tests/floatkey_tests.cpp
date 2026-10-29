@@ -9,6 +9,7 @@
 #include <QQmlExpression>
 #include <QQuickWindow>
 #include <QTemporaryDir>
+#include <QSignalSpy>
 #include <QtTest>
 #include <cstring>
 #include <linux/input-event-codes.h>
@@ -17,6 +18,7 @@
 #include <unistd.h>
 #include <xkbcommon/xkbcommon.h>
 
+#include "clipboardhistory.h"
 #include "controller.h"
 #include "dictation.h"
 #include "fieldtype.h"
@@ -25,6 +27,7 @@
 #include "taps.h"
 #include "theme.h"
 #include "translator.h"
+#include "virtualkeyboard.h"
 #include "xkblayouts.h"
 
 // Stands in for the Wayland virtual keyboard and writes down what the QML
@@ -94,14 +97,44 @@ public:
     QJsonObject status{{"phase", "idle"}};
 };
 
+// Stands in for wl-copy: keeps what it was given, and its arguments.
+static QString fakeCopy(const QString &dir)
+{
+    const QString path = dir + "/wl-copy";
+    QFile script(path);
+    if (!script.open(QIODevice::WriteOnly))
+        return {};
+    script.write("#!/bin/sh\necho \"$*\" > \"$(dirname \"$0\")/copied.args\"\n"
+                 "cat > \"$(dirname \"$0\")/copied\"\n");
+    script.close();
+    script.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+    return path;
+}
+
+static QByteArray readAll(const QString &path)
+{
+    QFile file(path);
+    return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+}
+
+static void writeFile(const QString &path, const QByteArray &data)
+{
+    QFile file(path);
+    if (file.open(QIODevice::WriteOnly))
+        file.write(data);
+}
+
 // The real Main.qml, offscreen, with a fake keyboard and a temporary home.
 class Harness {
 public:
     explicit Harness(const QString &mode = "docked", const QStringList &layouts = {"us"})
         : translator(dir.path() + "/language", dir.path()), theme(dir.path()),
           controller(dir.path() + "/floatkey.conf", layouts),
-          dictation(dir.path() + "/control.sock", fakeSuperwhisper(dir.path()))
+          dictation(dir.path() + "/control.sock", fakeSuperwhisper(dir.path())),
+          clipboard(dir.path() + "/clipboard-history.json", dir.path() + "/clipboard-pins.json")
     {
+        clipboard.setCopyProgram(fakeCopy(dir.path()));
+        clipboard.setStageSocket({});
         dictation.setMetering(false);
         controller.setMode(mode);
         engine.rootContext()->setContextProperty("translator", &translator);
@@ -109,6 +142,7 @@ public:
         engine.rootContext()->setContextProperty("controller", &controller);
         engine.rootContext()->setContextProperty("virtualKeyboard", &keyboard);
         engine.rootContext()->setContextProperty("dictation", &dictation);
+        engine.rootContext()->setContextProperty("clipboard", &clipboard);
         engine.load(QUrl("qrc:/Main.qml"));
         window = engine.rootObjects().isEmpty() ? nullptr : qobject_cast<QQuickWindow *>(engine.rootObjects().first());
         if (!window)
@@ -170,6 +204,7 @@ public:
     FakeKeyboard keyboard;
     Controller controller;
     Dictation dictation;
+    ClipboardHistory clipboard;
     QQmlApplicationEngine engine;
     QQuickWindow *window = nullptr;
 };
@@ -1179,6 +1214,90 @@ private slots:
         Harness h("docked", {"us"});
         QCOMPARE(h.evaluate(h.keys(), "model.keys.find(k => k.kind === 'return').h").toInt(), 1);
         QCOMPARE(h.evaluate(h.keys(), "model.keys.find(k => k.c === '\\\\').row").toInt(), 1);
+    }
+
+    void editKeysFollowOmarchysUniversalClipboard()
+    {
+        const int ctrl = VirtualKeyboard::Ctrl, shift = VirtualKeyboard::Shift;
+        QCOMPARE(Controller::editKeys("copy", false), qMakePair(QString("c"), ctrl));
+        QCOMPARE(Controller::editKeys("paste", false), qMakePair(QString("v"), ctrl));
+        // A terminal takes ctrl+shift, as Omarchy's Super+C and Super+V send.
+        QCOMPARE(Controller::editKeys("copy", true), qMakePair(QString("C"), ctrl | shift));
+        QCOMPARE(Controller::editKeys("paste", true), qMakePair(QString("V"), ctrl | shift));
+        QCOMPARE(Controller::editKeys("cut", false), qMakePair(QString("x"), ctrl));
+        QCOMPARE(Controller::editKeys("undo", false), qMakePair(QString("z"), ctrl));
+        QCOMPARE(Controller::editKeys("redo", false), qMakePair(QString("Z"), ctrl | shift));
+        QVERIFY(Controller::editKeys("sing", false).first.isEmpty());
+    }
+
+    void clipboardFollowsOmarchysHistory()
+    {
+        QTemporaryDir dir;
+        const QString history = dir.path() + "/history.json", pins = dir.path() + "/pins.json";
+        writeFile(history, R"([{"type": "text", "text": "newest"},
+                               {"type": "image", "mime": "image/png", "path": "/tmp/shot.png", "capturedAt": "Thursday 10:00"},
+                               {"type": "text", "text": "  "},
+                               {"type": "text", "text": "pinned too"}])");
+        writeFile(pins, R"([{"type": "text", "text": "pinned too"}])");
+        ClipboardHistory clipboard(history, pins);
+        // Pinned first, then the history without blanks or what is pinned.
+        QStringList keys;
+        for (const QVariant &entry : clipboard.entries())
+            keys << entry.toMap().value("key").toString();
+        QCOMPARE(keys, (QStringList{"text:pinned too", "text:newest", "image:/tmp/shot.png"}));
+        QVERIFY(clipboard.entries().first().toMap().value("pinned").toBool());
+        QVERIFY(clipboard.recent().isEmpty());
+
+        // A new copy at the top of Omarchy's file is just copied.
+        writeFile(history, R"([{"type": "text", "text": "fresh"}, {"type": "text", "text": "newest"}])");
+        QTRY_COMPARE(clipboard.recent().value("text").toString(), QString("fresh"));
+
+        // Deleting rewrites Omarchy's file; pinning keeps floatkey's.
+        clipboard.remove(clipboard.entries().at(2).toMap());
+        QVERIFY(!readAll(history).contains("newest"));
+        QVERIFY(readAll(history).contains("fresh"));
+        clipboard.pin(clipboard.entries().at(1).toMap(), true);
+        QVERIFY(readAll(pins).contains("fresh"));
+        ClipboardHistory again(history, pins);
+        QCOMPARE(again.entries().first().toMap().value("text").toString(), QString("fresh"));
+    }
+
+    void clipboardPastesThroughWlCopy()
+    {
+        QTemporaryDir dir;
+        ClipboardHistory clipboard(dir.path() + "/history.json", dir.path() + "/pins.json");
+        clipboard.setCopyProgram(fakeCopy(dir.path()));
+        clipboard.setStageSocket({});
+        QSignalSpy ready(&clipboard, &ClipboardHistory::pasteReady);
+        clipboard.paste({{"type", "text"}, {"text", "Grüße\nzweite Zeile"}});
+        QTRY_COMPARE(ready.count(), 1);
+        QCOMPARE(QString::fromUtf8(readAll(dir.path() + "/copied")), QString("Grüße\nzweite Zeile"));
+        // Always as text: left to guess, wl-copy calls "42" a file.
+        QVERIFY(readAll(dir.path() + "/copied.args").startsWith("--type text/plain;charset=utf-8"));
+
+        // An image goes with its type; copying alone pastes nothing.
+        writeFile(dir.path() + "/shot.png", "PNG");
+        clipboard.copy({{"type", "image"}, {"mime", "image/png"}, {"path", dir.path() + "/shot.png"}});
+        QTRY_COMPARE(readAll(dir.path() + "/copied"), QByteArray("PNG"));
+        QVERIFY(readAll(dir.path() + "/copied.args").startsWith("--type image/png"));
+        QTest::qWait(300);
+        QCOMPARE(ready.count(), 1);
+    }
+
+    void tappingAClipPastesIt()
+    {
+        Harness h;
+        writeFile(h.dir.path() + "/clipboard-history.json", R"([{"type": "text", "text": "hello from the clipboard"}])");
+        h.clipboard.reload();
+        QObject *button = h.window->findChild<QObject *>("clipboardButton");
+        h.tap(h.evaluate(button, "mapToItem(null, width / 2, height / 2)").toPointF().toPoint());
+        QCOMPARE(h.keys()->property("page").toString(), QString("clipboard"));
+        QObject *clips = h.window->findChild<QObject *>("clips");
+        QTRY_VERIFY(clips->property("count").toInt() == 1);
+        h.tap(h.evaluate(clips, "mapToItem(null, cellWidth / 2, cellHeight / 2)").toPointF().toPoint());
+        QTRY_COMPARE(QString::fromUtf8(readAll(h.dir.path() + "/copied")), QString("hello from the clipboard"));
+        // Back to the letters to keep typing.
+        QCOMPARE(h.keys()->property("page").toString(), QString("letters"));
     }
 };
 

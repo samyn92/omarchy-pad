@@ -88,6 +88,23 @@ listens, the louder the voice the stronger. A dictation started with Omarchy's
 dictation key shows on the orb too. For voice alone, pick Voice orb from the
 menu.
 
+## Copy and paste
+
+The docked keyboard has an edit bar along its top, like an iPad's: undo,
+redo, cut, copy and paste on the left, and the clipboard on the right. Copy
+and paste send what Omarchy's universal clipboard keys send, so they work in
+terminals too. Right after you copy something, it waits in the middle of the
+bar: tap it to paste it.
+
+The clipboard button (on the floating keyboard, beside its placements button)
+opens the clipboard page in place of the keys: everything you copied, text and
+images, from Omarchy's own clipboard history (the one Super+Ctrl+V shows),
+newest first. Tap a clip to paste it where you are typing. Hold one to pin it,
+copy it without pasting, or delete it. Pinned clips stay first and are kept
+even when Omarchy's history moves on. `floatkey clipboard` opens the page.
+
+With stage, three fingers pinched in copy and spread out paste.
+
 ## Commands
 
 ```bash
@@ -98,6 +115,8 @@ floatkey dock            # also float, orb
 floatkey status          # shown docked de
 floatkey type "Grüße 👋"  # type into the focused window
 floatkey key ctrl+c      # press a key: BackSpace, Return, super+space, shift+Left...
+floatkey copy            # also cut, paste, undo, redo: shift added in a terminal
+floatkey clipboard       # show the keyboard on its clipboard page
 floatkey focus url       # a field took focus (the fcitx5 addon sends these); also blur
 floatkey quit
 ```

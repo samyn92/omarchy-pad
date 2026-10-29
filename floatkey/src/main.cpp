@@ -14,6 +14,7 @@
 #include <QUrl>
 #include <cstdio>
 
+#include "clipboardhistory.h"
 #include "controller.h"
 #include "dictation.h"
 #include "hyprland.h"
@@ -36,6 +37,10 @@ static const char *usage =
     "  status               print whether it is shown, its mode and layout\n"
     "  layouts              print its layouts and what their keys type, as JSON\n"
     "  type TEXT            type TEXT into the focused window\n"
+    "  clipboard            show the keyboard on its clipboard page\n"
+    "  clip TEXT            paste TEXT through the clipboard, as that page does\n"
+    "  copy, cut, paste     the clipboard keys for the focused field, as Omarchy's\n"
+    "  undo, redo           universal ones send them (terminals included)\n"
     "  key KEY              press a key, with modifiers: BackSpace, Return,\n"
     "                       ctrl+c, super+space, shift+Left...\n"
     "  focus TYPE, blur     a text field took or lost focus (sent by the fcitx5\n"
@@ -52,7 +57,7 @@ static int runCommand(int argc, char *argv[], const QStringList &args)
     QCoreApplication app(argc, argv);
     const QString verb = args.first();
     QString line = verb;
-    if (verb == "type" || verb == "key") {
+    if (verb == "type" || verb == "key" || verb == "clip") {
         if (args.size() < 2) {
             std::fprintf(stderr, "floatkey %s needs an argument\n", qPrintable(verb));
             return 1;
@@ -198,12 +203,12 @@ int main(int argc, char *argv[])
         return 0;
     }
     if (args.contains("--version")) {
-        std::puts("floatkey 0.5.4");
+        std::puts("floatkey 0.6.0");
         return 0;
     }
     if (args.value(0) == "layouts")
         return printLayouts(argc, argv);
-    if (!args.isEmpty() && (startModes.contains(args.first()) || QStringList{"hide", "status", "type", "key", "focus", "blur", "quit"}.contains(args.first())))
+    if (!args.isEmpty() && (startModes.contains(args.first()) || (QStringList{"hide", "status", "type", "key", "focus", "blur", "quit", "clipboard", "clip"} + Controller::editActions()).contains(args.first())))
         return runCommand(argc, argv, args);
 
     bool hidden = false;
@@ -227,7 +232,7 @@ int main(int argc, char *argv[])
     QQuickWindow::setDefaultAlphaBuffer(true);
     QGuiApplication app(argc, argv);
     app.setApplicationName("floatkey");
-    app.setApplicationVersion("0.5.4");
+    app.setApplicationVersion("0.6.0");
     app.setDesktopFileName("floatkey");
     if (QGuiApplication::platformName() != "wayland") {
         std::fputs("floatkey needs a Wayland session\n", stderr);
@@ -278,6 +283,13 @@ int main(int argc, char *argv[])
         });
     }
 
+    // A clip picked on the clipboard page goes on the clipboard, then the
+    // keyboard pastes it into the focused field.
+    ClipboardHistory clipboard;
+    QObject::connect(&clipboard, &ClipboardHistory::pasteReady, &controller, [&] { controller.edit("paste"); });
+    QObject::connect(&controller, &Controller::clipRequested, &clipboard, [&](const QString &text) {
+        clipboard.paste({{"type", "text"}, {"text", text}});
+    });
     Dictation dictation;
 
     QQmlApplicationEngine engine;
@@ -287,6 +299,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("controller", &controller);
     engine.rootContext()->setContextProperty("virtualKeyboard", &keyboard);
     engine.rootContext()->setContextProperty("dictation", &dictation);
+    engine.rootContext()->setContextProperty("clipboard", &clipboard);
     engine.load(QUrl("qrc:/Main.qml"));
     auto *window = engine.rootObjects().isEmpty() ? nullptr : qobject_cast<QQuickWindow *>(engine.rootObjects().first());
     if (!window)

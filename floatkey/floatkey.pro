@@ -9,6 +9,7 @@ TEMPLATE = app
 include(protocols.pri)
 
 HEADERS += \
+    src/clipboardhistory.h \
     src/controller.h \
     src/dictation.h \
     src/hyprland.h \
@@ -23,6 +24,7 @@ HEADERS += \
 
 SOURCES += \
     src/main.cpp \
+    src/clipboardhistory.cpp \
     src/controller.cpp \
     src/dictation.cpp \
     src/hyprland.cpp \

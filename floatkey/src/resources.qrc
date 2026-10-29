@@ -6,6 +6,8 @@
         <file alias="KeyboardView.qml">KeyboardView.qml</file>
         <file alias="KeyIcon.qml">KeyIcon.qml</file>
         <file alias="VoiceOrb.qml">VoiceOrb.qml</file>
+        <file alias="EditBar.qml">EditBar.qml</file>
+        <file alias="ClipboardPane.qml">ClipboardPane.qml</file>
         <file alias="VoiceGlow.qml">VoiceGlow.qml</file>
         <file alias="AccentPopup.qml">AccentPopup.qml</file>
         <file alias="EmojiPane.qml">EmojiPane.qml</file>

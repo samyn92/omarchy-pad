@@ -20,7 +20,7 @@ Item {
 
     readonly property var layoutData: Layouts.layout(layoutCode, controller.layoutKeys)
     property string page: "letters"
-    readonly property var model: Layouts.keys(page === "emoji" ? []
+    readonly property var model: Layouts.keys(page === "emoji" || page === "clipboard" ? []
                                               : compact ? layoutData.compact[page]
                                               : Layouts.docked(layoutData.full.letters, controller.layouts.length > 1))
 
@@ -59,7 +59,7 @@ Item {
     property string history: ""
 
     onCompactChanged: reset()
-    onLayoutCodeChanged: if (page !== "emoji") goTo("letters")
+    onLayoutCodeChanged: if (page !== "emoji" && page !== "clipboard") goTo("letters")
 
     function reset() {
         cancelAll()
@@ -959,9 +959,23 @@ Item {
         }
     }
 
+    Connections {
+        target: controller
+        function onPageRequested(page) { view.goTo(page) }
+    }
+
+    ClipboardPane {
+        anchors.fill: parent
+        visible: view.page === "clipboard"
+        style: view.style
+        compact: view.compact
+        onLetters: view.goTo("letters")
+        onErase: virtualKeyboard.tapKey("BackSpace", 0)
+    }
+
     MultiPointTouchArea {
         anchors.fill: parent
-        enabled: view.page !== "emoji"
+        enabled: view.page !== "emoji" && view.page !== "clipboard"
         mouseEnabled: true
         maximumTouchPoints: 10
         onPressed: (touchPoints) => { for (const p of touchPoints) view.begin(p) }

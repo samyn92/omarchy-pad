@@ -94,6 +94,15 @@ public:
     Q_INVOKABLE void toggle();
     Q_INVOKABLE void setInputRegion(const QRectF &rect);
     Q_INVOKABLE void noteEmoji(const QString &emoji);
+    // copy, cut, paste, undo, redo or selectAll on the focused field, with the
+    // shortcut Omarchy's universal clipboard keys send: ctrl+shift+c and v in
+    // a terminal, ctrl+c and v anywhere else.
+    Q_INVOKABLE bool edit(const QString &action);
+    static QStringList editActions();
+    // The key (as text to type) and modifiers an edit action sends.
+    static QPair<QString, int> editKeys(const QString &action, bool terminal);
+    // The focused window is a terminal, where ctrl+c would interrupt.
+    bool inTerminal() const;
 
     // A hardware keyboard is attached: fields no longer bring the on-screen
     // one up (unless autoShowWithKeyboard says so), and one that came up for
@@ -123,6 +132,10 @@ signals:
     void dockedHeightChanged();
     void recentEmojiChanged();
     void fieldTypeChanged();
+    // `floatkey clipboard`: show the keyboard on its clipboard page.
+    void pageRequested(const QString &page);
+    // `floatkey clip TEXT`: paste TEXT the way the clipboard page does.
+    void clipRequested(const QString &text);
 
 private:
     void setShown(bool shown);

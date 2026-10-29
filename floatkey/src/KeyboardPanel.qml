@@ -14,6 +14,8 @@ Item {
     property string layoutCode: "us"
     property Item menu: null
     readonly property int handleHeight: 46
+    // The docked keyboard's edit bar, above its keys.
+    readonly property int editBarHeight: 44
     readonly property alias keys: view
 
     signal dragStarted()
@@ -64,10 +66,23 @@ Item {
         }
     }
 
+    EditBar {
+        objectName: "editBar"
+        visible: !panel.compact
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.topMargin: 2
+        height: panel.editBarHeight
+        style: panel.style
+        keys: view
+    }
+
     KeyboardView {
         id: view
         objectName: "keys"
         anchors.fill: parent
+        anchors.topMargin: panel.compact ? 0 : panel.editBarHeight
         anchors.bottomMargin: panel.compact ? panel.handleHeight - 4 : 0
         style: panel.style
         compact: panel.compact
@@ -140,6 +155,26 @@ Item {
             TapHandler {
                 id: placementsTap
                 onTapped: panel.menuRequested(Qt.rect(placements.x, handle.y, placements.width, handle.height))
+            }
+        }
+
+        // The clipboard page, beside the placements.
+        Item {
+            objectName: "floatingClipboard"
+            visible: !panel.orbOnly
+            anchors.left: placements.right
+            width: 40
+            height: parent.height
+            KeyIcon {
+                anchors.centerIn: parent
+                width: 20
+                height: 20
+                name: "clipboard"
+                color: clipTap.pressed || view.page === "clipboard" ? panel.style.accent : panel.style.faint
+            }
+            TapHandler {
+                id: clipTap
+                onTapped: view.goTo(view.page === "clipboard" ? "letters" : "clipboard")
             }
         }
 

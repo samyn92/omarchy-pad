@@ -21,7 +21,7 @@ Window {
     readonly property int orbWidth: Math.round(236 * controller.compactScale)
     readonly property int orbHeight: Math.round(80 * controller.compactScale)
     readonly property real margin: 12
-    readonly property int dockHeight: Math.round(0.3 * Math.min(width, height) * controller.dockedScale)
+    readonly property int dockHeight: Math.round(0.3 * Math.min(width, height) * controller.dockedScale) + panel.editBarHeight
     readonly property int compactWidth: Math.round(Math.min(400 * controller.compactScale,
                                                             Math.max(240, width - 2 * margin)))
     readonly property int compactHeight: Math.round(compactWidth * 0.56) + panel.handleHeight

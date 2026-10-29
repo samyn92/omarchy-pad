@@ -10,6 +10,7 @@ include(../protocols.pri)
 INCLUDEPATH += ../src ../fcitx5
 
 HEADERS += \
+    ../src/clipboardhistory.h \
     ../src/controller.h \
     ../src/dictation.h \
     ../src/ipc.h \
@@ -23,6 +24,7 @@ HEADERS += \
 
 SOURCES += \
     floatkey_tests.cpp \
+    ../src/clipboardhistory.cpp \
     ../src/controller.cpp \
     ../src/dictation.cpp \
     ../src/ipc.cpp \
