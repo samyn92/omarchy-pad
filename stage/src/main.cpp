@@ -62,7 +62,7 @@ static int runCommand(int argc, char *argv[], const QStringList &args)
         std::fprintf(stderr, "stage: %s\n", qPrintable(reply.mid(6)));
         return 1;
     }
-    if (args.first() == "status" || args.first() == "simulate")
+    if (args.first() == "status" || args.first() == "simulate" || args.first() == "resize")
         std::printf("%s\n", qPrintable(reply.mid(3)));
     return 0;
 }
