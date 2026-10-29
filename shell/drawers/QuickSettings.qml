@@ -36,15 +36,11 @@ Column {
 
   spacing: Style.spacing.panelGap
 
-  // What a control looks like, pressed or on, as Omarchy's buttons do.
-  function fillFor(pressed, on) {
-    return pressed ? Style.pressedFillFor(root.foreground, root.accent)
-      : on ? Style.selectedFillFor(root.foreground, root.accent)
-      : "transparent"
-  }
-  function borderFor(on) {
-    return Border.controlSpec(on && Border.controlHasWidth("selected") ? "selected" : "normal", root.foreground, root.accent)
-  }
+  // The controls' look: no outlines, a light wash of the text colour,
+  // deeper while pressed, and a switch that is on in the theme's accent with
+  // its glyph in the background colour. Corners as the theme rounds them.
+  function wash(pressed) { return Util.alpha(root.foreground, pressed ? 0.16 : 0.08) }
+  readonly property color onInk: Commons.Color.popups.background
 
   // Shut the drawer, then do it: a panel opening, or a capture.
   function away(action) {
@@ -67,28 +63,37 @@ Column {
 
     height: Style.space(56)
     radius: Style.cornerRadius
-    color: root.fillFor(switchArea.pressed, link.on)
-    borderSpec: root.borderFor(link.on)
+    color: root.wash(switchArea.pressed)
+    borderSpec: Border.none()
     opacity: available ? 1 : 0.5
 
     Row {
-      x: link.contentLeftInset + Style.space(10)
+      x: link.contentLeftInset + Style.space(8)
       anchors.verticalCenter: parent.verticalCenter
       width: arrow.x - x
       spacing: Style.space(10)
 
-      Text {
-        textFormat: Text.PlainText
-        text: link.on ? link.glyph : link.offGlyph
-        color: root.foreground
-        font.family: Style.font.family
-        font.pixelSize: Style.font.iconLarge
+      // The glyph on a chip, in the accent while it is on.
+      Rectangle {
+        width: Style.space(38)
+        height: width
+        radius: Style.cornerRadius
+        color: link.on ? root.accent : Util.alpha(root.foreground, 0.1)
         anchors.verticalCenter: parent.verticalCenter
+
+        Text {
+          anchors.centerIn: parent
+          textFormat: Text.PlainText
+          text: link.on ? link.glyph : link.offGlyph
+          color: link.on ? root.onInk : root.foreground
+          font.family: Style.font.family
+          font.pixelSize: Style.font.iconLarge
+        }
       }
 
       Column {
         anchors.verticalCenter: parent.verticalCenter
-        width: parent.width - Style.space(40)
+        width: parent.width - Style.space(48)
 
         Text {
           textFormat: Text.PlainText
@@ -138,7 +143,7 @@ Column {
 
       Rectangle {
         anchors.fill: parent
-        color: arrowArea.pressed ? Style.pressedFillFor(root.foreground, root.accent) : "transparent"
+        color: arrowArea.pressed ? root.wash(true) : "transparent"
       }
       Text {
         anchors.centerIn: parent
@@ -172,8 +177,8 @@ Column {
 
     height: Style.space(48)
     radius: Style.cornerRadius
-    color: "transparent"
-    borderSpec: root.borderFor(false)
+    color: root.wash(false)
+    borderSpec: Border.none()
     opacity: available ? 1 : 0.5
     clip: true
 
@@ -184,7 +189,8 @@ Column {
       y: slider.contentTopInset
       height: slider.height - slider.contentTopInset - slider.contentBottomInset
       width: (slider.width - slider.contentLeftInset - slider.contentRightInset) * Math.max(0, Math.min(1, slider.shown / 100))
-      color: Style.selectedFillFor(root.foreground, root.accent)
+      radius: slider.radius
+      color: Util.alpha(root.foreground, 0.2)
     }
 
     Text {
@@ -239,22 +245,22 @@ Column {
     height: box.height + Style.space(4) + name.implicitHeight
     opacity: available ? 1 : 0.5
 
-    BorderSurface {
+    Rectangle {
       id: box
       anchors.horizontalCenter: parent.horizontalCenter
       width: Math.min(tile.width, Style.space(64))
       height: width
       radius: Style.cornerRadius
-      color: root.fillFor(area.pressed, tile.on)
-      borderSpec: root.borderFor(tile.on)
+      color: tile.on ? (area.pressed ? Qt.darker(root.accent, 1.15) : root.accent) : root.wash(area.pressed)
+      Behavior on color { ColorAnimation { duration: Style.duration(120) } }
 
       Text {
         anchors.centerIn: parent
         textFormat: Text.PlainText
         text: tile.glyph
-        color: root.foreground
+        color: tile.on ? root.onInk : root.foreground
         font.family: Style.font.family
-        font.pixelSize: Style.font.iconLarge
+        font.pixelSize: Math.round(Style.font.iconLarge * 1.2)
       }
     }
 
@@ -302,13 +308,12 @@ Column {
       onChosen: function(v) { sliderRow.chosen(v) }
     }
 
-    BorderSurface {
+    Rectangle {
       id: side
       width: bar.height
       height: bar.height
       radius: Style.cornerRadius
-      color: root.fillFor(sideArea.pressed, false)
-      borderSpec: root.borderFor(false)
+      color: root.wash(sideArea.pressed)
 
       Text {
         anchors.centerIn: parent
