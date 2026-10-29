@@ -21,6 +21,7 @@ ShellRoot {
     "omarchy.network": "panels/network/Panel.qml",
     "omarchy.bluetooth": "panels/bluetooth/Panel.qml",
     "omarchy.audio": "panels/audio/Panel.qml",
+    "omarchy.monitor": "panels/monitor/Panel.qml",
     "omarchy.power": "panels/power/Panel.qml"
   })
   property var widgets: ({})

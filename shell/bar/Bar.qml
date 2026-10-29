@@ -45,6 +45,7 @@ Item {
     { id: "omarchy.network" },
     { id: "omarchy.bluetooth" },
     { id: "omarchy.audio" },
+    { id: "omarchy.monitor" },
     { id: "omarchy.power", defaults: { showPercentage: true } }
   ]
 
@@ -322,7 +323,7 @@ Item {
     var zone = share < 1 / 3 ? "left" : share > 2 / 3 ? "right" : "middle"
     if (zone === "middle") {
       pullHeight = screen ? screen.height * 0.5 : 0
-      consoleBegin(screen)
+      consoleBegin(screen, share)
     } else {
       // The drawers decide which screen they open on; without them a pull
       // here does nothing.
@@ -359,17 +360,48 @@ Item {
     pullScreen = null
   }
 
-  // The scratchpad console. stage animates it down with the finger; until it
-  // takes that over from the bar, a pull past the threshold runs Omarchy's own
-  // toggle, which also sends a console that is already down back up: without
-  // a keyboard, that is a way out of it. stage's handover goes here: begin,
-  // follow each move, end.
-  function consoleBegin(screen) {}
+  // The scratchpad console. stage draws it coming down with the finger: the
+  // bar hands it the pull over stage's command socket (`stage top begin`,
+  // `follow`, `end`), the same one `stage simulate` uses. Without stage, a
+  // pull past the threshold runs Omarchy's own toggle.
+  Socket {
+    id: stage
+    path: Quickshell.env("XDG_RUNTIME_DIR") + "/stage-" + Quickshell.env("WAYLAND_DISPLAY") + ".sock"
+    connected: true
+    // stage answers each line with "ok"; the bar has nothing to do with it.
+    parser: SplitParser { onRead: function(data) {} }
+    // stage restarts with an install: the bar finds it again.
+    onConnectedChanged: if (!connected) reconnect.restart()
+  }
 
-  function consoleFollow(distance) {}
+  Timer {
+    id: reconnect
+    interval: 2000
+    onTriggered: stage.connected = true
+  }
+
+  property bool consoleToStage: false
+
+  function tellStage(line) {
+    stage.write(line + "\n")
+    stage.flush()
+  }
+
+  function consoleBegin(screen, share) {
+    consoleToStage = stage.connected
+    if (!consoleToStage) return
+    var x = screen ? share * screen.width : 0
+    tellStage("top begin " + Math.round(x) + " " + Math.round(root.barSize / 2))
+  }
+
+  function consoleFollow(distance) {
+    if (consoleToStage) tellStage("top follow " + Math.round(distance))
+  }
 
   function consoleEnd(open) {
-    if (open) Hyprland.dispatch('hl.dsp.workspace.toggle_special("scratchpad")')
+    if (consoleToStage) tellStage("top end " + (open ? "1" : "0"))
+    else if (open) Hyprland.dispatch('hl.dsp.workspace.toggle_special("scratchpad")')
+    consoleToStage = false
   }
 
   // ---- See-through on a tap.

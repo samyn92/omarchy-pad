@@ -7,22 +7,23 @@ one plugin.
 
 A status bar for the tablet, in place of Omarchy's bar. The time and date are
 on the left, the workspaces in the middle, and the status icons on the right:
-Omarchy's indicators (Do Not Disturb, night light...), Wi-Fi, Bluetooth, volume
-and battery. The bar always stays at the top, and nothing on it can be dragged
-around or off.
+Omarchy's indicators (Do Not Disturb, night light...), Wi-Fi, Bluetooth, volume,
+display brightness and battery. The bar always stays at the top, and nothing on
+it can be dragged around or off.
 
 The widgets are Omarchy's own, so a tap opens the same panels as on Omarchy's
 bar: the calendar, the battery and power profiles, Wi-Fi networks, audio
-devices. They follow the theme, and your own settings for them from Omarchy's
-bar layout come along. The clock always shows the time and the date, and the
+devices, brightness. They follow the theme, and your own settings for them from
+Omarchy's bar layout come along. The clock always shows the time and the date, and the
 battery shows its percentage unless you've turned that off.
 
 Pull down from the bar to open a drawer:
 
 - from the left third, notifications;
 - from the right third, quick settings;
-- from the middle, the scratchpad console; pulling there again sends it back
-  up.
+- from the middle, the scratchpad console, following the finger (stage draws
+  it; without stage, Omarchy's own toggle). A push up from the bottom, or on
+  the dimmed screen, takes it back up.
 
 The drawer follows your finger. Let go past about a third of the way down, or
 flick, and it opens; otherwise it goes back up. A mouse can pull them down too.
