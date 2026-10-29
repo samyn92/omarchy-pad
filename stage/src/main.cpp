@@ -3,11 +3,17 @@
 // or pull the scratchpad console down from the top.
 
 #include <QGuiApplication>
+#include <QDir>
+#include <QFile>
 #include <QIcon>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QProcess>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickWindow>
+#include <QStandardPaths>
 #include <QUrl>
 #include <cstdio>
 
@@ -16,6 +22,7 @@
 #include "hyprland.h"
 #include "images.h"
 #include "ipc.h"
+#include "shelves.h"
 #include "stage.h"
 #include "theme.h"
 #include "touchscreen.h"
@@ -67,21 +74,6 @@ static int runCommand(int argc, char *argv[], const QStringList &args)
     return 0;
 }
 
-// Qt without a platform theme only knows hicolor; the launcher wants the
-// icons the rest of the desktop shows.
-static void useDesktopIconTheme()
-{
-    if (!QIcon::themeName().isEmpty() && QIcon::themeName() != "hicolor")
-        return;
-    QProcess gsettings;
-    gsettings.start("gsettings", {"get", "org.gnome.desktop.interface", "icon-theme"});
-    if (gsettings.waitForFinished(1000)) {
-        const QString name = QString::fromUtf8(gsettings.readAllStandardOutput()).trimmed().remove('\'');
-        if (!name.isEmpty())
-            QIcon::setThemeName(name);
-    }
-}
-
 int main(int argc, char *argv[])
 {
     QStringList args;
@@ -111,7 +103,6 @@ int main(int argc, char *argv[])
     if (Ipc::send(socket, "status", nullptr, 300))
         return 0;
 
-    useDesktopIconTheme();
     Translator translator;
     app.installTranslator(&translator);
     Theme theme;
@@ -124,6 +115,18 @@ int main(int argc, char *argv[])
     if (!capture.connectToCompositor())
         qWarning("stage: the compositor can't capture the screen; gestures will show placeholders");
     Apps apps;
+    // Qt without a platform theme only knows hicolor; the launcher wants the
+    // icons the rest of the desktop shows.
+    apps.followIconTheme();
+    // The launcher's rows: the user's, else made up with the apps Omarchy's
+    // dock pins on top.
+    QStringList pinned;
+    QFile shellConfig(QDir::homePath() + "/.config/omarchy/shell.json");
+    if (shellConfig.open(QIODevice::ReadOnly))
+        for (const QJsonValue &id : QJsonDocument::fromJson(shellConfig.readAll())["dock"]["pinned"].toArray())
+            pinned << id.toString();
+    Shelves shelves(&apps, QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + "/stage/launcher.json",
+                    pinned);
     auto *snapshots = new Snapshots;
     Stage stage(&hyprland, &capture, snapshots, &apps);
     Touchscreen touchscreen;
@@ -142,6 +145,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("theme", &theme);
     engine.rootContext()->setContextProperty("stage", &stage);
     engine.rootContext()->setContextProperty("apps", &apps);
+    engine.rootContext()->setContextProperty("shelves", &shelves);
     engine.load(QUrl("qrc:/Main.qml"));
     auto *window = engine.rootObjects().isEmpty() ? nullptr : qobject_cast<QQuickWindow *>(engine.rootObjects().first());
     if (!window)

@@ -40,6 +40,24 @@ at least a fifth). A short, quick flick makes halves; a short or slow pull
 springs back. Tap an app and its window opens where the launcher was, at that
 size; tap beside the launcher to put things back.
 
+The launcher shows the apps in rows, one kind of app a row, each scrolling
+sideways; the rows scroll up and down. Until you arrange them they are made
+up from the apps: Omarchy's dock favourites on top, then AI apps, Omarchy's
+web apps, Internet, Office, Media, Development, Games and System by the
+categories the apps give, and Other for the rest. Hold an app to arrange
+them: the icons wiggle, and the app follows your finger into another row,
+between two apps, or onto "New row" at the end (a row scrolls along when you
+take an app to its edge). The arrows beside a row's name move the row up or
+down, and Done ends it. Your rows are kept in `~/.config/stage/launcher.json`;
+an app installed later goes into the row of its kind, or Other, and a row
+emptied goes away.
+
+The icons are the icon theme's that Omarchy's theme picks, followed when the
+theme changes. When it names one that isn't installed (Omarchy's Vantablack
+and White name a Yaru-gray that Yaru doesn't have), the nearest installed one
+stands in: Yaru-gray's is Yaru, and hicolor, where every app keeps its own
+icon, after that.
+
 Two and three fingers come straight from the touch screen (stage opens the
 devices udev tags as touch screens with libinput, so the user has to be in the
 `input` group), because fingers on a window go to that window, not to the

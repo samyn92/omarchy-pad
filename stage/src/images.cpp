@@ -10,7 +10,9 @@ IconProvider::IconProvider() : QQuickImageProvider(QQuickImageProvider::Pixmap) 
 QPixmap IconProvider::requestPixmap(const QString &id, QSize *size, const QSize &requestedSize)
 {
     const QSize wanted = requestedSize.isValid() ? requestedSize : QSize(128, 128);
-    QIcon icon = QFileInfo(id).isAbsolute() ? QIcon(id) : QIcon::fromTheme(id);
+    // What follows a "?" only tells the icon themes apart.
+    const QString name = id.section('?', 0, 0);
+    QIcon icon = QFileInfo(name).isAbsolute() ? QIcon(name) : QIcon::fromTheme(name);
     if (icon.isNull())
         icon = QIcon::fromTheme("application-x-executable");
     const QPixmap pixmap = icon.pixmap(wanted);

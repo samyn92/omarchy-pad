@@ -8,11 +8,13 @@
 #include <QQmlContext>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QIcon>
 #include <QTemporaryDir>
 #include <QtMath>
 #include <QtTest>
 
 #include "apps.h"
+#include "shelves.h"
 #include "fingers.h"
 #include "hyprland.h"
 #include "images.h"
@@ -170,6 +172,7 @@ public:
         write(dir.path() + "/applications/files.desktop",
               "[Desktop Entry]\nType=Application\nName=Files\nExec=nautilus --new-window %U\nIcon=folder\n");
         apps = std::make_unique<Apps>(QStringList{dir.path() + "/applications"}, "en");
+        shelves = std::make_unique<Shelves>(apps.get(), dir.path() + "/launcher.json", QStringList{"files"});
 
         // A screen picture with something on it, as the capture would give.
         QImage screen(3392, 2400, QImage::Format_RGB32);
@@ -214,6 +217,7 @@ public:
         engine.rootContext()->setContextProperty("theme", &theme);
         engine.rootContext()->setContextProperty("stage", &fake);
         engine.rootContext()->setContextProperty("apps", apps.get());
+        engine.rootContext()->setContextProperty("shelves", shelves.get());
         engine.load(QUrl("qrc:/Main.qml"));
         window = engine.rootObjects().isEmpty() ? nullptr : qobject_cast<QQuickWindow *>(engine.rootObjects().first());
         if (!window)
@@ -330,6 +334,7 @@ public:
     Translator translator;
     Theme theme;
     std::unique_ptr<Apps> apps;
+    std::unique_ptr<Shelves> shelves;
     Snapshots *snapshots = nullptr;
     FakeStage fake;
     QQmlApplicationEngine engine;
@@ -393,6 +398,83 @@ private slots:
         Apps apps({dir.path()}, "en");
         QCOMPARE(apps.rowCount(), 1);
         QCOMPARE(apps.name("web"), QString("Web"));
+    }
+
+    // The launcher's rows, made up from the apps until one is moved.
+    static QStringList rowNames(const Shelves &shelves)
+    {
+        QStringList names;
+        for (const QVariant &row : shelves.rows()) {
+            QStringList ids;
+            for (const QVariant &app : row.toMap()["apps"].toList())
+                ids << app.toMap()["appId"].toString();
+            names << row.toMap()["name"].toString() + ":" + ids.join(',');
+        }
+        return names;
+    }
+
+    static void writeApps(const QString &dir)
+    {
+        QDir(dir).mkpath(".");
+        write(dir + "/claude.desktop", "[Desktop Entry]\nType=Application\nName=Claude\nExec=claude-desktop\nCategories=Utility;\n");
+        write(dir + "/x.desktop", "[Desktop Entry]\nType=Application\nName=X\nExec=omarchy-launch-webapp https://x.com/\n");
+        write(dir + "/writer.desktop", "[Desktop Entry]\nType=Application\nName=Writer\nExec=lowriter\nCategories=Office;\n");
+        write(dir + "/mpv.desktop", "[Desktop Entry]\nType=Application\nName=mpv\nExec=mpv\nCategories=AudioVideo;Video;\n");
+        write(dir + "/foot.desktop", "[Desktop Entry]\nType=Application\nName=Foot\nExec=foot\nCategories=System;TerminalEmulator;\n");
+        write(dir + "/odd.desktop", "[Desktop Entry]\nType=Application\nName=Odd\nExec=odd\n");
+    }
+
+    void theLauncherRowsAreMadeUpFromTheApps()
+    {
+        QTemporaryDir dir;
+        writeApps(dir.path() + "/applications");
+        Apps apps({dir.path() + "/applications"}, "en");
+        Shelves shelves(&apps, dir.path() + "/launcher.json", {"foot", "gone"});
+        // The dock's favourite first (and only there), AI by name, Omarchy's
+        // web apps, then by category; an app of no kind goes under Other.
+        QCOMPARE(rowNames(shelves), QStringList({"Favorites:foot", "AI:claude", "Web apps:x", "Office:writer",
+                                                 "Media:mpv", "Other:odd"}));
+        QVERIFY(!QFile::exists(dir.path() + "/launcher.json"));
+    }
+
+    void anAppMovedStaysWhereItWasPut()
+    {
+        QTemporaryDir dir;
+        writeApps(dir.path() + "/applications");
+        {
+            Apps apps({dir.path() + "/applications"}, "en");
+            Shelves shelves(&apps, dir.path() + "/launcher.json", {"foot"});
+            shelves.moveApp("claude", 3, 0);   // into Office, first
+            QCOMPARE(rowNames(shelves), QStringList({"Favorites:foot", "Web apps:x", "Office:claude,writer",
+                                                     "Media:mpv", "Other:odd"}));
+            shelves.moveApp("mpv", 2, 2);      // Office, last
+            shelves.newRow("odd");
+            shelves.moveRow(3, 0);
+            QCOMPARE(rowNames(shelves), QStringList({"New row:odd", "Favorites:foot", "Web apps:x",
+                                                     "Office:claude,writer,mpv"}));
+        }
+        // Kept across a restart, and an app installed since goes to its kind's row.
+        write(dir.path() + "/applications/calc.desktop",
+              "[Desktop Entry]\nType=Application\nName=Calc\nExec=localc\nCategories=Office;\n");
+        write(dir.path() + "/applications/game.desktop",
+              "[Desktop Entry]\nType=Application\nName=Game\nExec=game\nCategories=Game;\n");
+        Apps apps({dir.path() + "/applications"}, "en");
+        Shelves shelves(&apps, dir.path() + "/launcher.json", {"foot"});
+        QCOMPARE(rowNames(shelves), QStringList({"New row:odd", "Favorites:foot", "Web apps:x",
+                                                 "Office:claude,writer,mpv,calc", "Other:game"}));
+    }
+
+    void aMissingIconThemeGivesWayToTheNearest()
+    {
+        QTemporaryDir dir;
+        QDir(dir.path()).mkpath("Yaru");
+        write(dir.path() + "/Yaru/index.theme", "[Icon Theme]\nName=Yaru\n");
+        const QStringList before = QIcon::themeSearchPaths();
+        QIcon::setThemeSearchPaths({dir.path()});
+        QCOMPARE(Apps::installedIconTheme("Yaru"), QString("Yaru"));
+        QCOMPARE(Apps::installedIconTheme("Yaru-gray"), QString("Yaru"));
+        QCOMPARE(Apps::installedIconTheme("Nothing-like-it"), QString("hicolor"));
+        QIcon::setThemeSearchPaths(before);
     }
 
     void bordersReadLikeHyprlands()
@@ -682,6 +764,31 @@ private slots:
         QVERIFY(h.pull() > 5 && h.pull() < 37);
         h.release(QPoint(1693 - 400, 600));
         QTRY_COMPARE(h.phase(), QString("idle"));
+    }
+
+    void holdingAnAppInTheLauncherArrangesIt()
+    {
+        Harness h;
+        // Files is the dock's favourite; Foot, of no kind, is under Other.
+        QCOMPARE(rowNames(*h.shelves), QStringList({"Favorites:files", "Other:foot"}));
+        h.swipe(QPoint(1693, 600), QPoint(1693 - 840, 600));
+        QTRY_COMPARE(h.phase(), QString("room"));
+        const QPoint foot = h.tile("foot"), into = h.tile("files") - QPoint(30, 0);
+        h.press(foot);
+        QTest::qWait(600);
+        for (int i = 1; i <= 10; ++i) {
+            QTest::qWait(16);
+            h.move(foot + QPoint((into.x() - foot.x()) * i / 10, (into.y() - foot.y()) * i / 10));
+        }
+        QTest::qWait(60);
+        h.release(into);
+        // In before Files; Other, emptied, is gone. Nothing was opened.
+        QTRY_COMPARE(rowNames(*h.shelves), QStringList({"Favorites:foot,files"}));
+        QVERIFY(!h.fake.log.join(' ').contains("launch"));
+        // Arranging, a tap opens nothing either.
+        h.tap(h.tile("files"));
+        QTest::qWait(100);
+        QVERIFY(!h.fake.log.join(' ').contains("launch"));
     }
 
     void tappingBesideTheLauncherPutsThingsBack()

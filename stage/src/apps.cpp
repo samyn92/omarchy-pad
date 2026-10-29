@@ -4,7 +4,9 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QIcon>
 #include <QLocale>
+#include <QProcess>
 #include <QSet>
 #include <QStandardPaths>
 #include <QTextStream>
@@ -57,7 +59,7 @@ bool Apps::parse(const QString &path, const QString &language, App *app)
     // Name[de_DE] beats Name[de] beats Name.
     const QString shortLanguage = language.section('_', 0, 0);
     QString name, localName, shortName;
-    QString exec, icon, type, onlyShowIn, notShowIn;
+    QString exec, icon, type, onlyShowIn, notShowIn, categories;
     bool noDisplay = false, hidden = false, terminal = false, inEntry = false;
 
     QTextStream in(&file);
@@ -97,6 +99,8 @@ bool Apps::parse(const QString &path, const QString &language, App *app)
             onlyShowIn = value;
         else if (key == "NotShowIn")
             notShowIn = value;
+        else if (key == "Categories")
+            categories = value;
     }
 
     const QStringList desktops = qEnvironmentVariable("XDG_CURRENT_DESKTOP", "Hyprland").split(':');
@@ -115,6 +119,8 @@ bool Apps::parse(const QString &path, const QString &language, App *app)
     app->name = !localName.isEmpty() ? localName : !shortName.isEmpty() ? shortName : name;
     app->icon = icon;
     app->command = stripFieldCodes(exec);
+    app->categories = categories.split(';', Qt::SkipEmptyParts);
+    app->webApp = app->command.startsWith("omarchy-launch-webapp");
     return !app->command.isEmpty();
 }
 
@@ -151,6 +157,62 @@ void Apps::reload()
     beginResetModel();
     m_apps = apps;
     endResetModel();
+}
+
+// Qt shows no icons at all for a theme it can't find, not even the ones
+// every app keeps in hicolor, and Omarchy's Vantablack and White themes name a
+// Yaru-gray that Yaru doesn't have: the nearest installed one stands in.
+QString Apps::installedIconTheme(const QString &wanted)
+{
+    auto installed = [](const QString &name) {
+        for (const QString &directory : QIcon::themeSearchPaths())
+            if (QFileInfo::exists(directory + "/" + name + "/index.theme"))
+                return true;
+        return false;
+    };
+    QString name = wanted.trimmed();
+    while (!name.isEmpty()) {
+        if (installed(name))
+            return name;
+        const int dash = name.lastIndexOf('-');
+        if (dash <= 0)
+            break;
+        name = name.left(dash);
+    }
+    return "hicolor";
+}
+
+void Apps::useIconTheme(const QString &wanted)
+{
+    const QString name = installedIconTheme(wanted);
+    QIcon::setFallbackThemeName("hicolor");
+    if (name == m_iconTheme)
+        return;
+    m_iconTheme = name;
+    QIcon::setThemeName(name);
+    emit iconThemeChanged();
+}
+
+void Apps::followIconTheme()
+{
+    auto unquoted = [](QString text) { return text.trimmed().remove('\''); };
+    QProcess get;
+    get.start("gsettings", {"get", "org.gnome.desktop.interface", "icon-theme"});
+    if (get.waitForFinished(1000))
+        useIconTheme(unquoted(QString::fromUtf8(get.readAllStandardOutput())));
+    else
+        useIconTheme("hicolor");
+
+    // Prints "icon-theme: 'Name'" at every change.
+    m_iconMonitor = new QProcess(this);
+    connect(m_iconMonitor, &QProcess::readyReadStandardOutput, this, [this, unquoted] {
+        while (m_iconMonitor->canReadLine()) {
+            const QString line = QString::fromUtf8(m_iconMonitor->readLine());
+            if (line.contains(':'))
+                useIconTheme(unquoted(line.section(':', 1)));
+        }
+    });
+    m_iconMonitor->start("gsettings", {"monitor", "org.gnome.desktop.interface", "icon-theme"});
 }
 
 int Apps::rowCount(const QModelIndex &parent) const

@@ -120,6 +120,12 @@ Window {
         return apps.icon(appClass) || (appClass || "").toLowerCase()
     }
 
+    // An icon by name (or path), from the icon theme in use: the theme is in
+    // the URL, so one Omarchy's theme switches to loads anew.
+    function iconUrl(name) {
+        return name ? "image://icon/" + name + "?" + apps.iconTheme : ""
+    }
+
     function allReady(windows) {
         for (let i = 0; i < windows.length; ++i)
             if (ready[windows[i].snapshot] !== true)
@@ -925,7 +931,7 @@ Window {
                             width: 80
                             height: 80
                             sourceSize: Qt.size(160, 160)
-                            source: "image://icon/" + win.iconFor(parent.parent.modelData.appClass)
+                            source: win.iconUrl(win.iconFor(parent.parent.modelData.appClass))
                             asynchronous: true
                         }
                     }
@@ -1152,7 +1158,7 @@ Window {
             x: host.x + host.width / 2 - width / 2
             y: host.y + host.height / 2 - height / 2
             sourceSize: Qt.size(224, 224)
-            source: win.launchingIcon !== "" ? "image://icon/" + win.launchingIcon : ""
+            source: win.iconUrl(win.launchingIcon)
             SequentialAnimation on scale {
                 running: win.phase === "launching"
                 loops: Animation.Infinite
@@ -1199,7 +1205,7 @@ Window {
             width: 96
             height: 96
             sourceSize: Qt.size(192, 192)
-            source: "image://icon/" + win.iconFor(pane.modelData.appClass)
+            source: win.iconUrl(win.iconFor(pane.modelData.appClass))
             asynchronous: true
         }
     }
@@ -1228,7 +1234,7 @@ Window {
                     width: 80
                     height: 80
                     sourceSize: Qt.size(160, 160)
-                    source: "image://icon/" + win.iconFor(frame.modelData.appClass)
+                    source: win.iconUrl(win.iconFor(frame.modelData.appClass))
                     asynchronous: true
                 }
                 Picture {
@@ -1314,7 +1320,7 @@ Window {
             required property string icon
             visible: false
             sourceSize: Qt.size(128, 128)
-            source: "image://icon/" + icon
+            source: win.iconUrl(icon)
             asynchronous: true
         }
     }

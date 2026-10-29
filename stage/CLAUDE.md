@@ -29,3 +29,6 @@ touches only in strips along the edges. It talks to Hyprland over its sockets
 - `stage resize live|pictures` is kept with QSettings in
   `~/.config/stage/stage.conf`. A stage tried in a nested Hyprland should get
   an `XDG_CONFIG_HOME` of its own, or switching it switches the real one.
+- The launcher's rows come from `src/shelves.*` (made up from the apps until
+  the user moves one, then kept in `~/.config/stage/launcher.json`); the same
+  rule as `stage.conf` about a nested stage's `XDG_CONFIG_HOME` applies.
