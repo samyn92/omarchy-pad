@@ -35,6 +35,17 @@ before, opaque or glassy. It is Omarchy's own bar background
 (`omarchy bar background`), so the setting is the same one Omarchy's bar uses.
 `omarchy toggle bar` hides the bar as it hides Omarchy's.
 
+## The picker (`omarchy-pad.image-picker`)
+
+Omarchy's theme and background picker, which a finger can swipe through:
+swipe sideways and the pictures go by, one for every stretch of the finger,
+and a flick carries on a few more. Tap a picture beside the big one to bring
+it to the middle, and the big one to use it. It is Omarchy's own picker, loaded
+from where Omarchy keeps it, so it looks and works as Omarchy's does and an
+Omarchy update reaches it too. Installed, it takes the place of Omarchy's
+(`omarchy plugin disable omarchy-pad.image-picker` goes back), wherever the
+picker opens from: the Omarchy menu, its keys, or the quick settings drawer.
+
 ## Installing
 
 ```bash

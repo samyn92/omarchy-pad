@@ -49,6 +49,9 @@ assemble() {
     -o -type f ! -path ./README.md ! -path ./CLAUDE.md -print0) |
     (cd "$src" && xargs -0 -r cp --parents -t "$stage")
   chmod 755 "$stage"
+  # A plugin built on one of Omarchy's own (the picker) imports it from
+  # where Omarchy is installed.
+  find "$stage" -name '*.qml' -exec sed -i "s|@OMARCHY_PATH@|${OMARCHY_PATH:-/usr/share/omarchy}|g" {} +
 
   omarchy-plugin-validate "$stage" >/dev/null || fail "$name does not pass omarchy-plugin-validate"
   rm -rf "$target"

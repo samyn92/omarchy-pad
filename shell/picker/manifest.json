@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "omarchy-pad.image-picker",
+  "name": "Image picker with swiping",
+  "version": "0.1.0",
+  "author": "Omarchy Pad",
+  "description": "Omarchy's theme and background picker, which a finger can also swipe through.",
+  "omarchy": {
+    "clonedFrom": "omarchy.image-picker"
+  },
+  "kinds": [
+    "overlay"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "overlay": "ImagePicker.qml"
+  }
+}

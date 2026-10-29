@@ -25,7 +25,7 @@ ln -s "$shell_root/Ui" "$work/shell/Ui"
 cp "$here"/*.qml "$here/manifest.json" "$here/quick-settings-state" "$work/shell/plugins/drawers/"
 
 for command in omarchy-brightness-display omarchy-audio-output-sink pactl omarchy-bluetooth-power \
-  iceland-rotate-lock floatkey omarchy-shell; do
+  iceland-rotate-lock floatkey omarchy-shell omarchy-theme-bg-switcher; do
   ln -s "$here/tests/fake-bin/fake" "$work/bin/$command"
 done
 touch "$work/state/bluetooth"

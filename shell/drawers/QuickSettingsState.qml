@@ -148,6 +148,16 @@ Scope {
     root.run("", ["omarchy-shell", "shell", "summon", id, ""])
   }
 
+  // Omarchy's theme and background pickers, as its menu opens them (with
+  // Omarchy Pad's picker installed, a finger can swipe through them).
+  function openThemes() {
+    root.run("", ["omarchy-shell", "shell", "summon", "omarchy.image-picker", '{"source":"themes"}'])
+  }
+
+  function openBackgrounds() {
+    root.run("", ["omarchy-theme-bg-switcher"])
+  }
+
   function dismissAllNotifications() {
     root.run("", ["omarchy-shell", "notifications", "dismissAll"])
   }

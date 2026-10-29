@@ -25,6 +25,15 @@ folder with a `manifest.json`; see the README for what is left out).
   every shell start before the selected one) and watches the `bar-off` toggle
   file alone. The empty-space tap runs `omarchy-bar background`, and the look
   to come back to is kept in `$XDG_STATE_HOME/omarchy-pad/bar-look`.
+- `picker/` is a clone of `omarchy.image-picker` (`clonedFrom` in its
+  manifest), so the shell sends every summon of Omarchy's picker to it. It
+  isn't a copy: its `ImagePicker.qml` builds on Omarchy's live one, imported
+  from `@OMARCHY_PATH@` (which `bin/install` fills in), and adds the swipe on a
+  layer it puts in the picker's overlay window, found by the window's
+  `shownKeyboardFocus`. Only `selectAdjacent`, `opened`, `layoutSettled` and
+  `deleteConfirmOpen` of Omarchy's are relied on; without the window it still
+  works, unswiped. Try it with `picker/tests/try` (`--check`), where
+  `omarchy-theme-set` only logs.
 - `bin/install` restarts the shell: the plugin reloads it triggers while files
   change can leave the bar without its widgets (no error is logged; a fresh
   start always loads them).

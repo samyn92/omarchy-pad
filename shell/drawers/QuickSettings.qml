@@ -178,30 +178,38 @@ Column {
     foreground: root.foreground
   }
 
-  // Omarchy's full panels, for what doesn't fit here: picking a network, an
-  // output, a device.
-  Row {
+  // Omarchy's full panels and pickers, for what doesn't fit here: picking a
+  // network, an output, a device, the display's scale, a theme or a
+  // background.
+  Grid {
     id: panels
     width: parent.width
-    spacing: Style.spacing.rowGap
+    columns: 3
+    columnSpacing: Style.spacing.rowGap
+    rowSpacing: Style.spacing.rowGap
 
     Repeater {
       model: [
         { id: "omarchy.network", glyph: "󰖩", label: "Wi-Fi" },
         { id: "omarchy.audio", glyph: "󰕾", label: Commons.I18n.t("audio.title") },
-        { id: "omarchy.bluetooth", glyph: "󰂯", label: Commons.I18n.t("bluetooth.title") }
+        { id: "omarchy.bluetooth", glyph: "󰂯", label: Commons.I18n.t("bluetooth.title") },
+        { id: "omarchy.monitor", glyph: "󰍹", label: "Display" },
+        { id: "themes", glyph: "󰏘", label: "Theme" },
+        { id: "backgrounds", glyph: "󰋩", label: "Background" }
       ]
 
       Button {
         required property var modelData
-        width: (panels.width - panels.spacing * 2) / 3
+        width: (panels.width - panels.columnSpacing * 2) / 3
         iconText: modelData.glyph
         text: modelData.label
         bordered: true
         foreground: root.foreground
         onClicked: {
           root.closeRequested()
-          root.settings.openPanel(modelData.id)
+          if (modelData.id === "themes") root.settings.openThemes()
+          else if (modelData.id === "backgrounds") root.settings.openBackgrounds()
+          else root.settings.openPanel(modelData.id)
         }
       }
     }

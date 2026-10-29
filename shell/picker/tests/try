@@ -1,0 +1,118 @@
+#!/bin/bash
+
+# Opens a nested Hyprland in a window running the picker plugin in a harness
+# shell (tests/harness/shell.qml), on the themes. omarchy-theme-set only logs,
+# so applying a theme here never changes the session's.
+#
+#   tests/try          leaves it open to try by hand; closing the window ends it
+#   tests/try --check  swipes and taps it with finger events, says what
+#                      passed, and closes it
+
+set -euo pipefail
+
+here=$(cd "$(dirname "$0")/.." && pwd)
+shell_root="${OMARCHY_PATH:-/usr/share/omarchy}/shell"
+work=$(mktemp -d "${TMPDIR:-/tmp}/picker-try.XXXXXX")
+check=0
+[[ ${1:-} == --check ]] && check=1
+
+mkdir -p "$work/shell/plugins" "$work/bin"
+cp "$here/tests/harness/shell.qml" "$work/shell/"
+ln -s "$shell_root/Commons" "$work/shell/Commons"
+ln -s "$shell_root/Ui" "$work/shell/Ui"
+"$here/../bin/install" --to "$work/shell/plugins" "$(basename "$here")" >/dev/null
+touch "$work/commands.log"
+printf '#!/bin/bash\necho "omarchy-theme-set $*" >> %s/commands.log\n' "$work" >"$work/bin/omarchy-theme-set"
+chmod +x "$work/bin/omarchy-theme-set"
+
+cat >"$work/hyprland.lua" <<LUA
+hl.monitor({ output = "", mode = "1280x800", position = "auto", scale = 1 })
+hl.env("OMARCHY_PATH", "${OMARCHY_PATH:-/usr/share/omarchy}")
+hl.env("PATH", "$work/bin:$PATH")
+hl.config({ misc = { disable_hyprland_logo = true, disable_splash_rendering = true } })
+hl.on("hyprland.start", function ()
+  hl.exec_cmd("QT_IM_MODULE=none quickshell -p $work/shell > $work/quickshell.log 2>&1")
+end)
+LUA
+
+if (( ! check )); then
+  echo "Work dir: $work"
+  echo "Open:     qs -p $work/shell ipc --any-display call harness openThemes"
+  status=0
+  start-hyprland -- --config "$work/hyprland.lua" || status=$?
+  rm -rf "$work"
+  exit "$status"
+fi
+
+setsid start-hyprland -- --config "$work/hyprland.lua" >"$work/hyprland.log" 2>&1 &
+nested=$!
+finish() {
+  kill -TERM -- "-$nested" 2>/dev/null || true
+  wait "$nested" 2>/dev/null || true
+  rm -rf "$work"
+}
+trap finish EXIT
+
+call() { qs -p "$work/shell" ipc --any-display call harness "$@"; }
+state() { call state | jq -c "$1"; }
+
+for _ in {1..150}; do
+  [[ $(call ready 2>/dev/null) == true ]] && break
+  sleep 0.1
+done
+[[ $(call ready 2>/dev/null) == true ]] || {
+  echo "The harness shell did not come up:" >&2
+  tail -20 "$work/quickshell.log" >&2
+  exit 1
+}
+
+failures=0
+expect() {
+  local what=$1 got=$2 want=$3
+  if [[ $got == "$want" ]]; then
+    echo "ok    $what"
+  else
+    echo "FAIL  $what: got $got, want $want"
+    failures=$((failures + 1))
+  fi
+}
+# swipe DX MS: a finger on the middle picture, moved DX over MS, let go.
+swipe() {
+  call press 0.5 0.5 >/dev/null
+  call moveBy "$1" "$2" >/dev/null
+  call release >/dev/null
+  sleep "$(awk -v ms="$2" 'BEGIN { print ms / 1000 + 0.7 }')"
+}
+tap() { call press "$1" "$2" >/dev/null; call release >/dev/null; sleep 0.6; }
+
+call openThemes >/dev/null
+for _ in {1..50}; do
+  [[ $(state .settled) == true ]] && break
+  sleep 0.1
+done
+expect "the themes open" "$(state '.opened and .settled and .count > 5')" true
+start=$(state .selected)
+count=$(state .count)
+at() { echo $(( (start + $1 + count * 10) % count )); }
+
+swipe -200 600
+expect "a slow swipe left goes on two themes" "$(state .selected)" "$(at 2)"
+swipe 200 600
+expect "and one right comes back" "$(state .selected)" "$(at 0)"
+swipe -100 60
+moved=$(( ($(state .selected) - start + count) % count ))
+expect "a flick carries on past where the finger went" "$(( moved > 1 ))" 1
+swipe 100 60
+expect "and one back returns as far" "$(state '.selected')" "$(at 0)"
+expect "no swipe applied a theme" "$(wc -l <"$work/commands.log")" 0
+
+tap 0.5 0.5
+expect "a tap on the big picture applies its theme" "$(wc -l <"$work/commands.log")" 1
+expect "and closes the picker" "$(state .opened)" false
+
+if (( failures )); then
+  echo "$failures failed; quickshell said:"
+  grep -iE "warn|error" "$work/quickshell.log" | grep -v "portal" | tail -20 || true
+  exit 1
+fi
+echo "All passed"

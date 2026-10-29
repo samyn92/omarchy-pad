@@ -8,8 +8,8 @@ Two drawers that pull down from the top edge, as on an iPad:
   Recent notifications can't be removed one by one: Omarchy keeps no way to.
 - **On the right, quick settings:** brightness and volume, switches for Wi-Fi,
   Bluetooth, Do Not Disturb, Night Light, Stay Awake, rotation lock and the
-  on-screen keyboard, and buttons that open Omarchy's full Wi-Fi, audio and
-  Bluetooth panels.
+  on-screen keyboard, and buttons that open Omarchy's full Wi-Fi, audio,
+  Bluetooth and display panels and its theme and background pickers.
 
 Pull down from the bar with one finger, on its left or right third; the
 drawer follows the finger and opens if you let go past a third of the way, or
