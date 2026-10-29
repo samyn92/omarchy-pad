@@ -26,3 +26,6 @@ touches only in strips along the edges. It talks to Hyprland over its sockets
 - A window being pulled is hidden with the `stage-hidden` tag and its
   `no_anim` (so it goes at once); stage registers the tag's rule itself and
   takes leftover tags off when it starts.
+- `stage resize live|pictures` is kept with QSettings in
+  `~/.config/stage/stage.conf`. A stage tried in a nested Hyprland should get
+  an `XDG_CONFIG_HOME` of its own, or switching it switches the real one.

@@ -1,5 +1,5 @@
 pkgname=stage
-pkgver=0.3.1
+pkgver=0.5.0
 pkgrel=1
 pkgdesc='iPad-style multitasking gestures for Omarchy on a tablet'
 arch=('x86_64' 'aarch64')

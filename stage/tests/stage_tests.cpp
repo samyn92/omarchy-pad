@@ -30,6 +30,7 @@ class FakeStage : public QObject {
     Q_PROPERTY(bool hand MEMBER hand NOTIFY handChanged)
     Q_PROPERTY(QVariantList dividers MEMBER dividers NOTIFY dividersChanged)
     Q_PROPERTY(bool barConnected MEMBER barConnected NOTIFY barConnectedChanged)
+    Q_PROPERTY(bool liveResize MEMBER liveResize NOTIFY liveResizeChanged)
 
 public:
     Q_INVOKABLE void closeWindow(const QString &address)
@@ -68,6 +69,13 @@ public:
         QTimer::singleShot(30, this, [this] { emit dividersChanged(); });
     }
     Q_INVOKABLE void pushOff(const QStringList &addresses) { log << "pushoff:" + addresses.join(','); }
+    // Live resizing: where the line was sent, and where it settled.
+    Q_INVOKABLE void moveDivider(const QVariantMap &, qreal line) { moves << line; }
+    Q_INVOKABLE void settleDivider(const QVariantMap &, qreal line)
+    {
+        log << QString("settle:%1").arg(qRound(line));
+        QTimer::singleShot(30, this, [this] { emit dividersChanged(); });
+    }
     Q_INVOKABLE void switchWorkspace(int id)
     {
         log << "switch:" + QString::number(id);
@@ -111,6 +119,8 @@ public:
     bool hand = false;
     QVariantList dividers;
     bool barConnected = false;
+    bool liveResize = false;
+    QList<qreal> moves;
     bool refuse = false;   // windows that won't close
 
 signals:
@@ -120,6 +130,7 @@ signals:
     void handChanged();
     void dividersChanged();
     void barConnectedChanged();
+    void liveResizeChanged();
     void topPulled(const QVariantMap &plan, const QPointF &at);
     void topMoved(const QPointF &at);
     void topReleased(const QPointF &at, bool open);
@@ -770,8 +781,9 @@ private slots:
         Harness h;
         // The right and bottom edges, the top strip, and a grip along the line.
         QCOMPARE(h.fake.region.size(), 4);
-        // It stops short of the bottom edge's strip.
-        QCOMPARE(h.fake.region.last().toRectF(), QRectF(834, 42, 28, 1138));
+        // It reaches a little into the windows on both sides, and stops short
+        // of the bottom edge's strip.
+        QCOMPARE(h.fake.region.last().toRectF(), QRectF(830, 42, 36, 1138));
     }
 
     void holdingTheLineGrabsItAndDraggingResizes()
@@ -791,6 +803,44 @@ private slots:
         h.release(QPoint(1100, 600));
         QTRY_COMPARE(h.fake.log, QStringList({"resize:0.67"}));
         QTRY_COMPARE(h.phase(), QString("idle"));
+    }
+
+    void resizingLiveMovesTheWindowsThemselves()
+    {
+        Harness h;
+        h.fake.liveResize = true;
+        emit h.fake.liveResizeChanged();
+        h.press(QPoint(848, 600));
+        QTRY_COMPARE_WITH_TIMEOUT(h.phase(), QString("tracking"), 1000);
+        for (int x = 860; x <= 1100; x += 20) {
+            QTest::qWait(16);
+            h.move(QPoint(x, 600));
+        }
+        QTest::qWait(40);
+        // The windows went along with the line, not pictures of them.
+        QVERIFY(h.fake.moves.size() > 5);
+        QCOMPARE(qRound(h.fake.moves.last()), 1100);
+        h.release(QPoint(1100, 600));
+        // It settles on two thirds of the room (12 to 1684), where it lets
+        // Hyprland animate it to, and never resizes the pictures' way.
+        QTRY_COMPARE(h.fake.log, QStringList({"settle:1127"}));
+        QTRY_COMPARE(h.phase(), QString("idle"));
+    }
+
+    void aSecondFingerPutsLiveWindowsBack()
+    {
+        Harness h;
+        h.fake.liveResize = true;
+        emit h.fake.liveResizeChanged();
+        h.press(QPoint(848, 600));
+        QTRY_COMPARE_WITH_TIMEOUT(h.phase(), QString("tracking"), 1000);
+        for (int x = 860; x <= 1000; x += 20) {
+            QTest::qWait(16);
+            h.move(QPoint(x, 600));
+        }
+        h.handDown();
+        QTRY_COMPARE(h.phase(), QString("idle"));
+        QCOMPARE(h.fake.log, QStringList({"settle:848"}));
     }
 
     void aQuickTouchOnTheLineDoesNothing()

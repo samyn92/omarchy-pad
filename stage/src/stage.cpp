@@ -10,6 +10,7 @@
 #include <QLoggingCategory>
 #include <QQuickWindow>
 #include <QRegion>
+#include <QSettings>
 #include <QStandardPaths>
 #include <QWindow>
 #include <QtMath>
@@ -47,6 +48,11 @@ static QVariantMap rectMap(const QRectF &r)
 Stage::Stage(Hyprland *hyprland, Capture *capture, Snapshots *snapshots, Apps *apps, QObject *parent)
     : QObject(parent), m_hyprland(hyprland), m_capture(capture), m_snapshots(snapshots), m_apps(apps)
 {
+    m_liveResize = QSettings("stage", "stage").value("resize", "live").toString() == "live";
+    m_liveStep.setSingleShot(true);
+    m_liveStep.setInterval(LiveStepMs);
+    connect(&m_liveStep, &QTimer::timeout, this, &Stage::stepDivider);
+
     // An app that never shows a window (or shows it somewhere else) must not
     // leave the launcher's space hanging.
     m_pendingTimeout.setSingleShot(true);
@@ -738,6 +744,89 @@ void Stage::resizeDivider(const QVariantMap &divider, qreal fraction)
     refreshDividers();
 }
 
+// The window to size for the divider of `plan` to be at `line`, chosen as
+// resizeDivider chooses it, and sized from where it was when the finger took
+// hold, so steps don't add up.
+void Stage::sizeDivider(const QVariantMap &plan, qreal line)
+{
+    const QVariantMap divider = plan["divider"].toMap();
+    const bool vertical = divider["vertical"].toBool();
+    const qreal start = divider["start"].toReal(), end = divider["end"].toReal();
+    // One whose far side is the room's edge touches only this divider.
+    QVariantMap chosen, first;
+    for (const QString &side : {QString("before"), QString("after")}) {
+        for (const QVariant &v : plan[side].toList()) {
+            const QVariantMap w = v.toMap();
+            const qreal lo = vertical ? w["x"].toReal() : w["y"].toReal();
+            const qreal hi = lo + (vertical ? w["w"].toReal() : w["h"].toReal());
+            if (first.isEmpty())
+                first = w;
+            if (chosen.isEmpty() && ((side == "before" && qAbs(lo - start) < 2) || (side == "after" && qAbs(hi - end) < 2)))
+                chosen = w;
+        }
+    }
+    if (chosen.isEmpty())
+        chosen = first;
+    if (chosen.isEmpty())
+        return;
+    const qreal shift = line - divider["at"].toReal();
+    const qreal width = chosen["w"].toReal() + (vertical ? shift : 0);
+    const qreal height = chosen["h"].toReal() + (vertical ? 0 : shift);
+    m_hyprland->dispatch(QString("hl.dsp.window.resize({ x = %1, y = %2, window = \"address:%3\" })")
+                             .arg(qRound(qMax<qreal>(1, width)))
+                             .arg(qRound(qMax<qreal>(1, height)))
+                             .arg(chosen["address"].toString()));
+}
+
+void Stage::moveDivider(const QVariantMap &plan, qreal line)
+{
+    if (m_liveQuiet.isEmpty()) {
+        // Animated, each step would trail behind the finger.
+        for (const QString &side : {QString("before"), QString("after")}) {
+            for (const QVariant &v : plan[side].toList()) {
+                const QString address = v.toMap()["address"].toString();
+                const bool still = m_hyprland->query(QString("getprop address:%1 no_anim").arg(address).toUtf8())
+                                       .object()
+                                       .value("no_anim")
+                                       .toBool();
+                m_liveQuiet.insert(address, still);
+                if (!still)
+                    m_hyprland->dispatch(
+                        QString("hl.dsp.window.set_prop({ prop = \"no_anim\", value = \"1\", window = \"address:%1\" })").arg(address));
+            }
+        }
+    }
+    m_livePlan = plan;
+    m_liveLine = line;
+    if (!m_liveStep.isActive())
+        stepDivider();
+}
+
+void Stage::stepDivider()
+{
+    if (m_liveLine < 0 || m_livePlan.isEmpty())
+        return;
+    sizeDivider(m_livePlan, m_liveLine);
+    m_liveLine = -1;
+    m_liveStep.start();
+}
+
+void Stage::settleDivider(const QVariantMap &plan, qreal line)
+{
+    m_liveStep.stop();
+    m_liveLine = -1;
+    m_livePlan.clear();
+    for (auto it = m_liveQuiet.cbegin(); it != m_liveQuiet.cend(); ++it)
+        if (!it.value())
+            m_hyprland->dispatch(
+                QString("hl.dsp.window.set_prop({ prop = \"no_anim\", value = \"0\", window = \"address:%1\" })").arg(it.key()));
+    m_liveQuiet.clear();
+    if (line >= 0)
+        sizeDivider(plan, line);
+    qCDebug(lcStage) << "divider settled live at" << line;
+    refreshDividers();
+}
+
 void Stage::pushOff(const QStringList &addresses)
 {
     const Monitor m = monitor();
@@ -1359,6 +1448,20 @@ QString Stage::command(const QString &line)
     if (verb == "hush") {
         m_hushed.start();
         return "ok";
+    }
+    if (verb == "resize") {
+        // `resize live|pictures`: how a held divider resizes; on its own, which.
+        const QString how = words.value(1);
+        if (how == "live" || how == "pictures") {
+            QSettings("stage", "stage").setValue("resize", how);
+            if (m_liveResize != (how == "live")) {
+                m_liveResize = how == "live";
+                emit liveResizeChanged();
+            }
+        } else if (!how.isEmpty()) {
+            return "error resize live|pictures";
+        }
+        return QString("ok %1").arg(m_liveResize ? "live" : "pictures");
     }
     if (verb == "status")
         return QString("ok console=%1 apps=%2").arg(m_consoleOpen ? "open" : "closed").arg(m_apps->rowCount());

@@ -370,6 +370,10 @@ Window {
     }
 
     function finish() {
+        // Called off (a second finger): the windows go back where they were,
+        // as they stay there when it is pictures that moved.
+        if (dividing && liveMoved && !liveSettled)
+            settleLive(divider.at)
         hideOnNextFrame = false
         if (hidden !== "" && !gone) {
             // The window comes back first, under its picture, and the picture
@@ -398,9 +402,10 @@ Window {
     // ---- holding the line between two windows ----
 
     // How long a finger holds a divider before it's grabbed, and how wide the
-    // grip along it is (the gap itself is about 14 px).
+    // grip along it is: the gap itself is about 14 px, and a fingertip finds
+    // it more easily reaching a little into the windows on both sides.
     readonly property int holdMs: 200
-    readonly property real grip: 28
+    readonly property real grip: 36
     property real holdProgress: 0   // the light gathering while it's held, 0 to 1
     property real burst: 0          // the flash as it's grabbed, up to 1 and back
     property real ripple: 0         // the ring going out from the finger then, 0 to 1
@@ -422,6 +427,8 @@ Window {
     }
 
     function beginHold(d, p) {
+        liveMoved = false
+        liveSettled = false
         plan = stage.beginDivider(d)
         start = Qt.point(p.x, p.y)
         fingerAlong = d.vertical ? p.y : p.x
@@ -449,6 +456,24 @@ Window {
         flash.restart()
     }
 
+    // Resizing live (stage.liveResize), the windows themselves follow the line
+    // as it moves, the finger's and the settle's after it.
+    readonly property bool liveDividing: dividing && stage.liveResize && (phase === "tracking" || phase === "settling")
+    onPullChanged: {
+        if (!liveDividing)
+            return
+        liveMoved = true
+        stage.moveDivider(plan, divider.at + pull)
+    }
+    // Settled live (stage.settleDivider) by a release; one called off another
+    // way (a second finger) goes back where it started (see finish).
+    property bool liveMoved: false
+    property bool liveSettled: false
+    function settleLive(line) {
+        liveSettled = true
+        stage.settleDivider(plan, line)
+    }
+
     // The line follows the finger across the room it splits, and only gives a
     // little past its ends.
     function dividerPull(d) {
@@ -468,12 +493,18 @@ Window {
         const d = divider, room = d.end - d.start
         const f = (d.at + pull - d.start) / room
         const alone = side => side.length === 1 && !plan.inConsole
+        const away = function (windows) {
+            if (stage.liveResize)
+                settleLive(-1)
+            stage.pushOff(windows.map(w => w.address))
+            leaveDivider()
+        }
         if (f < 0.12 && alone(plan.before)) {
-            settle(d.start - d.at, function () { stage.pushOff(plan.before.map(w => w.address)); leaveDivider() })
+            settle(d.start - d.at, function () { away(plan.before) })
             return
         }
         if (f > 0.88 && alone(plan.after)) {
-            settle(d.end - d.at, function () { stage.pushOff(plan.after.map(w => w.address)); leaveDivider() })
+            settle(d.end - d.at, function () { away(plan.after) })
             return
         }
         const stops = [1 / 3, 1 / 2, 2 / 3]
@@ -484,7 +515,10 @@ Window {
                 choice = v > 0 ? ahead[0] : ahead[ahead.length - 1]
         }
         settle(d.start + choice * room - d.at, function () {
-            stage.resizeDivider(d, choice)
+            if (stage.liveResize)
+                settleLive(d.start + choice * room)
+            else
+                stage.resizeDivider(d, choice)
             leaveDivider()
         })
     }
@@ -973,8 +1007,9 @@ Window {
         // A divider grabbed: the windows on both sides become frosted pictures
         // over the wallpaper and follow the line (a picture cut or stretched
         // never shows through the frost; the app's icon says which is which).
+        // Resizing live, the windows themselves do, and none of this shows.
         Item {
-            visible: win.dividing && win.phase !== "holding"
+            visible: win.dividing && win.phase !== "holding" && !stage.liveResize
             readonly property rect room: win.dividing ? win.dividedRoom() : Qt.rect(0, 0, 0, 0)
             x: room.x
             y: room.y
@@ -992,11 +1027,11 @@ Window {
             }
         }
         Repeater {
-            model: win.dividing && win.phase !== "holding" ? win.plan.before : []
+            model: win.dividing && win.phase !== "holding" && !stage.liveResize ? win.plan.before : []
             delegate: Pane { before: true }
         }
         Repeater {
-            model: win.dividing && win.phase !== "holding" ? win.plan.after : []
+            model: win.dividing && win.phase !== "holding" && !stage.liveResize ? win.plan.after : []
             delegate: Pane { before: false }
         }
 

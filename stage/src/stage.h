@@ -47,6 +47,11 @@ class Stage : public QObject {
     // Omarchy Pad's bar is connected and hands stage the pulls from the top
     // itself, so stage's own strip along the top edge stands aside.
     Q_PROPERTY(bool barConnected READ barConnected NOTIFY barConnectedChanged)
+    // How a held divider resizes the windows beside it: live, the windows
+    // themselves resized as it moves (the default), or with pictures that
+    // follow the finger and the windows set once it lets go, as iPadOS does.
+    // `stage resize live|pictures` switches, and it is remembered.
+    Q_PROPERTY(bool liveResize READ liveResize NOTIFY liveResizeChanged)
 
 public:
     // At most this many windows share a workspace, and this many the console.
@@ -67,6 +72,7 @@ public:
     bool hand() const { return m_hand; }
     QVariantList dividers() const { return m_dividers; }
     bool barConnected() const { return !m_bars.isEmpty(); }
+    bool liveResize() const { return m_liveResize; }
 
     // A finger from the touch screen (Touchscreen::touched).
     void touch(Touchscreen::Kind kind, int slot, const QPointF &panel, qreal ms);
@@ -99,6 +105,14 @@ public:
     Q_INVOKABLE QVariantMap beginDivider(const QVariantMap &divider);
     // Moves the divider to `fraction` of the room it splits.
     Q_INVOKABLE void resizeDivider(const QVariantMap &divider, qreal fraction);
+    // Live resizing: the divider of `plan` (from beginDivider) to `line`, as
+    // the finger has it. Steps come at most every LiveStepMs, the latest one
+    // winning, and the windows don't animate between them.
+    Q_INVOKABLE void moveDivider(const QVariantMap &plan, qreal line);
+    // Its last step, where the line came to rest (Hyprland animates there),
+    // or, for a negative `line`, none (the windows are leaving the split).
+    // Their animations come back.
+    Q_INVOKABLE void settleDivider(const QVariantMap &plan, qreal line);
     // The windows a divider was pushed over leave the split: they go to the
     // next empty workspace, still running, and the others fill the room.
     Q_INVOKABLE void pushOff(const QStringList &addresses);
@@ -142,6 +156,7 @@ public:
 signals:
     void consoleOpenChanged();
     void barConnectedChanged();
+    void liveResizeChanged();
     void lookChanged();
     void dividersChanged();
     // A finger on the bar pulls the console down; the bar sends its pull over
@@ -251,6 +266,18 @@ private:
     QHash<QString, QTimer *> m_closing;
     // Windows hidden by hideWindow, and whether they had no_anim of their own.
     QHash<QString, bool> m_hidden;
+
+    // Live resizing (moveDivider): the step waiting for its turn, and the
+    // windows kept from animating meanwhile, with whether they had no_anim
+    // of their own.
+    static constexpr int LiveStepMs = 30;
+    void stepDivider();
+    void sizeDivider(const QVariantMap &plan, qreal line);
+    bool m_liveResize = false;
+    QTimer m_liveStep;
+    QVariantMap m_livePlan;
+    qreal m_liveLine = -1;
+    QHash<QString, bool> m_liveQuiet;
 
     // With debug logging on, when the overlay's frames reached the screen
     // (noted from the render thread) and when the fingers moved, while a hand
