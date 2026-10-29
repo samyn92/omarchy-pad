@@ -11,6 +11,9 @@ Two drawers that pull down from the top edge, as on an iPad:
   at the top, "Dismiss all" clears the ones on screen, and "Clear" the
   earlier ones.
 
+  A notification whose sender names no icon (Claude's, Grok Bot's) wears the
+  icon of the app installed under that name.
+
   Omarchy keeps no way to remove one notification from its history, so the
   drawer remembers the ones you took away (in
   `~/.local/state/omarchy-pad/hidden-notifications.json`) and leaves them
@@ -20,6 +23,14 @@ Two drawers that pull down from the top edge, as on an iPad:
   Bluetooth, Do Not Disturb, Night Light, Stay Awake, rotation lock and the
   on-screen keyboard, and buttons that open Omarchy's full Wi-Fi, audio,
   Bluetooth and display panels and its theme and background pickers.
+
+  Pull on down past it and the page turns to Omarchy's agents panel (the one
+  its bar opens from the robot): your subscriptions' limits, this week's
+  tokens, and the starter prompts. Push up on it to turn back, or tap the dots
+  on the right edge. The drawer opens on quick settings again next time. The
+  panel is Omarchy's own, shown in the drawer; typing in it (naming an
+  account, pasting a sign-in code) needs Omarchy's own panel, as the drawer
+  takes no keyboard.
 
 Pull down from the bar with one finger, on its left or right third; the
 drawer follows the finger and opens if you let go past a third of the way, or

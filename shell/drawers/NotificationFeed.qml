@@ -75,6 +75,31 @@ Scope {
     return order.map(function(key) { return byKey[key] })
   }
 
+  // A sender that names no icon (Claude, Grok Bot) gets the one of the app
+  // installed under its name, as the launcher shows it. Omarchy's toast
+  // looks the name up loosely and settles for its first letter.
+  function withIcon(row) {
+    if (row.appIcon || !row.app) return
+    var name = String(row.app).toLowerCase()
+    var apps = DesktopEntries.applications.values
+    for (var i = 0; i < apps.length; i++) {
+      var app = apps[i]
+      if (String(app.name).toLowerCase() !== name && String(app.startupClass || "").toLowerCase() !== name) continue
+      // Only an icon by name: a path isn't one Omarchy's toast accepts.
+      if (/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,255}$/.test(String(app.icon || ""))) row.appIcon = String(app.icon)
+      return
+    }
+  }
+
+  // The apps are read in the background, and may come after the rows.
+  Connections {
+    target: DesktopEntries.applications
+    function onValuesChanged() {
+      root.parsed = ""
+      root.parse()
+    }
+  }
+
   // Leaves these rows out from now on.
   function hide(rows) {
     var next = Object.assign({}, root.hidden)
@@ -120,6 +145,8 @@ Scope {
       }
     }
     var shown = function(row) { return !root.hidden[root.idOf(row)] }
+    live.forEach(root.withIcon)
+    history.forEach(root.withIcon)
     root.live = live.filter(shown)
     root.allRecent = history.filter(shown)
     root.recent = root.allRecent.slice(0, root.recentLimit)

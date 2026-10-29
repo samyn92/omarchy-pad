@@ -30,7 +30,8 @@ ln -s "$shell_root/Ui" "$work/shell/Ui"
 cp "$here"/*.qml "$here/manifest.json" "$here/quick-settings-state" "$work/shell/plugins/drawers/"
 
 for command in omarchy-brightness-display omarchy-audio-output-sink pactl omarchy-bluetooth-power \
-  iceland-rotate-lock floatkey omarchy-shell omarchy-theme-bg-switcher; do
+  iceland-rotate-lock floatkey omarchy-shell omarchy-theme-bg-switcher omarchy-agent-usage-update \
+  omarchy-agent-account-add; do
   ln -s "$here/tests/fake-bin/fake" "$work/bin/$command"
 done
 touch "$work/state/bluetooth"
@@ -52,8 +53,13 @@ if (( check )); then
     "$(row old1 Claude 'stage' 'pictures on the GPU' 60 1)" \
     "$(row old2 Claude 'stage' 'console follows fingers' 120 1)" \
     "$(row old3 Claude 'stage' 'bar reconnects' 180 1)" \
-    "$(row old4 Omarchy 'Update ready' 'Omarchy can be updated' 300 1)" >"$work/notifications/history.json"
-  notifications_env="hl.env(\"DRAWERS_TRY_NOTIFICATIONS\", \"$work/notifications\")"
+    "$(row old4 'Pad Tester' 'Update ready' 'Omarchy can be updated' 300 1)" >"$work/notifications/history.json"
+  # An app installed under the name the last one comes from, as Claude's is.
+  mkdir -p "$work/data/applications"
+  printf '[Desktop Entry]\nType=Application\nName=Pad Tester\nExec=true\nIcon=utilities-terminal\n' \
+    >"$work/data/applications/pad-tester.desktop"
+  notifications_env="hl.env(\"DRAWERS_TRY_NOTIFICATIONS\", \"$work/notifications\")
+hl.env(\"XDG_DATA_HOME\", \"$work/data\")"
 fi
 
 # A config home of its own for the rotation lock's flag file, seeing
@@ -120,6 +126,7 @@ if (( check )); then
 
   expect "one on screen, and earlier a stack of three and one more" "$(cards .cards)" "[1,3,1]"
   expect "each card shows its notification" "$(cards .drawn)" true
+  expect "one from an app that names no icon wears the app's own" "$(cards .icons[-1])" '"utilities-terminal"'
   tap 1
   expect "a tap opens the stack" "$(cards .cards)" "[1,1,1,1,1]"
   expect "and shows every one" "$(cards .drawn)" true
@@ -138,6 +145,33 @@ if (( check )); then
   touch_ clearEarlier >/dev/null
   sleep 0.5
   expect "Clear takes all the earlier ones" "$(cards '[.recent, .hidden]')" "[0,5]"
+
+  # The right drawer's pages: quick settings, and Omarchy's agents above it.
+  hstate() { $call harness state | jq -c "$1"; }
+  $call omarchy-pad.drawers close >/dev/null
+  sleep 0.8
+  first=$($call omarchy-pad.drawers begin right)
+  $call omarchy-pad.drawers follow "$first" >/dev/null
+  expect "pulled all the way, quick settings is open" "$(hstate '[.page, .turn]')" "[0,0]"
+  $call omarchy-pad.drawers follow "$(( first + 80 ))" >/dev/null
+  turned=$(hstate '.turn > 0 and .turn < 1')
+  expect "pulling on past it starts turning the page" "$turned" true
+  $call omarchy-pad.drawers settle 1 >/dev/null
+  sleep 0.6
+  expect "let go a little turned, it goes back to quick settings" "$(hstate '[.page, .turn]')" "[0,0]"
+  $call omarchy-pad.drawers follow "$(( first + 200 ))" >/dev/null
+  $call omarchy-pad.drawers settle 1 >/dev/null
+  sleep 0.6
+  expect "pulled on further, it turns to the agents" "$(hstate '[.page, .turn]')" "[1,1]"
+  expect "which show Omarchy's agents panel" "$(hstate '.agents.content')" true
+  expect "and refresh it as it opens" "$(( $(grep -c omarchy-agent-usage-update "$work/state/calls.log") > 0 ))" 1
+  expect "the drawer is as tall as the agents" "$(hstate '.openHeight > .agents.height')" true
+  $call omarchy-pad.drawers close >/dev/null
+  sleep 0.8
+  $call omarchy-pad.drawers begin right >/dev/null
+  $call omarchy-pad.drawers settle 1 >/dev/null
+  sleep 0.6
+  expect "it opens on quick settings again" "$(hstate '[.page, .turn]')" "[0,0]"
 
   if (( failures )); then
     echo "$failures failed; quickshell said:"

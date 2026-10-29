@@ -34,6 +34,19 @@ Item {
   readonly property real openHeight: activeWindow ? activeWindow.openHeight : 0
   readonly property bool settling: settleAnimation.running
 
+  // The right drawer has two pages: quick settings, and Omarchy's agents
+  // above it. A finger that pulls on past the open drawer turns to the
+  // agents (quick settings going down and out, the agents coming in from the
+  // top), and one pushing up on them turns back. `turn` is how far it is
+  // turned, 0 to 1, and `page` where it rests.
+  property int page: 0
+  property real turn: 0
+  // How far past the open drawer the finger goes to turn a whole page.
+  readonly property real turnDistance: Style.space(220)
+  // The drawer's open height on its first page, which a pull on past it is
+  // measured from.
+  readonly property real firstPageHeight: activeWindow ? activeWindow.firstPageHeight : 0
+
   readonly property QuickSettingsState quickSettings: QuickSettingsState {
     pluginDir: root.pluginDir
   }
@@ -69,17 +82,58 @@ Item {
     return String(Math.round(root.openHeight))
   }
 
-  // The finger's position, 1:1 and without animation.
+  // The finger's position, 1:1 and without animation. On the right, past
+  // the open drawer it turns the page.
   function follow(px) {
     if (!root.side) return
     settleAnimation.stop()
-    root.reveal = Math.max(0, Math.min(root.openHeight, Number(px) || 0))
+    turnAnimation.stop()
+    px = Number(px) || 0
+    if (root.side === "right" && root.page === 0 && px > root.firstPageHeight) {
+      root.turn = Math.min(1, (px - root.firstPageHeight) / root.turnDistance)
+      root.reveal = Qt.binding(function() { return root.openHeight })
+      return
+    }
+    if (root.page === 0) root.turn = 0
+    root.reveal = Math.max(0, Math.min(root.openHeight, px))
+  }
+
+  // A finger pushing up `px` on the agents, turning back to quick settings.
+  function turnBack(px) {
+    if (root.page !== 1) return
+    turnAnimation.stop()
+    root.turn = 1 - Math.max(0, Math.min(1, (Number(px) || 0) / root.turnDistance))
+  }
+
+  // Straight to a page (a tap on its dot).
+  function showPage(which) {
+    if (root.side !== "right") return
+    root.page = which
+    root.turnTo(which)
+  }
+
+  function turnTo(which) {
+    turnAnimation.stop()
+    turnAnimation.from = root.turn
+    turnAnimation.to = which
+    turnAnimation.duration = Style.duration(Math.round(160 + 140 * Math.abs(which - root.turn)))
+    turnAnimation.start()
   }
 
   // The finger let go: all the way down or back up. The run takes longer the
   // further it has to go, so a nearly open drawer doesn't crawl the last bit.
+  // A page part turned goes on to the next one past a third of the way.
   function settle(open) {
     if (!root.side) return
+    if (open && root.side === "right" && (root.turn > 0 || root.page > 0)) {
+      root.page = root.page === 0 ? (root.turn > 0.33 ? 1 : 0) : (root.turn < 0.67 ? 0 : 1)
+      root.turnTo(root.page)
+      if (root.reveal >= root.openHeight - 0.5) {
+        settleAnimation.stop()
+        root.reveal = Qt.binding(function() { return root.openHeight })
+        return
+      }
+    }
     var target = open ? root.openHeight : 0
     var distance = Math.abs(target - root.reveal)
     var full = Math.max(1, root.openHeight)
@@ -124,9 +178,20 @@ Item {
       }
       root.side = ""
       root.activeScreen = null
+      // It opens on quick settings again.
+      root.page = 0
+      root.turn = 0
       // The shell keeps a summoned panel marked open until it is hidden.
       if (root.shell && typeof root.shell.hide === "function") root.shell.hide(root.pluginId)
     }
+  }
+
+  NumberAnimation {
+    id: turnAnimation
+    target: root
+    property: "turn"
+    easing.type: Easing.Bezier
+    easing.bezierCurve: Style.easeOut
   }
 
   ShellIpc {

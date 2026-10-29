@@ -110,6 +110,25 @@ ShellRoot {
     return out
   }
 
+  // The first item by objectName in the drawer windows.
+  function find(name) {
+    var windows = drawers.windows || []
+    function visit(item) {
+      if (!item) return null
+      if (item.objectName === name) return item
+      for (var i = 0; i < item.children.length; i++) {
+        var found = visit(item.children[i])
+        if (found) return found
+      }
+      return null
+    }
+    for (var w = 0; w < windows.length; w++) {
+      var found = visit(windows[w].contentItem)
+      if (found) return found
+    }
+    return null
+  }
+
   TestEvent { id: events }
   property var pointer: null
   property var pendingMoves: []
@@ -150,6 +169,7 @@ ShellRoot {
         live: feed.live.length,
         recent: feed.recent.length,
         hidden: Object.keys(feed.hidden).length,
+        icons: feed.allRecent.map(function(row) { return row.appIcon }),
         cards: harness.cards().map(function(c) { return c.rows }),
         drawn: harness.cards().every(function(c) { return c.drawn })
       })
@@ -197,10 +217,14 @@ ShellRoot {
 
     function state(): string {
       var settings = drawers.quickSettings
+      var agents = harness.find("agentsPage")
       return JSON.stringify({
         side: drawers.side,
         reveal: Math.round(drawers.reveal),
         openHeight: Math.round(drawers.openHeight),
+        page: drawers.page,
+        turn: Math.round(drawers.turn * 100) / 100,
+        agents: agents ? { content: !!agents.content, height: Math.round(agents.implicitHeight) } : null,
         settling: drawers.settling,
         live: drawers.notifications.live.length,
         recent: drawers.notifications.recent.length,

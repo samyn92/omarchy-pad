@@ -34,6 +34,10 @@ folder with a `manifest.json`; see the README for what is left out).
   `deleteConfirmOpen` of Omarchy's are relied on; without the window it still
   works, unswiped. Try it with `picker/tests/try` (`--check`), where
   `omarchy-theme-set` only logs.
+- `drawers/AgentsPage.qml` loads Omarchy's `agents/Panel.qml` unseen, with a
+  stand-in `bar`, keeps its popup shut (`open = false`, found by `content` and
+  `anchorItem`) and makes the popup's `content` component on the page. The
+  panel opens (its clocks, its refresh) while the page is turned to.
 - `bin/install` restarts the shell: the plugin reloads it triggers while files
   change can leave the bar without its widgets (no error is logged; a fresh
   start always loads them).
