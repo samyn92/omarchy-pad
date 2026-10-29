@@ -18,7 +18,9 @@ folder with a `manifest.json`; see the README for what is left out).
 - The bar calls the drawers in process, through `IpcRegistry.call` on the
   `omarchy-pad.drawers` target. The middle third's console pull goes to stage
   over its command socket (`stage top begin|follow|end`, from `consoleBegin`,
-  `consoleFollow`, `consoleEnd`); without stage, Omarchy's toggle.
+  `consoleFollow`, `consoleEnd`); without stage, Omarchy's toggle. The bar
+  keeps retrying the socket while it's apart, and says `bar here` once
+  connected, which makes stage drop its own strip along the top edge.
 - It leaves the `omarchy.bar` IPC target to Omarchy's bar (which loads at
   every shell start before the selected one) and watches the `bar-off` toggle
   file alone. The empty-space tap runs `omarchy-bar background`, and the look

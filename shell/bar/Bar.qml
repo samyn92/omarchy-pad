@@ -370,13 +370,17 @@ Item {
     connected: true
     // stage answers each line with "ok"; the bar has nothing to do with it.
     parser: SplitParser { onRead: function(data) {} }
-    // stage restarts with an install: the bar finds it again.
-    onConnectedChanged: if (!connected) reconnect.restart()
+    // Saying so makes stage drop its own strip along the top edge, so every
+    // pull from the top comes through the bar and its thirds.
+    onConnectedChanged: if (connected) root.tellStage("bar here")
   }
 
+  // stage may start after the shell, or restart with an install, and a failed
+  // attempt to connect says nothing: the bar keeps trying while it's apart.
   Timer {
-    id: reconnect
     interval: 2000
+    repeat: true
+    running: !stage.connected
     onTriggered: stage.connected = true
   }
 
