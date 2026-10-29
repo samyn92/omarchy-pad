@@ -6,7 +6,10 @@
 # state in the work dir; Wi-Fi is the exception, being the real
 # NetworkManager's, so leave that switch alone. Closing the window ends it.
 #
-#   tests/try
+#   tests/try          leaves it open; closing the window ends it
+#   tests/try --check  opens the notifications on a few made-up ones, swipes
+#                      and taps them with finger events, says what passed,
+#                      and closes it
 #
 # Drive it from outside with the printed commands: begin, follow, settle,
 # close and state are the plugin's; harness state shows where it is.
@@ -17,6 +20,8 @@ here=$(cd "$(dirname "$0")/.." && pwd)
 omarchy_path=${OMARCHY_PATH:-/usr/share/omarchy}
 shell_root="$omarchy_path/shell"
 work=$(mktemp -d "${TMPDIR:-/tmp}/drawers-try.XXXXXX")
+check=0
+[[ ${1:-} == --check ]] && check=1
 
 mkdir -p "$work/shell/plugins/drawers" "$work/bin" "$work/state" "$work/config"
 cp "$here/tests/harness/shell.qml" "$work/shell/"
@@ -29,6 +34,27 @@ for command in omarchy-brightness-display omarchy-audio-output-sink pactl omarch
   ln -s "$here/tests/fake-bin/fake" "$work/bin/$command"
 done
 touch "$work/state/bluetooth"
+
+# Made-up notifications for --check, in Omarchy's files' own form: one on
+# screen, and earlier three from one app (a stack) and one from another.
+notifications_env=""
+if (( check )); then
+  mkdir -p "$work/notifications"
+  now=$(date +%s)
+  row() { # KEY APP SUMMARY BODY AGE [CLOSED]
+    local closed=""
+    [[ -n ${6:-} ]] && closed=",\"closed_ts\":$(( now - $5 + 5 )),\"closed_reason\":\"expired\""
+    printf '{"key":"%s","app":"%s","source":"%s","summary":"%s","body":"%s","urgency":1,"ts":%s%s}' \
+      "$1" "$2" "$2" "$3" "$4" "$(( now - $5 ))" "$closed"
+  }
+  printf '[%s]\n' "$(row live1 Power 'Battery low' 'Plug in soon' 30)" >"$work/notifications/live.json"
+  printf '[%s,%s,%s,%s]\n' \
+    "$(row old1 Claude 'stage' 'pictures on the GPU' 60 1)" \
+    "$(row old2 Claude 'stage' 'console follows fingers' 120 1)" \
+    "$(row old3 Claude 'stage' 'bar reconnects' 180 1)" \
+    "$(row old4 Omarchy 'Update ready' 'Omarchy can be updated' 300 1)" >"$work/notifications/history.json"
+  notifications_env="hl.env(\"DRAWERS_TRY_NOTIFICATIONS\", \"$work/notifications\")"
+fi
 
 # A config home of its own for the rotation lock's flag file, seeing
 # everything else (fonts, the theme) through links to the real one.
@@ -44,6 +70,7 @@ hl.env("XDG_CONFIG_HOME", "$work/config")
 hl.env("DRAWERS_TRY_STATE", "$work/state")
 hl.env("DRAWERS_TRY_SOCKET", "$work/shell.sock")
 hl.env("QT_IM_MODULE", "none")
+$notifications_env
 hl.config({ misc = { disable_hyprland_logo = true, disable_splash_rendering = true } })
 hl.layer_rule({ match = { namespace = "^omarchy-pad-drawers\$" }, no_anim = true, animation = "none" })
 hl.on("hyprland.start", function ()
@@ -52,6 +79,75 @@ end)
 LUA
 
 call="qs -p $work/shell ipc --any-display call"
+
+if (( check )); then
+  setsid start-hyprland -- --config "$work/hyprland.lua" >"$work/hyprland.log" 2>&1 &
+  nested=$!
+  finish() {
+    kill -TERM -- "-$nested" 2>/dev/null || true
+    wait "$nested" 2>/dev/null || true
+    rm -rf "$work"
+  }
+  trap finish EXIT
+  touch_() { $call touch "$@"; }
+  cards() { touch_ notifications | jq -c "$1"; }
+  for _ in {1..150}; do
+    [[ $($call omarchy-pad.drawers state 2>/dev/null) == closed ]] && break
+    sleep 0.1
+  done
+  $call omarchy-pad.drawers begin left >/dev/null
+  $call omarchy-pad.drawers settle 1 >/dev/null
+  sleep 0.8
+
+  failures=0
+  expect() {
+    local what=$1 got=$2 want=$3
+    if [[ $got == "$want" ]]; then
+      echo "ok    $what"
+    else
+      echo "FAIL  $what: got $got, want $want"
+      failures=$((failures + 1))
+    fi
+  }
+  # swipe CARD DX MS: a finger on that card, moved DX sideways over MS, let go.
+  swipe() {
+    touch_ press "$1" >/dev/null
+    touch_ moveBy "$2" 0 "$3" >/dev/null
+    touch_ release >/dev/null
+    sleep "$(awk -v ms="$3" 'BEGIN { print ms / 1000 + 0.8 }')"
+  }
+  tap() { touch_ press "$1" >/dev/null; touch_ release >/dev/null; sleep 0.5; }
+
+  expect "one on screen, and earlier a stack of three and one more" "$(cards .cards)" "[1,3,1]"
+  expect "each card shows its notification" "$(cards .drawn)" true
+  tap 1
+  expect "a tap opens the stack" "$(cards .cards)" "[1,1,1,1,1]"
+  expect "and shows every one" "$(cards .drawn)" true
+  swipe 1 -120 500
+  expect "a short swipe puts the card back" "$(cards .cards)" "[1,1,1,1,1]"
+  swipe 1 -330 400
+  expect "a long one takes it away" "$(cards '[.cards, .recent, .hidden]')" "[[1,1,1,1],3,1]"
+  swipe 1 80 50
+  expect "and a flick does too" "$(cards '[.cards, .recent, .hidden]')" "[[1,1,1],2,2]"
+  swipe 0 -330 400
+  expect "the one on screen goes" "$(cards '[.live, .hidden]')" "[0,3]"
+  expect "and Omarchy is asked to dismiss it" "$(grep -c 'omarchy-shell notifications dismiss Battery low' "$work/state/calls.log")" 1
+  expect "what was taken away is remembered" "$(jq length "$work/state/hidden-notifications.json")" 3
+  touch_ press 0 >/dev/null; touch_ moveBy 4 -150 300 >/dev/null; touch_ release >/dev/null; sleep 1
+  expect "a finger going up or down takes nothing away" "$(cards .recent)" 2
+  touch_ clearEarlier >/dev/null
+  sleep 0.5
+  expect "Clear takes all the earlier ones" "$(cards '[.recent, .hidden]')" "[0,5]"
+
+  if (( failures )); then
+    echo "$failures failed; quickshell said:"
+    grep -iE "warn|error" "$work/quickshell.log" | grep -v "portal" | tail -20 || true
+    exit 1
+  fi
+  echo "All passed"
+  exit 0
+fi
+
 echo "Work dir: $work"
 echo "Pull:     $call omarchy-pad.drawers begin right   (or left)"
 echo "          $call omarchy-pad.drawers follow 200"

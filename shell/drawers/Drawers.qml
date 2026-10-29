@@ -139,6 +139,9 @@ Item {
     function state(): string { return root.state() }
   }
 
+  // A drawer window per screen (tests/try reaches into them).
+  readonly property var windows: drawerWindows.instances
+
   Variants {
     id: drawerWindows
     model: Quickshell.screens

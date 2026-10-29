@@ -4,8 +4,18 @@ Two drawers that pull down from the top edge, as on an iPad:
 
 - **On the left, notifications:** what is on screen now and what came in
   over the last day, newest first, drawn as Omarchy's own notification cards.
-  Do Not Disturb is at the top, and "Dismiss all" clears the ones on screen.
-  Recent notifications can't be removed one by one: Omarchy keeps no way to.
+  Earlier ones from the same app stack up, as Omarchy's toasts do; tap a stack
+  to open it, and "Show less" to fold it again. Swipe a card sideways to take
+  it away (a stack goes whole): let go past about a third of the way, or
+  flick. One still on screen is dismissed in Omarchy too. Do Not Disturb is
+  at the top, "Dismiss all" clears the ones on screen, and "Clear" the
+  earlier ones.
+
+  Omarchy keeps no way to remove one notification from its history, so the
+  drawer remembers the ones you took away (in
+  `~/.local/state/omarchy-pad/hidden-notifications.json`) and leaves them
+  out; Omarchy's own history still has them until it lets them go after a
+  day.
 - **On the right, quick settings:** brightness and volume, switches for Wi-Fi,
   Bluetooth, Do Not Disturb, Night Light, Stay Awake, rotation lock and the
   on-screen keyboard, and buttons that open Omarchy's full Wi-Fi, audio,
@@ -41,3 +51,6 @@ without a finger.
 and prints the commands that drive it. Its switches run fakes that only log
 (to `state/calls.log` in its work dir), except Wi-Fi, which is the real
 NetworkManager's: leave that one alone there.
+
+`tests/try --check` opens the notifications on a few made-up ones, swipes and
+taps them with finger events, says what passed, and closes.

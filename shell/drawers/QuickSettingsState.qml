@@ -162,6 +162,12 @@ Scope {
     root.run("", ["omarchy-shell", "notifications", "dismissAll"])
   }
 
+  // Omarchy dismisses toasts by their summary; the one swiped away is the one
+  // with it (and any other on screen saying the same).
+  function dismissNotification(summary) {
+    if (summary) root.run("", ["omarchy-shell", "notifications", "dismiss", summary])
+  }
+
   // Sliders send a value per step of the finger. One command runs at a time
   // and the latest value waits for it, as in Omarchy's monitor panel, so a
   // quick drag doesn't queue up a backlog that keeps going after the finger
