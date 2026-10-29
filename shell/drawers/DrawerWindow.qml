@@ -36,6 +36,54 @@ PanelWindow {
   readonly property real firstPageHeight: Math.min(maxCardHeight, quickSettings.implicitHeight + quickSettingsCard.verticalInset) + margin
   readonly property real turn: drawers ? drawers.turn : 0
 
+  // A finger moving the open drawer up or down, from the space beside it or
+  // anywhere on quick settings: the drawer follows it (and on past quick
+  // settings, turns to the agents); on the agents, a push up turns back.
+  property bool pushing: false
+  property real pushReveal: 0
+  property real pushLast: 0
+  property double pushTime: 0
+  // px/s, negative upward.
+  property real pushVelocity: 0
+
+  function startPush() {
+    pushing = true
+    pushReveal = drawers.reveal
+    pushLast = 0
+    pushTime = Date.now()
+    pushVelocity = 0
+  }
+
+  function movePush(dy) {
+    var now = Date.now()
+    var step = (dy - pushLast) * 1000 / Math.max(1, now - pushTime)
+    pushVelocity = pushVelocity * 0.6 + step * 0.4
+    pushLast = dy
+    pushTime = now
+    if (drawers.page === 1) drawers.turnBack(-dy)
+    else drawers.follow(pushReveal + dy)
+  }
+
+  // Up past a quarter of the drawer, or flicked up, and it goes; otherwise
+  // it springs back. On the agents it turns back a page instead, as a flick
+  // up does.
+  function endPush() {
+    pushing = false
+    if (drawers.page === 1) {
+      if (pushVelocity < -700) drawers.turnBack(drawers.turnDistance)
+      drawers.settle(true)
+      return
+    }
+    // A page part turned: the card took the next page's height on the way,
+    // which isn't a push up.
+    if (drawers.turn > 0) {
+      drawers.settle(true)
+      return
+    }
+    var pushedUp = pushReveal - drawers.reveal
+    drawers.settle(!(pushVelocity < -700 || pushedUp > openHeight * 0.25))
+  }
+
   // What Omarchy's panels read their colours from when they hang off the bar.
   readonly property QtObject palette: QtObject {
     readonly property color foreground: Commons.Color.popups.text
@@ -76,62 +124,32 @@ PanelWindow {
       anchors.fill: parent
       enabled: window.active
 
-      property bool pushing: false
       property real startY: 0
-      property real startReveal: 0
-      property real lastY: 0
-      property double lastTime: 0
-      // px/s, negative upward.
-      property real velocity: 0
 
       onPressed: function(mouse) {
-        pushing = false
-        startY = lastY = mouse.y
-        lastTime = Date.now()
-        velocity = 0
+        startY = mouse.y
+        window.pushing = false
       }
 
       onPositionChanged: function(mouse) {
-        if (!pushing) {
-          if (Math.abs(mouse.y - startY) < Style.space(10)) return
-          pushing = true
+        if (!window.pushing && Math.abs(mouse.y - startY) < Style.space(10)) return
+        if (!window.pushing) {
+          window.startPush()
           startY = mouse.y
-          startReveal = window.drawers.reveal
         }
-        var now = Date.now()
-        var step = (mouse.y - lastY) * 1000 / Math.max(1, now - lastTime)
-        velocity = velocity * 0.6 + step * 0.4
-        lastY = mouse.y
-        lastTime = now
-        // On the agents a push up turns back to quick settings; anywhere
-        // else the drawer follows (and on past quick settings, turns on).
-        if (window.drawers.page === 1) window.drawers.turnBack(startY - mouse.y)
-        else window.drawers.follow(startReveal + mouse.y - startY)
+        window.movePush(mouse.y - startY)
       }
 
-      // Up past a quarter of the drawer, or flicked up, and it goes;
-      // otherwise it springs back. On the agents, it turns back a page
-      // instead, or a flick up does.
       onReleased: function(mouse) {
-        if (pushing) {
-          pushing = false
-          if (window.drawers.page === 1) {
-            if (velocity < -700) window.drawers.turnBack(window.drawers.turnDistance)
-            window.drawers.settle(true)
-            return
-          }
-          var pushedUp = startReveal - window.drawers.reveal
-          window.drawers.settle(!(velocity < -700 || pushedUp > window.openHeight * 0.25))
+        if (window.pushing) {
+          window.endPush()
           return
         }
         var inside = window.card.mapFromItem(push, mouse.x, mouse.y)
         if (!window.card.contains(inside)) window.drawers.close()
       }
 
-      onCanceled: {
-        if (pushing) window.drawers.settle(true)
-        pushing = false
-      }
+      onCanceled: if (window.pushing) window.endPush()
     }
 
     DrawerCard {
@@ -183,6 +201,29 @@ PanelWindow {
           omarchyPath: window.drawers ? window.drawers.omarchyPath : ""
           shown: window.side === "right" && window.turn > 0
           onCloseRequested: window.drawers.close()
+        }
+      }
+
+      // The whole card is the drawer's to move with a finger going up or
+      // down, as the space beside it is: a tap still reaches the control
+      // under it, and a finger going sideways a slider.
+      Item {
+        x: -quickSettingsCard.contentLeftInset
+        y: -quickSettingsCard.contentTopInset
+        width: quickSettingsCard.width
+        height: quickSettingsCard.height
+
+        DragHandler {
+          target: null
+          xAxis.enabled: false
+          grabPermissions: PointerHandler.CanTakeOverFromAnything
+          enabled: window.side === "right"
+          onActiveChanged: {
+            if (active) window.startPush()
+            else if (window.pushing) window.endPush()
+          }
+          onActiveTranslationChanged: if (active) window.movePush(activeTranslation.y)
+          onCanceled: if (window.pushing) window.endPush()
         }
       }
 

@@ -31,7 +31,8 @@ cp "$here"/*.qml "$here/manifest.json" "$here/quick-settings-state" "$work/shell
 
 for command in omarchy-brightness-display omarchy-audio-output-sink pactl omarchy-bluetooth-power \
   iceland-rotate-lock floatkey omarchy-shell omarchy-theme-bg-switcher omarchy-agent-usage-update \
-  omarchy-agent-account-add; do
+  omarchy-agent-account-add omarchy-powerprofiles-set omarchy-capture-screenshot omarchy-capture-text \
+  omarchy-capture-qr; do
   ln -s "$here/tests/fake-bin/fake" "$work/bin/$command"
 done
 touch "$work/state/bluetooth"
@@ -172,6 +173,34 @@ if (( check )); then
   $call omarchy-pad.drawers settle 1 >/dev/null
   sleep 0.6
   expect "it opens on quick settings again" "$(hstate '[.page, .turn]')" "[0,0]"
+
+  # Quick settings by finger.
+  drag() { # NAME SHAREX SHAREY DX DY MS
+    touch_ pressItem "$1" "$2" "$3" >/dev/null
+    touch_ moveBy "$4" "$5" "$6" >/dev/null
+    touch_ release >/dev/null
+    sleep "$(awk -v ms="$6" 'BEGIN { print ms / 1000 + 0.6 }')"
+  }
+  before=$(hstate .settings.brightness)
+  drag brightness-bar 0.5 0.5 90 0 300
+  expect "a finger moving along the brightness bar raises it" "$(( $(hstate .settings.brightness) > before ))" 1
+  before=$(hstate .settings.brightness)
+  drag brightness-bar 0.5 0.5 0 260 400
+  expect "one going down from it turns the page instead" "$(hstate '.page')" 1
+  expect "and leaves the brightness alone" "$(hstate .settings.brightness)" "$before"
+  drag agentsPage 0.5 0.5 0 -260 400
+  expect "a push up on the agents turns back" "$(hstate '[.page, .turn]')" "[0,0]"
+  drag tile-Focus 0.5 0.5 0 260 400
+  expect "a swipe down from a tile turns the page too" "$(hstate '.page')" 1
+  drag agentsPage 0.5 0.5 0 -260 400
+  dnd=$(hstate .settings.dnd)
+  touch_ pressItem tile-Focus 0.5 0.5 >/dev/null; touch_ release >/dev/null; sleep 0.5
+  expect "a tap on Focus turns it over" "$(hstate .settings.dnd)" "$([[ $dnd == true ]] && echo false || echo true)"
+  touch_ pressItem profiles 0.9 0.5 >/dev/null; touch_ release >/dev/null; sleep 0.5
+  expect "a tap on Fast picks that power profile" "$(grep -c 'omarchy-powerprofiles-set autodetect performance' "$work/state/calls.log")" 1
+  touch_ pressItem tile-Screenshot 0.5 0.5 >/dev/null; touch_ release >/dev/null; sleep 1.2
+  expect "Screenshot puts the drawer away" "$($call omarchy-pad.drawers state)" closed
+  expect "and then takes the whole screen" "$(grep -c 'omarchy-capture-screenshot fullscreen' "$work/state/calls.log")" 1
 
   if (( failures )); then
     echo "$failures failed; quickshell said:"

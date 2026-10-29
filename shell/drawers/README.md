@@ -19,17 +19,28 @@ Two drawers that pull down from the top edge, as on an iPad:
   `~/.local/state/omarchy-pad/hidden-notifications.json`) and leaves them
   out; Omarchy's own history still has them until it lets them go after a
   day.
-- **On the right, quick settings:** brightness and volume, switches for Wi-Fi,
-  Bluetooth, Do Not Disturb, Night Light, Stay Awake, rotation lock and the
-  on-screen keyboard, and buttons that open Omarchy's full Wi-Fi, audio,
-  Bluetooth and display panels and its theme and background pickers.
+- **On the right, quick settings,** laid out for a finger, each thing once:
+  - Wi-Fi and Bluetooth as wide tiles saying what they are on with: a tap
+    turns one on or off, its arrow opens Omarchy's panel (networks, devices).
+  - Brightness and volume as bars as tall as a fingertip, which a finger
+    moves by as much as it moves, from wherever it lands. Beside each,
+    Omarchy's display and sound output panels.
+  - A grid of four across: Focus (Do Not Disturb), Night Light, Stay Awake
+    and rotation lock; Screenshot (the whole screen) and Region; the
+    on-screen keyboard and Omarchy's clipboard history; Omarchy's theme and
+    background pickers, and Text and QR code, which read them off an area of
+    the screen. A screenshot or capture starts once the drawer is up and
+    away.
+  - The battery, and Omarchy's power profile (Saver, Balanced, Fast).
 
-  Pull on down past it and the page turns to Omarchy's agents panel (the one
-  its bar opens from the robot): your subscriptions' limits, this week's
-  tokens, and the starter prompts. Push up on it to turn back, or tap the dots
-  on the right edge. The drawer opens on quick settings again next time. The
-  panel is Omarchy's own, shown in the drawer; typing in it (naming an
-  account, pasting a sign-in code) needs Omarchy's own panel, as the drawer
+  Pull on down past it (from the bar, or anywhere on the drawer: a finger
+  going up or down moves the drawer, whatever control it lands on) and the
+  page turns to Omarchy's agents panel (the one its bar opens from the
+  robot): your subscriptions' limits, this week's tokens, and the starter
+  prompts. Push up on it to turn back, or tap the dots on the right edge.
+  The drawer opens on quick settings again next time. The panel is
+  Omarchy's own, shown in the drawer; typing in it (naming an account,
+  pasting a sign-in code) needs Omarchy's own panel, as the drawer
   takes no keyboard.
 
 Pull down from the bar with one finger, on its left or right third; the

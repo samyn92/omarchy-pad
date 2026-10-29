@@ -19,6 +19,13 @@ else
   echo "volume=unavailable"
 fi
 
+# The Wi-Fi network by its connection's name, which NetworkManager knows
+# without a scan.
+echo "wifiname=$(nmcli -t -f NAME,TYPE connection show --active 2>/dev/null | awk -F: '$2 == "802-11-wireless" { print $1; exit }')"
+
+profile=$(omarchy-powerprofiles-list --active-state 2>/dev/null | awk '$2 == 1 { print $1; exit }')
+echo "profile=${profile:-unavailable}"
+
 echo "dnd=$(omarchy-shell notifications isDnd 2>/dev/null)"
 echo "nightlight=$(omarchy-shell nightlight status 2>/dev/null | jq -r '.enabled' 2>/dev/null)"
 echo "stayawake=$(omarchy-shell idle status 2>/dev/null | jq -r '.stayAwake' 2>/dev/null)"
@@ -27,4 +34,11 @@ echo "stayawake=$(omarchy-shell idle status 2>/dev/null | jq -r '.stayAwake' 2>/
 
 status=$(floatkey status 2>/dev/null) && echo "keyboard=${status%% *}" || echo "keyboard=unavailable"
 
-omarchy-bluetooth-power is-on >/dev/null 2>&1 && echo "bluetooth=on" || echo "bluetooth=off"
+if omarchy-bluetooth-power is-on >/dev/null 2>&1; then
+  echo "bluetooth=on"
+  device=$(timeout 2 bluetoothctl devices Connected 2>/dev/null | awk 'NR == 1 { $1 = ""; $2 = ""; sub(/^ +/, ""); print }')
+  echo "bluetoothdevice=$device"
+else
+  echo "bluetooth=off"
+  echo "bluetoothdevice="
+fi

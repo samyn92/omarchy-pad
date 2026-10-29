@@ -175,6 +175,21 @@ ShellRoot {
       })
     }
 
+    // A finger landing on the item called NAME, SHAREX and SHAREY of the way
+    // across and down it.
+    function pressItem(name: string, shareX: real, shareY: real): bool {
+      var item = harness.find(name)
+      if (!item) return false
+      var root = item.Window.window ? item.Window.window.contentItem : null
+      if (!root) return false
+      var at = item.mapToItem(root, item.width * shareX, item.height * shareY)
+      var p = { item: root, x: at.x, y: at.y }
+      p.touch = events.touchEvent(root)
+      p.touch.press(0, p.item, p.x, p.y).commit()
+      harness.pointer = p
+      return true
+    }
+
     // A finger landing on the Nth notification card (from the top).
     function press(card: int): bool {
       var c = harness.cards()[card]

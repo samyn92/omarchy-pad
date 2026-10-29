@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Networking
+import Quickshell.Services.UPower
 
 // What the quick settings drawer shows, and the commands it runs. Each switch
 // goes through the command Omarchy's own panels and keys use, so the drawer
@@ -28,6 +29,19 @@ Scope {
   property bool rotationLocked: false
   property bool keyboardShown: false
   property bool keyboardAvailable: false
+  // The Wi-Fi network and the Bluetooth device in use, "" for none.
+  property string wifiName: ""
+  property string bluetoothDevice: ""
+  // Omarchy's power profile (power-saver, balanced, performance), "" where
+  // there are none to pick from.
+  property string powerProfile: ""
+
+  // The battery, as Omarchy's power panel reads it.
+  readonly property var batteryDevice: UPower.displayDevice
+  readonly property bool batteryAvailable: !!batteryDevice && batteryDevice.isPresent
+  readonly property int batteryPercent: batteryAvailable ? Math.round(batteryDevice.percentage * 100) : 0
+  readonly property bool charging: batteryAvailable && (batteryDevice.state === UPowerDeviceState.Charging
+                                                        || batteryDevice.state === UPowerDeviceState.FullyCharged)
 
   // Wi-Fi is a NetworkManager property the shell already holds, as in
   // Omarchy's network panel; there is no command to wait on.
@@ -66,6 +80,9 @@ Scope {
       if (number >= 0) root.volume = number
     }
     else if (key === "muted") root.muted = on
+    else if (key === "wifiname") root.wifiName = value
+    else if (key === "bluetoothdevice") root.bluetoothDevice = value
+    else if (key === "profile") root.powerProfile = value === "unavailable" ? "" : value
     else if (key === "bluetooth") root.bluetooth = on
     else if (key === "dnd") root.dnd = on
     else if (key === "nightlight") root.nightLight = on
@@ -156,6 +173,27 @@ Scope {
 
   function openBackgrounds() {
     root.run("", ["omarchy-theme-bg-switcher"])
+  }
+
+  // For whichever of AC and battery the tablet is on now, as Omarchy's power
+  // panel does.
+  function setPowerProfile(profile) {
+    root.powerProfile = profile
+    root.run("profile", ["omarchy-powerprofiles-set", "autodetect", profile])
+  }
+
+  // Omarchy's screenshot (fullscreen, region), screen text and QR code
+  // capture. They start once the drawer has gone up, so it isn't in the
+  // picture and a region is picked over what is really there.
+  function capture(kind) {
+    var argv = kind === "text" ? ["omarchy-capture-text"]
+      : kind === "qr" ? ["omarchy-capture-qr"]
+      : ["omarchy-capture-screenshot", kind === "region" ? "region" : "fullscreen"]
+    root.run("", ["bash", "-c", 'sleep 0.5; exec "$@"', "capture"].concat(argv))
+  }
+
+  function openClipboard() {
+    root.run("", ["omarchy-shell", "shell", "summon", "omarchy.clipboard", ""])
   }
 
   function dismissAllNotifications() {
