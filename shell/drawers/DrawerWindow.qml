@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import Quickshell
 import Quickshell.Wayland
 import qs.Commons
@@ -274,6 +275,30 @@ PanelWindow {
     borderSpec: Border.surfaceSpec("popups", "border", Commons.Color.popups.border, Math.max(1, Style.space(2)))
     padding: Style.spacing.popupPadding
     radius: Style.cornerRadius
+
+    // Omarchy's popup cards lie flat, as on a desktop they open beside what
+    // they belong to. A drawer comes down over whatever window is there, so
+    // it stands off it a little, as a raised card does: a wide soft shadow
+    // and a tight one along its edge. Darker on a dark theme, where a faint
+    // one would vanish against dark windows.
+    readonly property bool darkTheme: color.hslLightness < 0.5
+    RectangularShadow {
+      z: -1
+      anchors.fill: parent
+      radius: drawerCard.radius
+      offset.y: Style.space(10)
+      blur: Style.space(40)
+      spread: Style.space(2)
+      color: Qt.rgba(0, 0, 0, drawerCard.darkTheme ? 0.55 : 0.28)
+    }
+    RectangularShadow {
+      z: -1
+      anchors.fill: parent
+      radius: drawerCard.radius
+      offset.y: Style.space(2)
+      blur: Style.space(6)
+      color: Qt.rgba(0, 0, 0, drawerCard.darkTheme ? 0.4 : 0.14)
+    }
 
     Item {
       id: holder
