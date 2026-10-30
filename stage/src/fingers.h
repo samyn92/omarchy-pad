@@ -16,8 +16,9 @@
 //  - three fingers up swipe, once the first of them lifts;
 //  - three fingers pinching in or spreading out copy and paste, as on an iPad;
 //  - two fingers held still lift a window (stage times the hold and calls
-//    hold()), which then follows the hand.
-// A hand ends at its first lift, so the last finger's jump can't move a pull.
+//    hold()), which then follows the hand, on one finger too once lifted.
+// A hand ends at its first lift, so the last finger's jump can't move a pull;
+// a held one goes on with the fingers it has left, until the last lifts.
 class Fingers {
 public:
     struct Event {
@@ -34,7 +35,7 @@ public:
             Swiped,        // three fingers, `direction` "up"
             Pinched,       // three fingers came together ("in") or spread ("out")
             GrabMoved,     // a hand that was held still (hold()) moves; `at` as for a pull
-            GrabEnded,     // and a finger of it lifted
+            GrabEnded,     // and its last finger lifted
             HandUp,        // every finger of the hand has lifted
         };
         Type type;
@@ -76,7 +77,7 @@ public:
     bool hold();
     // Where the hand is, as for a pull: its first finger as it landed, moved
     // by as much as the hand has.
-    QPointF point() const { return pullPoint(); }
+    QPointF point() const { return m_state == State::Holding ? carryPoint() : pullPoint(); }
 
     // A point on the panel, as fractions of its native width and height, in
     // the overlay's logical coordinates once the output is turned by
@@ -96,6 +97,10 @@ private:
     bool together() const;
     QPointF lead() const { return m_fingers.value(m_members.first()).now; }
     QPointF pullPoint() const;
+    QPointF middle() const;
+    // Where a held hand has what it holds: where it was held, moved as much
+    // as the fingers still down have moved since (the last lift).
+    QPointF carryPoint() const;
     qreal spread(bool atStart) const;
 
     bool everyFingerAlong(const QPointF &t) const;
@@ -105,4 +110,5 @@ private:
     State m_state = State::Forming;
     QString m_direction;            // which way a slide goes
     bool m_parted = false;          // the fingers went apart: only a pinch is left
+    QPointF m_carryAt, m_carryFrom;
 };

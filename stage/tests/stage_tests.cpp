@@ -768,6 +768,21 @@ private slots:
         // Where the hand as a whole has taken its first finger.
         QCOMPARE(last(events, Fingers::Event::GrabEnded).at, QPointF(540, 925));
 
+        // One finger lifted, the other carries on from where the hand had it,
+        // without a jump, and the last one puts it down.
+        Fingers c;
+        c.down(0, {600, 400}, 0);
+        c.down(1, {720, 400}, 20);
+        QVERIFY(c.hold());
+        c.move(0, {650, 450}, 100);
+        c.move(1, {770, 450}, 100);
+        QVERIFY(c.up(1, 200).isEmpty());
+        QCOMPARE(c.point(), QPointF(650, 450));
+        QList<Fingers::Event> one = c.move(0, {350, 150}, 300);
+        QCOMPARE(kinds(one), QStringList({"grabmoved"}));
+        QCOMPARE(one.first().at, QPointF(350, 150));
+        QCOMPARE(kinds(c.up(0, 400)), QStringList({"grabbed", "up"}));
+
         // Moved away first, the hand rests no longer: it was a pull.
         Fingers g;
         g.down(0, {600, 400}, 0);
@@ -1179,27 +1194,65 @@ private slots:
     void aLiftedWindowGoesBesideAnother()
     {
         Harness h;
-        // Over the right window's right third.
+        // Lifted, the left window's place closes up: the right one takes the
+        // whole width, springing there.
         h.handGrab(QPointF(1500, 600), false);
         QCOMPARE(h.phase(), QString("tracking"));
         QVERIFY(h.window->property("showing").toBool());
+        QTRY_VERIFY(h.window->property("board").toBool());
         QTRY_COMPARE(h.fake.hiding, QStringList({"hide:0x9"}));
+        auto at = [&h](const char *address) {
+            return h.window->property("arranged").toMap()[address].toMap();
+        };
+        // Over its right third, it makes way to the left for the window.
         const QVariantMap zone = h.window->property("dropZone").toMap();
         QCOMPARE(zone["side"].toString(), QString("right"));
-        // Its half of the right window, as dwindle will lay it out.
-        QCOMPARE(zone["x"].toReal(), 855 + (829 + 14) / 2.0);
-        QCOMPARE(zone["w"].toReal(), (829 + 14) / 2.0 - 14);
+        QCOMPARE(zone["x"].toReal(), 12 + (1672 + 14) / 2.0);
+        QCOMPARE(zone["w"].toReal(), (1672 + 14) / 2.0 - 14);
+        QCOMPARE(at("right")["x"].toReal(), 12.0);
+        QCOMPARE(at("right")["w"].toReal(), (1672 + 14) / 2.0 - 14);
         h.putDown(QPointF(1500, 600));
         QCOMPARE(h.fake.log, QStringList({"place:0x9:right:right"}));
         QTRY_COMPARE(h.phase(), QString("idle"));
         QCOMPARE(h.fake.hiding, QStringList({"hide:0x9", "show:0x9"}));
 
-        // The middle of a window splits it top and bottom.
+        // Its middle splits it top and bottom.
         Harness g;
-        g.handGrab(QPointF(1270, 1000), false);
+        g.handGrab(QPointF(848, 1000), false);
+        QTRY_VERIFY(g.window->property("board").toBool());
+        QTest::qWait(50);
+        emit g.fake.grabMoved(QPointF(848, 1000));
         QCOMPARE(g.window->property("dropZone").toMap()["side"].toString(), QString("bottom"));
-        g.putDown(QPointF(1270, 1000));
+        g.putDown(QPointF(848, 1000));
         QCOMPARE(g.fake.log, QStringList({"place:0x9:bottom:right"}));
+    }
+
+    void theOthersCloseUpWhereTheWindowWas()
+    {
+        Harness h;
+        // One window on the left, two stacked on the right, 14 px apart.
+        auto w = [](const char *address, qreal x, qreal y, qreal width, qreal height) {
+            return QVariantMap{{"address", address}, {"x", x}, {"y", y}, {"w", width}, {"h", height}};
+        };
+        const QVariantMap left = w("left", 12, 42, 829, 1146), top = w("top", 855, 42, 829, 566),
+                          bottom = w("bottom", 855, 622, 829, 566);
+        auto closeUp = [&h](const QVariantList &others, const QVariantMap &gone) {
+            QVariant out;
+            QMetaObject::invokeMethod(h.window, "closeUp", Q_RETURN_ARG(QVariant, out), Q_ARG(QVariant, others),
+                                      Q_ARG(QVariant, gone));
+            return out.toMap();
+        };
+        // The top right one goes: the one under it grows up to the top.
+        QVariantMap after = closeUp({left, bottom}, top);
+        QCOMPARE(after["bottom"].toMap()["y"].toReal(), 42.0);
+        QCOMPARE(after["bottom"].toMap()["h"].toReal(), 1146.0);
+        QCOMPARE(after["left"].toMap()["w"].toReal(), 829.0);
+        // The left one goes: both on the right grow across, still stacked.
+        after = closeUp({top, bottom}, left);
+        QCOMPARE(after["top"].toMap()["x"].toReal(), 12.0);
+        QCOMPARE(after["top"].toMap()["w"].toReal(), 1672.0);
+        QCOMPARE(after["bottom"].toMap()["w"].toReal(), 1672.0);
+        QCOMPARE(after["bottom"].toMap()["y"].toReal(), 622.0);
     }
 
     void aLiftedWindowGoesToAnotherWorkspace()

@@ -62,7 +62,7 @@ QList<Fingers::Event> Fingers::move(int slot, const QPointF &at, qreal ms)
     const int n = int(m_members.size());
     // A held hand carries what it holds, however its fingers part.
     if (m_state == State::Holding)
-        return {Event{Event::GrabMoved, pullPoint(), ms, n}};
+        return {Event{Event::GrabMoved, carryPoint(), ms, n}};
     // Three fingers drawing in or apart, before anything else has started.
     if (m_state == State::Forming && n == 3) {
         const qreal from = spread(true), to = spread(false);
@@ -125,13 +125,23 @@ bool Fingers::everyFingerAlong(const QPointF &t) const
 QList<Fingers::Event> Fingers::up(int slot, qreal ms)
 {
     QList<Event> events;
-    if (m_members.contains(slot) && m_fingers.contains(slot)) {
+    // A held hand goes on carrying with the fingers it has left, from where
+    // it had got to, and puts down what it holds as the last one lifts.
+    if (m_state == State::Holding && m_members.contains(slot) && m_fingers.contains(slot)) {
+        const QPointF at = carryPoint();
+        m_fingers.remove(slot);
+        if (std::any_of(m_members.cbegin(), m_members.cend(), [this](int s) { return m_fingers.contains(s); })) {
+            m_carryAt = at;
+            m_carryFrom = middle();
+            return {};
+        }
+        events << Event{Event::GrabEnded, at, ms, int(m_members.size())};
+        m_state = State::Done;
+    } else if (m_members.contains(slot) && m_fingers.contains(slot)) {
         if (m_state == State::Pulling) {
             events << Event{Event::PullEnded, pullPoint(), ms, int(m_members.size())};
         } else if (m_state == State::Sliding) {
             events << Event{Event::SlideEnded, pullPoint(), ms, int(m_members.size()), m_direction};
-        } else if (m_state == State::Holding) {
-            events << Event{Event::GrabEnded, pullPoint(), ms, int(m_members.size())};
         } else if (m_state == State::Forming && m_members.size() == 3 && !m_parted) {
             const QPointF t = travel();
             if (length(t) >= SwipeDistance && degreesOff(t, {0, -1}) <= SwipeDegrees)
@@ -161,7 +171,27 @@ bool Fingers::hold()
     if (m_members.isEmpty() || m_state != State::Forming)
         return false;
     m_state = State::Holding;
+    m_carryAt = pullPoint();
+    m_carryFrom = middle();
     return true;
+}
+
+// Where the hand's fingers still down are, on average.
+QPointF Fingers::middle() const
+{
+    QPointF sum;
+    int n = 0;
+    for (int slot : m_members)
+        if (m_fingers.contains(slot)) {
+            sum += m_fingers[slot].now;
+            ++n;
+        }
+    return n ? sum / qreal(n) : QPointF();
+}
+
+QPointF Fingers::carryPoint() const
+{
+    return m_carryAt + middle() - m_carryFrom;
 }
 
 void Fingers::reset()

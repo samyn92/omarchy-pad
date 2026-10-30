@@ -901,8 +901,12 @@ QVariantMap Stage::grabPlan()
         for (const QVariant &v : visibleWindows(m)) {
             const QVariantMap w = v.toMap();
             if (w["address"] != plan["address"] && w["workspace"] == plan["workspace"] && !w["floating"].toBool()
-                && !w["fullscreen"].toBool())
-                others << w;
+                && !w["fullscreen"].toBool()) {
+                // Pictured, so they can make room as the window comes over them.
+                QVariantMap other = w;
+                other["snapshot"] = pictureOf(w);
+                others << other;
+            }
         }
     plan["others"] = others;
     plan["workspaces"] =
@@ -943,12 +947,16 @@ void Stage::placeWindow(const QString &address, const QString &target, const QSt
     // Dwindle puts a window coming onto a workspace beside the focused one,
     // on the side preselected: so the window steps out to a workspace no one
     // sees and comes back in beside its target.
+    // The pictures already show the windows where they go, so Hyprland puts
+    // them there at once, under the pictures.
     const QString window = QString("window = \"address:%1\"").arg(address);
-    m_hyprland->dispatch(QString("hl.dsp.window.move({ workspace = \"special:%1\", follow = false, %2 })").arg(GrabAside, window));
-    m_hyprland->dispatch(QString("hl.dsp.focus({ window = \"address:%1\" })").arg(target));
-    m_hyprland->dispatch(QString("hl.dsp.layout(\"preselect %1\")").arg(directions[side]));
-    m_hyprland->dispatch(QString("hl.dsp.window.move({ workspace = \"%1\", follow = false, %2 })").arg(workspace, window));
-    m_hyprland->dispatch(QString("hl.dsp.focus({ %1 })").arg(window));
+    withoutAnimation("windows", [&] {
+        m_hyprland->dispatch(QString("hl.dsp.window.move({ workspace = \"special:%1\", follow = false, %2 })").arg(GrabAside, window));
+        m_hyprland->dispatch(QString("hl.dsp.focus({ window = \"address:%1\" })").arg(target));
+        m_hyprland->dispatch(QString("hl.dsp.layout(\"preselect %1\")").arg(directions[side]));
+        m_hyprland->dispatch(QString("hl.dsp.window.move({ workspace = \"%1\", follow = false, %2 })").arg(workspace, window));
+        m_hyprland->dispatch(QString("hl.dsp.focus({ %1 })").arg(window));
+    });
     refreshDividers();
 }
 
@@ -965,8 +973,10 @@ void Stage::sendToWorkspace(const QString &address, int id)
     if (id <= 0)
         return;
     qCDebug(lcStage) << "sent" << address << "to workspace" << id;
-    m_hyprland->dispatch(
-        QString("hl.dsp.window.move({ workspace = \"%1\", follow = false, window = \"address:%2\" })").arg(id).arg(address));
+    withoutAnimation("windows", [&] {
+        m_hyprland->dispatch(
+            QString("hl.dsp.window.move({ workspace = \"%1\", follow = false, window = \"address:%2\" })").arg(id).arg(address));
+    });
     refreshDividers();
 }
 

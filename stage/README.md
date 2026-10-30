@@ -21,7 +21,7 @@ the same the other way. Pull the scratchpad console down from the top.
 | Push up on the dimmed screen or from the bottom edge, with the console down | Takes the console up with the finger; a short push puts it back. A tap on the dimmed screen sends it up too |
 | Hold the **line between two windows** (0.2 s, it lights up), then drag | Both windows follow the line, resized as it moves (or as frosted pictures, see below); let go and it lands on a third, a half or two thirds. Pushed to the screen's edge, a single window leaves for an empty workspace of its own |
 | Two fingers pulled **down** on a window | The window follows them and, let go far enough or flicked, slides off and closes; a short pull puts it back |
-| Two fingers **held still** on a window (half a second) | The window lifts and follows your fingers. Put it on a side of another window to share that window's place (its left or right third for beside, the middle for above or below), or on a workspace in the strip that comes down along the top (the last one, +, is a new one) to move it there. Anywhere else it goes back |
+| Two fingers **held still** on a window (half a second) | The window lifts and follows your fingers (one is enough once it's up). Put it on a side of another window to share that window's place (its left or right third for beside, the middle for above or below), or on a workspace in the strip that comes down along the top (the last one, +, is a new one) to move it there. Anywhere else it goes back |
 | Three fingers sideways | Slides this workspace aside for the next or previous one, following your fingers; a quarter of the way or a flick switches, less goes back. Past the last workspace with windows there is one empty one, to start something new on |
 | Three fingers up | Maximizes the focused window |
 | Three fingers down | Pulls the window down, as with two |
@@ -74,10 +74,16 @@ Try it without touching: `stage simulate pull 1150 300 1150 650`, then
 
 Carrying a window: once two fingers have rested on it for half a second
 (moving first is a pull, which closes), the window becomes a picture with a
-shadow, a little smaller, and its place stays empty while you carry it. Over
-another window, the half it would take lights up in the theme's accent and the
-picture shrinks so you can see it; let go and dwindle splits that window there,
-so two windows put on two halves make quarters. Over the strip of workspaces
+shadow, a little smaller, and you can lift a finger and steer it with the
+other. The windows around it close up the place it left, as Hyprland will lay
+them out. Over another window, that window springs aside to its other half and
+the half it leaves lights up in the theme's accent; let go and dwindle splits
+that window there, so two windows put on two halves make quarters. Let go
+anywhere else and the others open its place again as it goes back. While a
+window is carried, its workspace is pictures over the wallpaper, and a window
+changing size shows cut off or with room around it, as Hyprland shows one
+being resized, rather than stretched; the real windows take the same places,
+without animating, as you let go. Over the strip of workspaces
 the picture becomes a thumbnail below your fingers and the tile under them
 lights up; let go and the window moves to that workspace and you stay where you
 are. Any window can be carried; a floating or maximized one only to another

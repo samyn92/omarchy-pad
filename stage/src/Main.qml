@@ -407,6 +407,8 @@ Window {
         ripple = 0
         landing = false
         landTile = -1
+        goingBack = false
+        closing_up = false
         carriedOpacity = 1
         dropZone = null
         dropTile = -1
@@ -768,13 +770,16 @@ Window {
 
     // The half of a window the hand is over: its left or right third gives
     // that side, the middle the top or bottom half, whichever it is in.
+    // Over the windows as they show: closed up where the window left, while
+    // its workspace is pictures (see `board`).
     function zoneAt(p) {
-        for (const w of plan.others) {
+        for (const o of plan.others) {
+            const w = board ? closedUp[o.address] : o
             if (!inside(Qt.rect(w.x, w.y, w.w, w.h), p.x, p.y))
                 continue
             const fx = (p.x - w.x) / w.w, fy = (p.y - w.y) / w.h
             const side = fx < 0.3 ? "left" : fx > 0.7 ? "right" : fy < 0.5 ? "top" : "bottom"
-            return Object.assign({address: w.address, side: side}, halfOf(w, side))
+            return Object.assign({address: o.address, side: side}, halfOf(w, side))
         }
         return null
     }
@@ -809,13 +814,15 @@ Window {
             landTile = dropTile
             const box = workspaces.tileBox(dropTile), h = box.height * 0.6, w = h * lw / Math.max(1, lh)
             putDown(Qt.rect(box.x + (box.width - w) / 2, box.y + (box.height - h) / 2, w, h), 0)
+            dropZone = null
         } else if (dropZone) {
             stage.placeWindow(plan.address, dropZone.address, dropZone.side)
             putDown(Qt.rect(dropZone.x - border, dropZone.y - border, dropZone.w + 2 * border, dropZone.h + 2 * border), 1)
         } else {
+            // The others open its place up again as it goes back.
+            goingBack = true
             putDown(closingOuter, 1)
         }
-        dropZone = null
         dropTile = -1
     }
 
@@ -833,6 +840,8 @@ Window {
         property rect to
         property real fade: 1
         ParallelAnimation {
+            // The others' springs settle a little after it lands.
+            PauseAnimation { duration: win.board ? 450 : 300 }
             NumberAnimation { target: win; property: "lx"; to: landed.to.x; duration: 300; easing.type: Easing.OutCubic }
             NumberAnimation { target: win; property: "ly"; to: landed.to.y; duration: 300; easing.type: Easing.OutCubic }
             NumberAnimation { target: win; property: "lw"; to: landed.to.width; duration: 300; easing.type: Easing.OutCubic }
@@ -840,6 +849,105 @@ Window {
             NumberAnimation { target: win; property: "carriedOpacity"; to: landed.fade; duration: 300; easing.type: Easing.InQuad }
         }
         ScriptAction { script: win.finish() }
+    }
+
+    // ---- the others making room ----
+
+    // While a window is carried, its workspace is pictures over the
+    // wallpaper (once they are all in), so the other windows can move: they
+    // close up the place it left, as Hyprland will, a window it comes over
+    // moves aside for it, springing, and they open its place again if it goes
+    // back. The console's windows stay put, over the dimmed screen.
+    readonly property bool board: grabbing && showing && plan.others.length > 0
+                                  && !String(plan.workspace).startsWith("special:") && allReady(plan.others)
+    property bool goingBack: false
+    // Set a frame after the pictures are up, so they move there rather than
+    // start there.
+    property bool closing_up: false
+    onBoardChanged: if (board) closeUpSoon.restart()
+    Timer {
+        id: closeUpSoon
+        interval: 16
+        onTriggered: win.closing_up = win.board
+    }
+
+    readonly property var closedUp: grabbing ? closeUp(plan.others, plan) : ({})
+    // Where each of the others is drawn: {address: {x, y, w, h}}.
+    readonly property var arranged: {
+        const out = {}
+        if (!grabbing)
+            return out
+        for (const w of plan.others)
+            out[w.address] = closing_up && !goingBack ? closedUp[w.address] : {x: w.x, y: w.y, w: w.w, h: w.h}
+        if (closing_up && !goingBack && dropZone) {
+            const opposite = {left: "right", right: "left", top: "bottom", bottom: "top"}
+            out[dropZone.address] = halfOf(closedUp[dropZone.address], opposite[dropZone.side])
+        }
+        return out
+    }
+
+    // The windows once `gone` has left: dwindle gives its place to its
+    // sibling, a window or windows filling the side of it they share, which
+    // grow across it keeping their proportions. Of the sides that have one,
+    // the one with fewest windows is taken (dwindle's last split).
+    function closeUp(windows, gone) {
+        const g = gapIn + border, slack = 3
+        const node = w => ({x: w.x - g, y: w.y - g, w: w.w + 2 * g, h: w.h + 2 * g})
+        const near = (a, b) => Math.abs(a - b) <= slack
+        const G = node(gone)
+        const out = {}
+        for (const w of windows)
+            out[w.address] = {x: w.x, y: w.y, w: w.w, h: w.h}
+        let best = null
+        for (const side of ["left", "right", "top", "bottom"]) {
+            const across = side === "left" || side === "right"
+            // The windows on that side, within its span.
+            const band = windows.filter(w => {
+                const n = node(w)
+                return across ? n.y >= G.y - slack && n.y + n.h <= G.y + G.h + slack
+                                && (side === "left" ? n.x + n.w <= G.x + slack : n.x >= G.x + G.w - slack)
+                              : n.x >= G.x - slack && n.x + n.w <= G.x + G.w + slack
+                                && (side === "top" ? n.y + n.h <= G.y + slack : n.y >= G.y + G.h - slack)
+            })
+            // The nearest of them that fill a box against the whole side.
+            const reach = w => {
+                const n = node(w)
+                return side === "left" ? G.x - n.x : side === "right" ? n.x + n.w - G.x - G.w
+                     : side === "top" ? G.y - n.y : n.y + n.h - G.y - G.h
+            }
+            const depths = band.map(reach).sort((a, b) => a - b)
+            for (const depth of depths) {
+                const group = band.filter(w => reach(w) <= depth + slack)
+                let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, area = 0
+                for (const w of group) {
+                    const n = node(w)
+                    x0 = Math.min(x0, n.x)
+                    y0 = Math.min(y0, n.y)
+                    x1 = Math.max(x1, n.x + n.w)
+                    y1 = Math.max(y1, n.y + n.h)
+                    area += n.w * n.h
+                }
+                const box = (x1 - x0) * (y1 - y0)
+                const fits = across ? near(y0, G.y) && near(y1, G.y + G.h) && (side === "left" ? near(x1, G.x) : near(x0, G.x + G.w))
+                                    : near(x0, G.x) && near(x1, G.x + G.w) && (side === "top" ? near(y1, G.y) : near(y0, G.y + G.h))
+                if (fits && Math.abs(area - box) <= box * 0.01) {
+                    if (!best || group.length < best.group.length)
+                        best = {side: side, group: group, box: {x: x0, y: y0, w: x1 - x0, h: y1 - y0}}
+                    break
+                }
+            }
+        }
+        if (!best)
+            return out
+        const b = best.box, across = best.side === "left" || best.side === "right"
+        const k = across ? (b.w + G.w) / b.w : (b.h + G.h) / b.h
+        const from = best.side === "left" ? b.x : best.side === "right" ? G.x : best.side === "top" ? b.y : G.y
+        for (const w of best.group) {
+            const n = node(w)
+            out[w.address] = across ? {x: from + (n.x - b.x) * k + g, y: w.y, w: n.w * k - 2 * g, h: w.h}
+                                    : {x: w.x, y: from + (n.y - b.y) * k + g, w: w.w, h: n.h * k - 2 * g}
+        }
+        return out
     }
 
     function launchApp(appId) {
@@ -1101,6 +1209,56 @@ Window {
                 opacity: win.phase === "launching" ? 0 : 1
                 Behavior on opacity { NumberAnimation { duration: 150 } }
                 onPicked: (appId) => win.launchApp(appId)
+            }
+        }
+
+        // The carried window's workspace, as pictures that make room for it.
+        Item {
+            visible: win.board
+            x: win.usable.x
+            y: win.usable.y
+            width: win.usable.width
+            height: win.usable.height
+            clip: true
+            Image {
+                x: -parent.x
+                y: -parent.y
+                width: win.width
+                height: win.height
+                source: wallpaper.source
+                sourceSize: wallpaper.sourceSize
+                fillMode: Image.PreserveAspectCrop
+            }
+        }
+        Repeater {
+            model: win.board ? win.plan.others : []
+            delegate: WindowFrame {
+                id: other
+                required property var modelData
+                readonly property var to: win.arranged[modelData.address] || modelData
+                x: to.x - win.border
+                y: to.y - win.border
+                width: to.w + 2 * win.border
+                height: to.h + 2 * win.border
+                // A spring, so a window moving aside overshoots a little and
+                // settles, and changes its mind smoothly as the finger does.
+                Behavior on x { SpringAnimation { spring: 3.5; damping: 0.3; epsilon: 0.25 } }
+                Behavior on y { SpringAnimation { spring: 3.5; damping: 0.3; epsilon: 0.25 } }
+                Behavior on width { SpringAnimation { spring: 3.5; damping: 0.3; epsilon: 0.25 } }
+                Behavior on height { SpringAnimation { spring: 3.5; damping: 0.3; epsilon: 0.25 } }
+                border: win.border
+                rounding: win.look && win.look.rounding !== undefined ? win.look.rounding : 0
+                colors: win.look ? win.look.inactive : null
+                fill: style.panel
+                // Its own size, cut off or with room around it as the frame
+                // changes, the way Hyprland shows a window being resized.
+                Picture {
+                    width: other.modelData.w
+                    height: other.modelData.h
+                    shown: win.ready[other.modelData.snapshot] === true
+                    snapshot: other.modelData.snapshot
+                    sourceSize: Qt.size(other.modelData.w * Screen.devicePixelRatio, other.modelData.h * Screen.devicePixelRatio)
+                }
             }
         }
 
