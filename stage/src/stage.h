@@ -116,6 +116,13 @@ public:
     // The windows a divider was pushed over leave the split: they go to the
     // next empty workspace, still running, and the others fill the room.
     Q_INVOKABLE void pushOff(const QStringList &addresses);
+    // A window lifted by a held hand (grabStarted) put down on `side` ("left",
+    // "right", "top" or "bottom") of the window `target`, which gives up that
+    // half to it.
+    Q_INVOKABLE void placeWindow(const QString &address, const QString &target, const QString &side);
+    // Or on workspace `id` of the strip (0: the first empty one), without
+    // following it there.
+    Q_INVOKABLE void sendToWorkspace(const QString &address, int id);
     // Asks the window to close, without Hyprland animating it away a second
     // time (the picture already left); `windowClosed` follows if it does.
     Q_INVOKABLE void closeWindow(const QString &address);
@@ -144,6 +151,12 @@ public:
     // The workspace three fingers slide to from `current`, of Hyprland's
     // `workspaces`; 0 when there is none that way.
     static int neighbourOf(const QJsonArray &workspaces, const QString &monitor, int current, const QString &direction);
+    // The strip a lifted window can be dropped on: workspaces 1 to
+    // LastWorkspace on `monitor`, of Hyprland's `workspaces`, each as {id,
+    // current, apps (the classes of its windows, from `clients`)}, then the
+    // first empty one as {id, empty: true} when there is one.
+    static QVariantList workspaceTiles(const QJsonArray &workspaces, const QJsonArray &clients, const QString &monitor,
+                                       int current);
     // Every line where windows meet across one gap (`gap`: the space between
     // two windows' surfaces, borders and gaps included), each as {vertical,
     // at (the line), from, to (its extent), before and after (the windows'
@@ -173,6 +186,13 @@ signals:
     void pullMoved(const QPointF &at, qreal ms);
     void pullEnded(const QPointF &at, qreal ms);
     void pullCanceled();
+    // Two fingers held still on a window for HoldMs lift it: `plan` is the
+    // window (as for a pull) with the windows it can be put beside
+    // (`others`), the `workspaces` strip (workspaceTiles) and the `usable`
+    // area. It follows the hand until a finger lifts.
+    void grabStarted(const QVariantMap &plan, const QPointF &at);
+    void grabMoved(const QPointF &at);
+    void grabEnded(const QPointF &at);
     // Three fingers went "left", "right" or "up".
     void swiped(const QString &direction);
     // Three fingers pinched "in" (copy) or spread "out" (paste); floatkey
@@ -213,6 +233,8 @@ private:
     QVariantList visibleWindows(const Monitor &m) const;
     bool refreshTouch();
     QVariantMap slidePlan(const QString &direction);
+    QVariantMap grabPlan();
+    void startGrab();
     int neighbour(const Monitor &m, const QString &direction) const;
     int pictureOf(const QVariantMap &window);
     void prefetchSlide();
@@ -259,7 +281,13 @@ private:
     bool m_pulling = false;
     bool m_sliding = false;
     bool m_locked = false;
+    bool m_grabbing = false;
     QVariantMap m_handPlan;
+    // How long two fingers rest on a window before they lift it, and how far
+    // they may wander meanwhile (as fingers do, held still).
+    static constexpr int HoldMs = 500;
+    static constexpr qreal HoldSlack = 14;
+    QTimer m_holdTimer;
     QHash<QString, int> m_pictures;   // this hand's pictures, by window address
     // Windows asked to close, kept from animating; a window that stays (it
     // asked about unsaved work, say) gets its animations back.
@@ -291,9 +319,10 @@ private:
     QList<qreal> m_moveTimes;
     qreal m_timingStart = 0;
 
-    // A hand without fingers, for `stage simulate pull`: it goes through the
+    // A hand without fingers, for `stage simulate pull` (and `grab`, which
+    // rests for `restMs` first): it goes through the
     // touch screen's path, turn and all.
-    void simulatePull(const QPointF &from, const QPointF &to, int ms, int fingers);
+    void simulatePull(const QPointF &from, const QPointF &to, int ms, int fingers, int restMs = 0);
     void simulateRelease();
     void simulatePinch(bool in, int ms);
     QTimer m_simulated;

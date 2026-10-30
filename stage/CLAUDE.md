@@ -29,6 +29,11 @@ touches only in strips along the edges. It talks to Hyprland over its sockets
 - `stage resize live|pictures` is kept with QSettings in
   `~/.config/stage/stage.conf`. A stage tried in a nested Hyprland should get
   an `XDG_CONFIG_HOME` of its own, or switching it switches the real one.
+- A window carried by two fingers and put beside another goes out to the
+  `special:stagegrab` workspace and back in, with the target focused and a
+  dwindle `preselect`. That gives the side asked for only with
+  `dwindle.preserve_split` on, as Omarchy has it; a nested Hyprland trying it
+  needs that too.
 - The launcher's rows come from `src/shelves.*` (made up from the apps until
   the user moves one, then kept in `~/.config/stage/launcher.json`); the same
   rule as `stage.conf` about a nested stage's `XDG_CONFIG_HOME` applies.

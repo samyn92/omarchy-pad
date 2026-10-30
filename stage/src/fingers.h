@@ -14,7 +14,9 @@
 //  - two or three fingers moving down together pull a window down;
 //  - three fingers moving sideways together slide the workspaces;
 //  - three fingers up swipe, once the first of them lifts;
-//  - three fingers pinching in or spreading out copy and paste, as on an iPad.
+//  - three fingers pinching in or spreading out copy and paste, as on an iPad;
+//  - two fingers held still lift a window (stage times the hold and calls
+//    hold()), which then follows the hand.
 // A hand ends at its first lift, so the last finger's jump can't move a pull.
 class Fingers {
 public:
@@ -31,6 +33,8 @@ public:
             SlideCanceled,
             Swiped,        // three fingers, `direction` "up"
             Pinched,       // three fingers came together ("in") or spread ("out")
+            GrabMoved,     // a hand that was held still (hold()) moves; `at` as for a pull
+            GrabEnded,     // and a finger of it lifted
             HandUp,        // every finger of the hand has lifted
         };
         Type type;
@@ -64,6 +68,15 @@ public:
     void reset();
 
     bool hand() const { return !m_members.isEmpty(); }
+    int fingers() const { return int(m_members.size()); }
+    // A hand that has done nothing yet and moved no more than `slack`.
+    bool resting(qreal slack) const;
+    // Holds that hand (it was still for long enough): from now on it moves
+    // what it holds, rather than pulling, sliding or pinching.
+    bool hold();
+    // Where the hand is, as for a pull: its first finger as it landed, moved
+    // by as much as the hand has.
+    QPointF point() const { return pullPoint(); }
 
     // A point on the panel, as fractions of its native width and height, in
     // the overlay's logical coordinates once the output is turned by
@@ -77,7 +90,7 @@ private:
         QPointF now;
         qreal landed = 0;
     };
-    enum class State { Forming, Pulling, Sliding, Done };
+    enum class State { Forming, Pulling, Sliding, Holding, Done };
 
     QPointF travel() const;
     bool together() const;

@@ -71,6 +71,11 @@ public:
         QTimer::singleShot(30, this, [this] { emit dividersChanged(); });
     }
     Q_INVOKABLE void pushOff(const QStringList &addresses) { log << "pushoff:" + addresses.join(','); }
+    Q_INVOKABLE void placeWindow(const QString &address, const QString &target, const QString &side)
+    {
+        log << QString("place:%1:%2:%3").arg(address, side, target);
+    }
+    Q_INVOKABLE void sendToWorkspace(const QString &address, int id) { log << QString("send:%1:%2").arg(address).arg(id); }
     // Live resizing: where the line was sent, and where it settled.
     Q_INVOKABLE void moveDivider(const QVariantMap &, qreal line) { moves << line; }
     Q_INVOKABLE void settleDivider(const QVariantMap &, qreal line)
@@ -140,6 +145,9 @@ signals:
     void pullMoved(const QPointF &at, qreal ms);
     void pullEnded(const QPointF &at, qreal ms);
     void pullCanceled();
+    void grabStarted(const QVariantMap &plan, const QPointF &at);
+    void grabMoved(const QPointF &at);
+    void grabEnded(const QPointF &at);
     void swiped(const QString &direction);
     void windowClosed(const QString &address);
     void slideStarted(const QVariantMap &plan, const QPointF &at, qreal ms);
@@ -205,6 +213,18 @@ public:
         fake.dividers = {QVariantMap{{"vertical", true}, {"at", 848}, {"from", 42}, {"to", 1188}, {"start", 12},
                                      {"end", 1684}, {"before", QStringList{"left"}}, {"after", QStringList{"right"}}}};
         fake.plans["bottom"]["edge"] = "bottom";
+        // The left one of two, lifted: it can go beside the right one, or to
+        // workspace 2 or a new one.
+        fake.plans["grab"] = fake.plans["close"];
+        fake.plans["grab"]["edge"] = "grab";
+        fake.plans["grab"]["workspace"] = "1";
+        fake.plans["grab"]["workspaceId"] = 1;
+        fake.plans["grab"]["others"] = QVariantList{tile("right", 855)};
+        fake.plans["grab"]["workspaces"] = QVariantList{
+            QVariantMap{{"id", 1}, {"current", true}, {"apps", QStringList{"foot"}}},
+            QVariantMap{{"id", 2}, {"current", false}, {"apps", QStringList{"foot", "chromium"}}},
+            QVariantMap{{"id", 3}, {"current", false}, {"empty", true}, {"apps", QStringList()}}};
+        fake.plans["grab"]["usable"] = rect(0, 30, 1696, 1170);
         fake.plans["top"] = {{"edge", "top"}, {"allowed", true}, {"empty", false},
                              {"console", rect(261, 30, 1174, 585)},
                              {"windows", QVariantList{QVariantMap{{"x", 261}, {"y", 30}, {"w", 1174}, {"h", 585},
@@ -284,6 +304,36 @@ public:
         emit fake.pullEnded(at, ms);
         fake.hand = false;
         emit fake.handChanged();
+    }
+
+    // Two fingers that rested on the "grab" plan's window, carrying it to
+    // `to` and, unless told not to, putting it down there.
+    void handGrab(QPointF to, bool lift = true)
+    {
+        const QVariantMap plan = fake.plans["grab"];
+        const QPointF from(plan["fromX"].toReal(), plan["fromY"].toReal());
+        handDown();
+        emit fake.grabStarted(plan, from);
+        for (int i = 1; i <= 15; ++i) {
+            QTest::qWait(16);
+            emit fake.grabMoved(from + (to - from) * i / 15);
+        }
+        if (lift)
+            putDown(to);
+    }
+    void putDown(QPointF at)
+    {
+        emit fake.grabEnded(at);
+        fake.hand = false;
+        emit fake.handChanged();
+    }
+    // The middle of a tile of the workspace strip.
+    QPointF stripTile(int i) const
+    {
+        QObject *strip = window->findChild<QObject *>("workspaceStrip");
+        QVariant box;
+        QMetaObject::invokeMethod(strip, "tileBox", Q_RETURN_ARG(QVariant, box), Q_ARG(QVariant, i));
+        return box.toRectF().center();
     }
 
     // Three fingers sliding `dx` sideways in `ms`.
@@ -700,6 +750,58 @@ private slots:
         QCOMPARE(kinds(events), QStringList({"hand", "pull", "canceled", "up"}));
     }
 
+    void twoFingersHeldStillLiftAWindow()
+    {
+        Fingers f;
+        QList<Fingers::Event> events = f.down(0, {600, 400}, 0) + f.down(1, {720, 400}, 20);
+        // Fingers held still wander a little.
+        events += f.move(0, {604, 397}, 200) + f.move(1, {717, 405}, 250);
+        QCOMPARE(f.fingers(), 2);
+        QVERIFY(f.resting(14));
+        QVERIFY(f.hold());
+        // Held, the hand carries it anywhere, its fingers apart or not, and a
+        // third finger joins nothing.
+        events += f.move(0, {300, 900}, 600) + f.move(1, {900, 950}, 610);
+        events += f.down(2, {1000, 400}, 615);
+        events += f.up(0, 700) + f.up(1, 710);
+        QCOMPARE(kinds(events), QStringList({"hand", "grabmoved", "grabmoved", "grabbed", "up"}));
+        // Where the hand as a whole has taken its first finger.
+        QCOMPARE(last(events, Fingers::Event::GrabEnded).at, QPointF(540, 925));
+
+        // Moved away first, the hand rests no longer: it was a pull.
+        Fingers g;
+        g.down(0, {600, 400}, 0);
+        g.down(1, {720, 400}, 20);
+        g.move(0, {600, 440}, 100);
+        g.move(1, {720, 440}, 100);
+        QVERIFY(!g.resting(14));
+        QVERIFY(!g.hold());
+    }
+
+    void theStripHasEveryWorkspaceAndANewOne()
+    {
+        auto ws = [](int id, const char *monitor = "DSI-1") { return QJsonObject{{"id", id}, {"monitor", monitor}}; };
+        auto client = [](int ws, const char *appClass) {
+            return QJsonObject{{"workspace", QJsonObject{{"id", ws}}}, {"class", appClass}, {"mapped", true}};
+        };
+        const QJsonArray clients{client(1, "foot"), client(1, "foot"), client(1, "chromium"), client(4, "obsidian"),
+                                 client(-98, "foot")};
+        const QVariantList tiles =
+            Stage::workspaceTiles({ws(1), ws(4), ws(-98), ws(2, "HDMI-1")}, clients, "DSI-1", 4);
+        QCOMPARE(tiles.size(), 3);
+        QCOMPARE(tiles[0].toMap()["id"].toInt(), 1);
+        QCOMPARE(tiles[0].toMap()["apps"].toStringList(), QStringList({"foot", "chromium"}));
+        QCOMPARE(tiles[1].toMap()["current"].toBool(), true);
+        // 2 is taken on the other screen, so the new one is 3.
+        QCOMPARE(tiles[2].toMap()["id"].toInt(), 3);
+        QVERIFY(tiles[2].toMap()["empty"].toBool());
+        // All ten taken: no new one.
+        QJsonArray full;
+        for (int id = 1; id <= Stage::LastWorkspace; ++id)
+            full << ws(id);
+        QCOMPARE(Stage::workspaceTiles(full, {}, "DSI-1", 1).size(), Stage::LastWorkspace);
+    }
+
     // ---- the gestures, on the real QML ----
 
     void atRestOnlyTheEdgesTakeTouches()
@@ -1074,6 +1176,80 @@ private slots:
         QVERIFY(h.fake.hiding.isEmpty());
     }
 
+    void aLiftedWindowGoesBesideAnother()
+    {
+        Harness h;
+        // Over the right window's right third.
+        h.handGrab(QPointF(1500, 600), false);
+        QCOMPARE(h.phase(), QString("tracking"));
+        QVERIFY(h.window->property("showing").toBool());
+        QTRY_COMPARE(h.fake.hiding, QStringList({"hide:0x9"}));
+        const QVariantMap zone = h.window->property("dropZone").toMap();
+        QCOMPARE(zone["side"].toString(), QString("right"));
+        // Its half of the right window, as dwindle will lay it out.
+        QCOMPARE(zone["x"].toReal(), 855 + (829 + 14) / 2.0);
+        QCOMPARE(zone["w"].toReal(), (829 + 14) / 2.0 - 14);
+        h.putDown(QPointF(1500, 600));
+        QCOMPARE(h.fake.log, QStringList({"place:0x9:right:right"}));
+        QTRY_COMPARE(h.phase(), QString("idle"));
+        QCOMPARE(h.fake.hiding, QStringList({"hide:0x9", "show:0x9"}));
+
+        // The middle of a window splits it top and bottom.
+        Harness g;
+        g.handGrab(QPointF(1270, 1000), false);
+        QCOMPARE(g.window->property("dropZone").toMap()["side"].toString(), QString("bottom"));
+        g.putDown(QPointF(1270, 1000));
+        QCOMPARE(g.fake.log, QStringList({"place:0x9:bottom:right"}));
+    }
+
+    void aLiftedWindowGoesToAnotherWorkspace()
+    {
+        Harness h;
+        h.handGrab(QPointF(800, 600), false);
+        // The strip has come down; over it, the tile lights up.
+        QTRY_VERIFY(h.window->findChild<QQuickItem *>("workspaceStrip")->isVisible());
+        const QPointF two = h.stripTile(1);
+        for (int i = 1; i <= 10; ++i) {
+            QTest::qWait(16);
+            emit h.fake.grabMoved(QPointF(800, 600) + (two - QPointF(800, 600)) * i / 10);
+        }
+        QCOMPARE(h.window->property("dropTile").toInt(), 1);
+        QVERIFY(h.window->property("dropZone").isNull());
+        h.putDown(two);
+        QCOMPARE(h.fake.log, QStringList({"send:0x9:2"}));
+        QTRY_COMPARE(h.phase(), QString("idle"));
+
+        // The last tile is a new one.
+        Harness g;
+        g.handGrab(QPointF(800, 600), false);
+        QTRY_VERIFY(g.window->findChild<QQuickItem *>("workspaceStrip")->isVisible());
+        QTest::qWait(300);
+        const QPointF last = g.stripTile(2);
+        emit g.fake.grabMoved(last);
+        g.putDown(last);
+        QCOMPARE(g.fake.log, QStringList({"send:0x9:0"}));
+    }
+
+    void aLiftedWindowPutDownAnywhereElseGoesBack()
+    {
+        // On the wallpaper below the windows, and on its own workspace's tile.
+        Harness h;
+        h.handGrab(QPointF(500, 1195));
+        QTRY_COMPARE(h.phase(), QString("idle"));
+        QVERIFY(h.fake.log.isEmpty());
+        QCOMPARE(h.fake.hiding, QStringList({"hide:0x9", "show:0x9"}));
+
+        Harness g;
+        g.handGrab(QPointF(800, 600), false);
+        QTRY_VERIFY(g.window->findChild<QQuickItem *>("workspaceStrip")->isVisible());
+        QTest::qWait(300);
+        const QPointF here = g.stripTile(0);
+        emit g.fake.grabMoved(here);
+        g.putDown(here);
+        QTRY_COMPARE(g.phase(), QString("idle"));
+        QVERIFY(g.fake.log.isEmpty());
+    }
+
     void aHandPutsDownAnEdgeGesture()
     {
         Harness h;
@@ -1230,7 +1406,8 @@ private:
             {Fingers::Event::PullEnded, "ended"},    {Fingers::Event::PullCanceled, "canceled"},
             {Fingers::Event::Swiped, "swiped"},      {Fingers::Event::HandUp, "up"},
             {Fingers::Event::SlideStarted, "slide"}, {Fingers::Event::SlideEnded, "slid"},
-            {Fingers::Event::SlideCanceled, "slidecanceled"}};
+            {Fingers::Event::SlideCanceled, "slidecanceled"}, {Fingers::Event::GrabMoved, "grabmoved"},
+            {Fingers::Event::GrabEnded, "grabbed"}};
         QStringList out;
         for (const Fingers::Event &e : events)
             if (names.contains(e.type))

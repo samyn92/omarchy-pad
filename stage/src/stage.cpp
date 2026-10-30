@@ -8,6 +8,7 @@
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QLoggingCategory>
+#include <QMap>
 #include <QQuickWindow>
 #include <QRegion>
 #include <QSettings>
@@ -33,6 +34,8 @@ static const QString Scratchpad = "special:scratchpad";
 // the tag off gives a window back whatever opacity its own rules give it,
 // which setting its opacity directly couldn't undo.
 static const QString HiddenTag = "stage-hidden";
+// The special workspace a window put down beside another passes through.
+static const QString GrabAside = "stagegrab";
 
 static qreal clockMs()
 {
@@ -58,6 +61,9 @@ Stage::Stage(Hyprland *hyprland, Capture *capture, Snapshots *snapshots, Apps *a
     m_pendingTimeout.setSingleShot(true);
     m_pendingTimeout.setInterval(10000);
     connect(&m_pendingTimeout, &QTimer::timeout, this, [this] { finishPlacement(false); });
+    m_holdTimer.setSingleShot(true);
+    m_holdTimer.setInterval(HoldMs);
+    connect(&m_holdTimer, &QTimer::timeout, this, &Stage::startGrab);
 
     connect(m_hyprland, &Hyprland::hyprlandEvent, this, &Stage::onEvent);
     // Several layout events come in a burst; the dividers are found once,
@@ -263,6 +269,7 @@ QVariantList Stage::visibleWindows(const Monitor &m) const
             {"w", size.at(0).toDouble()},
             {"h", size.at(1).toDouble()},
             {"workspace", workspace},
+            {"workspaceId", o.value("workspace").toObject().value("id").toInt()},
             {"floating", o.value("floating").toBool() || pinned},
             {"fullscreen", o.value("fullscreen").toInt() != 0},
             {"focus", o.value("focusHistoryID").toInt(1000)},
@@ -849,6 +856,120 @@ void Stage::pushOff(const QStringList &addresses)
     refreshDividers();
 }
 
+QVariantList Stage::workspaceTiles(const QJsonArray &workspaces, const QJsonArray &clients, const QString &monitor,
+                                   int current)
+{
+    QMap<int, QStringList> apps;
+    for (const QJsonValue &value : workspaces) {
+        const QJsonObject o = value.toObject();
+        const int id = o.value("id").toInt();
+        if (id >= 1 && id <= LastWorkspace && (monitor.isEmpty() || o.value("monitor").toString() == monitor))
+            apps[id];
+    }
+    for (const QJsonValue &value : clients) {
+        const QJsonObject o = value.toObject();
+        const int id = o.value("workspace").toObject().value("id").toInt();
+        const QString appClass = o.value("class").toString();
+        if (apps.contains(id) && o.value("mapped").toBool() && !appClass.isEmpty() && !apps[id].contains(appClass))
+            apps[id] << appClass;
+    }
+    QVariantList tiles;
+    for (auto it = apps.cbegin(); it != apps.cend(); ++it)
+        tiles << QVariantMap{{"id", it.key()}, {"current", it.key() == current}, {"apps", it.value()}};
+    // Workspaces on another monitor are taken too, so the empty one is
+    // looked for among all of them.
+    QList<int> taken;
+    for (const QJsonValue &value : workspaces)
+        taken << value.toObject().value("id").toInt();
+    for (int id = 1; id <= LastWorkspace; ++id)
+        if (!taken.contains(id)) {
+            tiles << QVariantMap{{"id", id}, {"empty", true}, {"current", false}, {"apps", QStringList()}};
+            break;
+        }
+    return tiles;
+}
+
+QVariantMap Stage::grabPlan()
+{
+    QVariantMap plan = m_handPlan;
+    plan["edge"] = "grab";
+    const Monitor m = monitor();
+    // A floating or maximized window has no tiled neighbours to go beside;
+    // it can still go to another workspace.
+    QVariantList others;
+    if (!plan["floating"].toBool() && !plan["fullscreen"].toBool())
+        for (const QVariant &v : visibleWindows(m)) {
+            const QVariantMap w = v.toMap();
+            if (w["address"] != plan["address"] && w["workspace"] == plan["workspace"] && !w["floating"].toBool()
+                && !w["fullscreen"].toBool())
+                others << w;
+        }
+    plan["others"] = others;
+    plan["workspaces"] =
+        workspaceTiles(m_hyprland->query("workspaces").array(), m_hyprland->query("clients").array(), m.name, m.workspace);
+    const QRectF usable = m.usable.translated(-m.logical.topLeft());
+    plan["usable"] = QVariantMap{{"x", usable.x()}, {"y", usable.y()}, {"w", usable.width()}, {"h", usable.height()}};
+    return plan;
+}
+
+// The hand has rested on its window for HoldMs: it lifts it, unless it has
+// moved on to something else meanwhile.
+void Stage::startGrab()
+{
+    if (m_handPlan.isEmpty() || m_fingers.fingers() != 2 || !m_fingers.resting(HoldSlack) || !m_fingers.hold())
+        return;
+    m_grabbing = true;
+    const QVariantMap plan = grabPlan();
+    qCDebug(lcStage) << "grabbed" << plan["appClass"] << plan["address"] << "beside" << plan["others"].toList().size()
+                     << "workspaces" << plan["workspaces"].toList().size();
+    startTiming();
+    emit grabStarted(plan, m_fingers.point());
+}
+
+void Stage::placeWindow(const QString &address, const QString &target, const QString &side)
+{
+    QString workspace;
+    for (const QJsonValue &value : m_hyprland->query("clients").array()) {
+        const QJsonObject o = value.toObject();
+        if (o.value("address").toString() == address) {
+            const QJsonObject ws = o.value("workspace").toObject();
+            workspace = ws.value("id").toInt() > 0 ? QString::number(ws.value("id").toInt()) : ws.value("name").toString();
+        }
+    }
+    static const QHash<QString, QString> directions{{"left", "l"}, {"right", "r"}, {"top", "u"}, {"bottom", "d"}};
+    if (workspace.isEmpty() || !directions.contains(side))
+        return;
+    qCDebug(lcStage) << "placing" << address << side << "of" << target << "on" << workspace;
+    // Dwindle puts a window coming onto a workspace beside the focused one,
+    // on the side preselected: so the window steps out to a workspace no one
+    // sees and comes back in beside its target.
+    const QString window = QString("window = \"address:%1\"").arg(address);
+    m_hyprland->dispatch(QString("hl.dsp.window.move({ workspace = \"special:%1\", follow = false, %2 })").arg(GrabAside, window));
+    m_hyprland->dispatch(QString("hl.dsp.focus({ window = \"address:%1\" })").arg(target));
+    m_hyprland->dispatch(QString("hl.dsp.layout(\"preselect %1\")").arg(directions[side]));
+    m_hyprland->dispatch(QString("hl.dsp.window.move({ workspace = \"%1\", follow = false, %2 })").arg(workspace, window));
+    m_hyprland->dispatch(QString("hl.dsp.focus({ %1 })").arg(window));
+    refreshDividers();
+}
+
+void Stage::sendToWorkspace(const QString &address, int id)
+{
+    if (id <= 0) {
+        QList<int> taken;
+        for (const QJsonValue &value : m_hyprland->query("workspaces").array())
+            taken << value.toObject().value("id").toInt();
+        for (int i = 1; i <= LastWorkspace && id <= 0; ++i)
+            if (!taken.contains(i))
+                id = i;
+    }
+    if (id <= 0)
+        return;
+    qCDebug(lcStage) << "sent" << address << "to workspace" << id;
+    m_hyprland->dispatch(
+        QString("hl.dsp.window.move({ workspace = \"%1\", follow = false, window = \"address:%2\" })").arg(id).arg(address));
+    refreshDividers();
+}
+
 void Stage::prefetchSlide()
 {
     const Monitor m = monitor();
@@ -1141,7 +1262,7 @@ void Stage::touch(Touchscreen::Kind kind, int slot, const QPointF &panel, qreal 
         for (auto it = m_moved.cbegin(); it != m_moved.cend(); ++it)
             events += m_fingers.move(it.key(), it->first, it->second);
         m_moved.clear();
-        for (const auto type : {Fingers::Event::PullMoved, Fingers::Event::SlideMoved}) {
+        for (const auto type : {Fingers::Event::PullMoved, Fingers::Event::SlideMoved, Fingers::Event::GrabMoved}) {
             const auto last = std::find_if(events.crbegin(), events.crend(), [type](const Fingers::Event &e) { return e.type == type; });
             if (last != events.crend()) {
                 const Fingers::Event keep = *last;
@@ -1177,6 +1298,8 @@ void Stage::handle(const QList<Fingers::Event> &events)
             if (m_hand) {
                 // A third finger: it may be about to slide the workspaces, so
                 // the pictures for that start now rather than once it moves.
+                // Three fingers never lift a window.
+                m_holdTimer.stop();
                 if (e.fingers == 3 && !m_locked)
                     prefetchSlide();
                 break;
@@ -1201,11 +1324,16 @@ void Stage::handle(const QList<Fingers::Event> &events)
             }
             qCDebug(lcStage) << "hand" << e.fingers << "at" << e.at << "locked" << m_locked << "on"
                              << m_handPlan.value("appClass") << m_handPlan.value("address");
+            // Two fingers resting on a window lift it, once they have rested
+            // long enough.
+            if (e.fingers == 2 && !m_handPlan.isEmpty())
+                m_holdTimer.start();
             m_hand = true;
             emit handChanged();
             break;
         }
         case Fingers::Event::PullStarted:
+            m_holdTimer.stop();
             if (m_handPlan.isEmpty())
                 break;
             m_pulling = true;
@@ -1266,12 +1394,30 @@ void Stage::handle(const QList<Fingers::Event> &events)
                 emit pinched(e.direction);
             }
             break;
+        case Fingers::Event::GrabMoved:
+            if (m_grabbing) {
+                if (m_timing) {
+                    QMutexLocker lock(&m_timingLock);
+                    m_moveTimes << clockMs();
+                }
+                emit grabMoved(e.at);
+            }
+            break;
+        case Fingers::Event::GrabEnded:
+            if (!m_grabbing)
+                break;
+            m_grabbing = false;
+            qCDebug(lcStage) << "grab ended at" << e.at;
+            reportTiming("grab");
+            emit grabEnded(e.at);
+            break;
         case Fingers::Event::Swiped:
             qCDebug(lcStage) << "swiped" << e.direction << "locked" << m_locked;
             if (!m_locked)
                 emit swiped(e.direction);
             break;
         case Fingers::Event::HandUp:
+            m_holdTimer.stop();
             m_handPlan.clear();
             m_pictures.clear();
             m_hand = false;
@@ -1284,7 +1430,7 @@ void Stage::handle(const QList<Fingers::Event> &events)
 // Fingers a hand's width apart, on slots no real finger uses.
 static constexpr int SimulatedSlot = 100;
 
-void Stage::simulatePull(const QPointF &from, const QPointF &to, int ms, int fingers)
+void Stage::simulatePull(const QPointF &from, const QPointF &to, int ms, int fingers, int restMs)
 {
     if (m_simulatedFingers)
         simulateRelease();
@@ -1312,7 +1458,14 @@ void Stage::simulatePull(const QPointF &from, const QPointF &to, int ms, int fin
         if (t >= 1)
             m_simulated.stop();
     });
-    m_simulated.start();
+    // A hand that rests first, to lift its window, moves once it has.
+    if (restMs > 0)
+        QTimer::singleShot(restMs, this, [this, fingers] {
+            if (m_simulatedFingers == fingers && !m_simulated.isActive() && m_simulatedStep == 0)
+                m_simulated.start();
+        });
+    else
+        m_simulated.start();
 }
 
 // Three fingers around the middle of the screen, drawing in from far apart
@@ -1498,13 +1651,19 @@ QString Stage::command(const QString &line)
         simulatePinch(words.value(2) != "out", words.value(3, "300").toInt());
         return "ok pinch";
     }
-    if (verb == "simulate" && m_window && (words.value(1) == "pull" || (words.value(1) == "release" && m_simulatedFingers))) {
+    if (verb == "simulate" && m_window
+        && (words.value(1) == "pull" || words.value(1) == "grab" || (words.value(1) == "release" && m_simulatedFingers))) {
         // `stage simulate pull 400 300 400 700 [ms] [fingers]`, then `release`:
-        // a hand as the touch screen would report it.
+        // a hand as the touch screen would report it. `grab` is two fingers
+        // that rest long enough to lift the window first, then carry it.
         if (words.value(1) == "pull")
             simulatePull({words.value(2).toDouble(), words.value(3).toDouble()},
                          {words.value(4).toDouble(), words.value(5).toDouble()}, words.value(6, "400").toInt(),
                          qBound(2, words.value(7, "2").toInt(), 3));
+        else if (words.value(1) == "grab")
+            simulatePull({words.value(2).toDouble(), words.value(3).toDouble()},
+                         {words.value(4).toDouble(), words.value(5).toDouble()}, words.value(6, "600").toInt(), 2,
+                         HoldMs + 150);
         else
             simulateRelease();
         return "ok " + m_window->property("phase").toString();

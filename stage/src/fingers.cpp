@@ -60,6 +60,9 @@ QList<Fingers::Event> Fingers::move(int slot, const QPointF &at, qreal ms)
         return {};
 
     const int n = int(m_members.size());
+    // A held hand carries what it holds, however its fingers part.
+    if (m_state == State::Holding)
+        return {Event{Event::GrabMoved, pullPoint(), ms, n}};
     // Three fingers drawing in or apart, before anything else has started.
     if (m_state == State::Forming && n == 3) {
         const qreal from = spread(true), to = spread(false);
@@ -127,6 +130,8 @@ QList<Fingers::Event> Fingers::up(int slot, qreal ms)
             events << Event{Event::PullEnded, pullPoint(), ms, int(m_members.size())};
         } else if (m_state == State::Sliding) {
             events << Event{Event::SlideEnded, pullPoint(), ms, int(m_members.size()), m_direction};
+        } else if (m_state == State::Holding) {
+            events << Event{Event::GrabEnded, pullPoint(), ms, int(m_members.size())};
         } else if (m_state == State::Forming && m_members.size() == 3 && !m_parted) {
             const QPointF t = travel();
             if (length(t) >= SwipeDistance && degreesOff(t, {0, -1}) <= SwipeDegrees)
@@ -144,6 +149,19 @@ QList<Fingers::Event> Fingers::up(int slot, qreal ms)
         m_parted = false;
     }
     return events;
+}
+
+bool Fingers::resting(qreal slack) const
+{
+    return !m_members.isEmpty() && m_state == State::Forming && length(travel()) <= slack;
+}
+
+bool Fingers::hold()
+{
+    if (m_members.isEmpty() || m_state != State::Forming)
+        return false;
+    m_state = State::Holding;
+    return true;
 }
 
 void Fingers::reset()

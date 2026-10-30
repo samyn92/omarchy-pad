@@ -10,7 +10,9 @@ import QtQuick.Effects
 // the finger has decided. Two fingers pulling a window down (stage reads
 // those from the touch screen itself) move a picture of it the same way, and
 // let go far enough it slides off and the window closes. Three fingers
-// sideways slide the workspace aside for the next one, pictures again.
+// sideways slide the workspace aside for the next one, pictures again. Two
+// fingers held still on a window lift it: it goes beside another window, or
+// onto a workspace from the strip that comes down along the top.
 Window {
     id: win
 
@@ -25,7 +27,7 @@ Window {
 
     // What the gesture acts on (from stage.beginEdge) and how far it has got.
     property var plan: null
-    property string phase: "idle"   // idle, tracking, settling, room, launching, leaving, dismiss
+    property string phase: "idle"   // idle, holding, tracking, settling, room, launching, leaving, revealing, dismiss
     property real pull: 0
     property real fraction: 1       // the share the shrinking window keeps once settled
     property real veil: 1
@@ -40,14 +42,14 @@ Window {
     // then, the real one). The real one is hidden once the picture is drawn
     // in its place, so what is behind it shows.
     readonly property bool closing: edge === "close"
-    readonly property bool showing: closing && ready[plan.snapshot] === true
+    readonly property bool showing: (closing || grabbing) && ready[plan.snapshot] === true
     // Three fingers sliding the workspaces: `pull` is how far the next one
     // has come in, once this workspace's pictures are there (the next one's
     // show their app until theirs arrive).
     readonly property bool sliding: edge === "slide"
     readonly property bool slideShowing: sliding && allReady(plan.current)
     readonly property real slideOffset: sliding ? (plan.direction === "left" ? -pull : pull) : 0
-    readonly property rect closingOuter: closing ? Qt.rect(plan.x - border, plan.y - border, plan.w + 2 * border, plan.h + 2 * border)
+    readonly property rect closingOuter: closing || grabbing ? Qt.rect(plan.x - border, plan.y - border, plan.w + 2 * border, plan.h + 2 * border)
                                                  : Qt.rect(0, 0, 0, 0)
     readonly property bool sideways: edge === "right"
     readonly property bool splitting: (edge === "right" || edge === "bottom") && plan !== null && !plan.empty
@@ -403,6 +405,11 @@ Window {
         holdProgress = 0
         burst = 0
         ripple = 0
+        landing = false
+        landTile = -1
+        carriedOpacity = 1
+        dropZone = null
+        dropTile = -1
         fromTop = false
         liftHidden = false
     }
@@ -697,6 +704,144 @@ Window {
         })
     }
 
+    // ---- two fingers carrying a window ----
+
+    readonly property bool grabbing: edge === "grab"
+    property point finger           // where the hand has the window
+    property bool landing: false    // put down: the picture goes to lx, ly, lw, lh
+    property real lx: 0
+    property real ly: 0
+    property real lw: 0
+    property real lh: 0
+    property real carriedOpacity: 1
+    property int landTile: -1       // the strip's tile it was put down on
+    // Where it would go: half of a window ({address, side, x, y, w, h}, the
+    // half's own window as dwindle will lay it out), or a tile of the strip.
+    property var dropZone: null
+    property int dropTile: -1
+    // How big the picture is while carried: lifted, smaller over half a
+    // window so that half shows, and over the strip a thumbnail hanging
+    // below the fingers (`hang`), clear of the tiles.
+    readonly property bool overStrip: grabbing && !landing && dropTile >= 0
+    property real lift: grabbing && !landing ? (overStrip ? Math.min(0.3, 160 / Math.max(1, closingOuter.width))
+                                                          : dropZone ? 0.5 : 0.85) : 1
+    Behavior on lift { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+    property real hang: overStrip ? 1 : 0
+    Behavior on hang { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+
+    // The picture, as big as `lift` has it, with the point that was under the
+    // fingers staying under them (or hanging below them).
+    readonly property rect carried: {
+        if (!grabbing)
+            return Qt.rect(0, 0, 0, 0)
+        if (landing)
+            return Qt.rect(lx, ly, lw, lh)
+        const o = closingOuter, w = o.width * lift, h = o.height * lift
+        const ox = (start.x - o.x) * lift * (1 - hang) + w / 2 * hang
+        const oy = (start.y - o.y) * lift * (1 - hang) - 56 * hang
+        return Qt.rect(finger.x - ox, finger.y - oy, w, h)
+    }
+
+    function handGrabbed(p, at) {
+        if (phase !== "idle")
+            return
+        plan = p
+        start = at
+        finger = at
+        gone = false
+        veil = 1
+        landing = false
+        landTile = -1
+        carriedOpacity = 1
+        dropZone = null
+        dropTile = -1
+        phase = "tracking"
+    }
+
+    function handCarried(at) {
+        if (phase !== "tracking" || !grabbing)
+            return
+        finger = at
+        dropTile = workspaces.tileAt(at.x, at.y)
+        dropZone = dropTile >= 0 ? null : zoneAt(at)
+    }
+
+    // The half of a window the hand is over: its left or right third gives
+    // that side, the middle the top or bottom half, whichever it is in.
+    function zoneAt(p) {
+        for (const w of plan.others) {
+            if (!inside(Qt.rect(w.x, w.y, w.w, w.h), p.x, p.y))
+                continue
+            const fx = (p.x - w.x) / w.w, fy = (p.y - w.y) / w.h
+            const side = fx < 0.3 ? "left" : fx > 0.7 ? "right" : fy < 0.5 ? "top" : "bottom"
+            return Object.assign({address: w.address, side: side}, halfOf(w, side))
+        }
+        return null
+    }
+
+    // Dwindle splits a window's node (the window, its border and half a gap
+    // all round) in two, and each half's window keeps its own border and gap.
+    function halfOf(w, side) {
+        const g = gapIn + border
+        if (side === "left" || side === "right") {
+            const node = w.w + 2 * g
+            return {x: side === "left" ? w.x : w.x + node / 2, y: w.y, w: node / 2 - 2 * g, h: w.h}
+        }
+        const node = w.h + 2 * g
+        return {x: w.x, y: side === "top" ? w.y : w.y + node / 2, w: w.w, h: node / 2 - 2 * g}
+    }
+
+    // Let go: onto a workspace (the picture goes into its tile), beside a
+    // window (into the half it gets), or anywhere else back where it was.
+    function handPutDown(at) {
+        if (phase !== "tracking" || !grabbing)
+            return
+        handCarried(at)
+        const r = carried
+        lx = r.x
+        ly = r.y
+        lw = r.width
+        lh = r.height
+        landing = true
+        const tile = dropTile >= 0 ? plan.workspaces[dropTile] : null
+        if (tile && tile.id !== plan.workspaceId) {
+            stage.sendToWorkspace(plan.address, tile.empty ? 0 : tile.id)
+            landTile = dropTile
+            const box = workspaces.tileBox(dropTile), h = box.height * 0.6, w = h * lw / Math.max(1, lh)
+            putDown(Qt.rect(box.x + (box.width - w) / 2, box.y + (box.height - h) / 2, w, h), 0)
+        } else if (dropZone) {
+            stage.placeWindow(plan.address, dropZone.address, dropZone.side)
+            putDown(Qt.rect(dropZone.x - border, dropZone.y - border, dropZone.w + 2 * border, dropZone.h + 2 * border), 1)
+        } else {
+            putDown(closingOuter, 1)
+        }
+        dropZone = null
+        dropTile = -1
+    }
+
+    function putDown(to, fade) {
+        phase = "settling"
+        landed.to = to
+        landed.fade = fade
+        landed.restart()
+    }
+
+    // The window was laid out (or sent away) as the hand let go, unseen and
+    // without animating; it shows again as its picture gets there.
+    SequentialAnimation {
+        id: landed
+        property rect to
+        property real fade: 1
+        ParallelAnimation {
+            NumberAnimation { target: win; property: "lx"; to: landed.to.x; duration: 300; easing.type: Easing.OutCubic }
+            NumberAnimation { target: win; property: "ly"; to: landed.to.y; duration: 300; easing.type: Easing.OutCubic }
+            NumberAnimation { target: win; property: "lw"; to: landed.to.width; duration: 300; easing.type: Easing.OutCubic }
+            NumberAnimation { target: win; property: "lh"; to: landed.to.height; duration: 300; easing.type: Easing.OutCubic }
+            NumberAnimation { target: win; property: "carriedOpacity"; to: landed.fade; duration: 300; easing.type: Easing.InQuad }
+        }
+        ScriptAction { script: win.finish() }
+    }
+
     function launchApp(appId) {
         launchingIcon = apps.icon(appId)
         phase = "launching"
@@ -771,7 +916,7 @@ Window {
         function onHandChanged() {
             if (stage.hand && win.phase === "holding")
                 win.letGo()
-            else if (stage.hand && (win.phase === "tracking" || win.phase === "dismiss") && !win.closing)
+            else if (stage.hand && (win.phase === "tracking" || win.phase === "dismiss") && !win.closing && !win.grabbing)
                 win.finish()
         }
         function onTopPulled(plan, at) { win.topPulled(plan, at) }
@@ -799,6 +944,9 @@ Window {
             if (win.phase === "tracking" && win.closing)
                 win.cancel()
         }
+        function onGrabStarted(plan, at) { win.handGrabbed(plan, at) }
+        function onGrabMoved(at) { win.handCarried(at) }
+        function onGrabEnded(at) { win.handPutDown(at) }
         function onPinched(direction) { clipToast.show(direction === "in" ? "copy" : "paste") }
         function onCopied() { clipToast.show("copied") }
         function onSwiped(direction) {
@@ -956,20 +1104,72 @@ Window {
             }
         }
 
+        // Where a carried window would go: the half of the window under it.
+        Rectangle {
+            id: zone
+            property rect box: Qt.rect(0, 0, 0, 0)
+            readonly property var at: win.dropZone
+            onAtChanged: if (at) box = Qt.rect(at.x - win.border, at.y - win.border, at.w + 2 * win.border, at.h + 2 * win.border)
+            visible: win.grabbing && opacity > 0
+            opacity: win.grabbing && win.dropZone && !win.landing ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: 140 } }
+            x: box.x
+            y: box.y
+            width: box.width
+            height: box.height
+            Behavior on x { enabled: zone.opacity > 0; NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+            Behavior on y { enabled: zone.opacity > 0; NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+            Behavior on width { enabled: zone.opacity > 0; NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+            Behavior on height { enabled: zone.opacity > 0; NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+            radius: win.look && win.look.rounding ? win.look.rounding + win.border : 0
+            color: Qt.rgba(win.glowColor.r, win.glowColor.g, win.glowColor.b, 0.25)
+            border.width: 3
+            border.color: win.glowColor
+        }
+
+        WorkspaceStrip {
+            id: workspaces
+            objectName: "workspaceStrip"
+            style: style
+            accent: win.glowColor
+            iconSource: appClass => win.iconUrl(win.iconFor(appClass))
+            tiles: win.grabbing ? win.plan.workspaces : []
+            lit: win.landing ? win.landTile : win.dropTile
+            readonly property bool shown: win.grabbing && (!win.landing || win.landTile >= 0) && win.phase !== "revealing"
+            x: (win.width - width) / 2
+            y: shown ? win.usable.y + 14 : win.usable.y - height - 20
+            opacity: shown ? 1 : 0
+            visible: opacity > 0
+            Behavior on y { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
+            Behavior on opacity { NumberAnimation { duration: 200 } }
+        }
+
+        // A window carried casts a shadow, as lifted off the screen.
+        RectangularShadow {
+            visible: win.grabbing && win.showing
+            x: win.carried.x
+            y: win.carried.y + 18
+            width: win.carried.width
+            height: win.carried.height
+            radius: win.look && win.look.rounding ? win.look.rounding + win.border : 0
+            blur: 48
+            color: Qt.rgba(0, 0, 0, 0.45 * win.carriedOpacity * (win.landing ? 0.5 : 1))
+        }
+
         // The window itself, following the fingers down and a little smaller
-        // the farther it goes.
+        // the farther it goes; or carried where they take it.
         WindowFrame {
             visible: win.showing
             // The picture is opaque; a see-through window's shows as the window
             // does, as one: frame and picture together, not each on its own.
-            opacity: win.plan && win.plan.opacity !== undefined ? win.plan.opacity : 1
+            opacity: (win.plan && win.plan.opacity !== undefined ? win.plan.opacity : 1) * (win.grabbing ? win.carriedOpacity : 1)
             layer.enabled: opacity < 1
-            x: win.closingOuter.x
-            y: win.closingOuter.y + win.pull
-            width: win.closingOuter.width
-            height: win.closingOuter.height
+            x: win.grabbing ? win.carried.x : win.closingOuter.x
+            y: win.grabbing ? win.carried.y : win.closingOuter.y + win.pull
+            width: win.grabbing ? win.carried.width : win.closingOuter.width
+            height: win.grabbing ? win.carried.height : win.closingOuter.height
             transformOrigin: Item.Top
-            scale: 1 - 0.08 * Math.min(1, Math.max(0, win.pull) / Math.max(1, win.closingOuter.height))
+            scale: win.grabbing ? 1 : 1 - 0.08 * Math.min(1, Math.max(0, win.pull) / Math.max(1, win.closingOuter.height))
             border: win.border
             rounding: win.look && win.look.rounding !== undefined ? win.look.rounding : 0
             colors: win.look ? win.look.active : null

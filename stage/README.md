@@ -21,6 +21,7 @@ the same the other way. Pull the scratchpad console down from the top.
 | Push up on the dimmed screen or from the bottom edge, with the console down | Takes the console up with the finger; a short push puts it back. A tap on the dimmed screen sends it up too |
 | Hold the **line between two windows** (0.2 s, it lights up), then drag | Both windows follow the line, resized as it moves (or as frosted pictures, see below); let go and it lands on a third, a half or two thirds. Pushed to the screen's edge, a single window leaves for an empty workspace of its own |
 | Two fingers pulled **down** on a window | The window follows them and, let go far enough or flicked, slides off and closes; a short pull puts it back |
+| Two fingers **held still** on a window (half a second) | The window lifts and follows your fingers. Put it on a side of another window to share that window's place (its left or right third for beside, the middle for above or below), or on a workspace in the strip that comes down along the top (the last one, +, is a new one) to move it there. Anywhere else it goes back |
 | Three fingers sideways | Slides this workspace aside for the next or previous one, following your fingers; a quarter of the way or a flick switches, less goes back. Past the last workspace with windows there is one empty one, to start something new on |
 | Three fingers up | Maximizes the focused window |
 | Three fingers down | Pulls the window down, as with two |
@@ -71,6 +72,19 @@ while you pull.
 Try it without touching: `stage simulate pull 1150 300 1150 650`, then
 `stage simulate release`.
 
+Carrying a window: once two fingers have rested on it for half a second
+(moving first is a pull, which closes), the window becomes a picture with a
+shadow, a little smaller, and its place stays empty while you carry it. Over
+another window, the half it would take lights up in the theme's accent and the
+picture shrinks so you can see it; let go and dwindle splits that window there,
+so two windows put on two halves make quarters. Over the strip of workspaces
+the picture becomes a thumbnail below your fingers and the tile under them
+lights up; let go and the window moves to that workspace and you stay where you
+are. Any window can be carried; a floating or maximized one only to another
+workspace. Try it without touching: `stage simulate grab X Y X2 Y2` rests two
+fingers at X Y long enough to lift the window there and carries it to X2 Y2,
+then `stage simulate release`.
+
 Holding a line between windows: stage keeps a grip about 36 px wide along
 every line where tiled windows meet, reaching a little into the windows on
 both sides, so the apps never get that touch (a browser would open its menu
@@ -119,6 +133,8 @@ stage console open             # bring the console down; also close
 stage simulate drag 1693 600 1200 600   # a finger without a hand, still held;
 stage simulate release                  # then release, pick APP or cancel
 stage simulate pinch in                 # three fingers copying; out pastes
+stage simulate grab 400 500 1500 500    # two fingers lift a window and carry it;
+                                        # then release
 stage quit
 ```
 
