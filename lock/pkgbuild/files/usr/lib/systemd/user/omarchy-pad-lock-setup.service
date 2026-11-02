@@ -1,0 +1,13 @@
+# Omarchy Pad: a user's lock screen gets the on-screen keyboard at their first login, before the session starts, so
+# the shell starts with it (omarchy-pad-lock-setup). A user who goes back to Omarchy's lock screen keeps it.
+[Unit]
+Description=Omarchy Pad: the lock screen with the on-screen keyboard, once per user
+ConditionUser=!@system
+Before=graphical-session-pre.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/omarchy-pad-lock-setup --first-login
+
+[Install]
+WantedBy=graphical-session-pre.target

@@ -1,0 +1,17 @@
+# Omarchy Pad: logging in by touch. SDDM's greeter has no on-screen keyboard, so SDDM logs the owner in by itself, into
+# Omarchy's session started locked (omarchy-pad.desktop), and the password is typed on the lock screen's keyboard.
+#
+# Set once, for the owner the first-boot setup made (it leaves login-pending). Not on the first boot after it: Omarchy
+# logs the owner in once itself there (/etc/sddm.conf.d/autologin.conf, removed before the next login by
+# omarchy-provision-autologin-once.service), and that session sets up the lock screen with the keyboard. On an
+# encrypted install Omarchy keeps its autologin for good (the disk's passphrase is the login), and this never runs.
+[Unit]
+Description=Omarchy Pad: log the owner in by touch, on the lock screen
+ConditionPathExists=/var/lib/omarchy-pad/login-pending
+ConditionPathExists=!/etc/sddm.conf.d/autologin.conf
+After=omarchy-provision-owner.service omarchy-provision-autologin-once.service
+Before=display-manager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/omarchy-pad/login-setup

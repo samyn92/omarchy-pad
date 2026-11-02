@@ -1,0 +1,21 @@
+# omarchy-pad-lock: Omarchy's lock screen with floatkey's keyboard, for each user who logs in (an autostart entry sets
+# it up once), and on a machine whose owner was set up with it, the login on that lock screen. See ../README.md.
+pkgname=omarchy-pad-lock
+pkgver=0.1
+pkgrel=1
+pkgdesc="Omarchy Pad: Omarchy's lock screen with an on-screen keyboard, and logging in on it by touch"
+arch=(any)
+license=(MIT)
+depends=(omarchy jq uwsm hyprland sddm)
+optdepends=('floatkey: the keyboard layouts set for floatkey (else US)')
+
+package() {
+  local lock="$startdir/.." floatkey="$startdir/../../floatkey/src" share="$pkgdir/usr/share/omarchy-pad/lock"
+  cp -a --no-preserve=ownership "$startdir/files/." "$pkgdir/"
+  install -Dm644 -t "$share" "$lock/manifest.json" "$lock/LockView.qml" "$lock/LockKeyboard.qml" \
+    "$floatkey/KeyIcon.qml" "$floatkey/layouts.js"
+  install -Dm755 "$lock/hooks/omarchy-pad-lock.hook" "$share/omarchy-pad-lock.hook"
+  install -Dm755 "$lock/bin/omarchy-pad-lock-setup" "$pkgdir/usr/bin/omarchy-pad-lock-setup"
+  install -Dm755 "$lock/../tablet/bin/omarchy-pad-lock-at-start" "$pkgdir/usr/bin/omarchy-pad-lock-at-start"
+  install -Dm644 "$lock/README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

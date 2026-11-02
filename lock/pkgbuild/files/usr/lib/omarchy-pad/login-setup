@@ -1,0 +1,15 @@
+#!/bin/sh
+# omarchy-pad-login.service: SDDM logs the owner in by itself from now on, into the session that starts on the lock
+# screen. The owner is the user the first-boot setup left as SDDM's last one. Relogin brings a logout back to the
+# lock screen too, instead of to SDDM's greeter.
+set -eu
+user=$(sed -n 's/^User=//p' /var/lib/sddm/state.conf 2>/dev/null | head -n 1)
+if [ -z "$user" ] || ! id -u "$user" >/dev/null 2>&1; then
+  echo "no owner in /var/lib/sddm/state.conf; SDDM keeps its greeter"
+  exit 0
+fi
+mkdir -p /etc/sddm.conf.d
+printf '# Omarchy Pad (omarchy-pad-login.service): %s logs in by touch, on the lock screen\n[Autologin]\nUser=%s\nSession=omarchy-pad.desktop\nRelogin=true\n' \
+  "$user" "$user" >/etc/sddm.conf.d/20-omarchy-pad-autologin.conf
+rm -f /var/lib/omarchy-pad/login-pending
+echo "$user logs in on the lock screen from now on"

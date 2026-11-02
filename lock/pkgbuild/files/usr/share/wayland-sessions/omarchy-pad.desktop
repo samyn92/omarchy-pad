@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Omarchy Pad
+Comment=Omarchy's Hyprland session (uwsm), starting on the lock screen, for logging in by touch
+Exec=uwsm start -g -1 -e -D Hyprland -- hyprland.desktop -- --locked-cmd /usr/bin/omarchy-pad-lock-at-start
+TryExec=uwsm
+Type=Application
+DesktopNames=Hyprland

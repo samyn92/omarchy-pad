@@ -61,6 +61,29 @@ reads this checkout. To go back to Omarchy's lock screen:
 omarchy plugin remove omarchy-pad.lock
 ```
 
+## As a package, and logging in by touch
+
+`pkgbuild/` makes `omarchy-pad-lock`, which the Omarchy Pad install image
+carries. It holds the keyboard's files in `/usr/share/omarchy-pad/lock` and
+`omarchy-pad-lock-setup`, which does what `bin/install` and
+`bin/install-hook` do from those files. A user service runs it once for each
+user at their first login, before the session starts, so a new owner's lock
+screen has the keyboard from the start; a user who goes back to Omarchy's lock
+keeps it.
+
+It also logs the owner in by touch, on a tablet whose owner was set up with
+the package in place (Omarchy's first-boot owner setup). SDDM's greeter has
+no on-screen keyboard, so from the second boot on SDDM logs the owner in by
+itself, into Omarchy's session started already locked (`omarchy-pad.desktop`,
+Hyprland's `--locked-cmd`), and the password is typed on this lock screen. A
+logout comes back to the lock screen too. The first boot after the setup is
+Omarchy's own: it logs the new owner in once, straight to the desktop. A tablet set up before keeps its login as it is
+(`tablet/install-login.sh` sets up the same by hand), and an encrypted install
+keeps Omarchy's, where the disk's passphrase is the login.
+
+To go back to SDDM's password greeter, remove
+`/etc/sddm.conf.d/20-omarchy-pad-autologin.conf`.
+
 ## Try it without locking
 
 ```bash

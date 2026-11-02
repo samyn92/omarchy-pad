@@ -1,0 +1,3 @@
+/pkgbuild/pkg/
+/pkgbuild/src/
+*.pkg.tar.*

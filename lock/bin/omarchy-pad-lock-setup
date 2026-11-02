@@ -1,0 +1,91 @@
+#!/bin/bash
+
+# The packaged bin/install (omarchy-pad-lock): switches the user's lock screen
+# to omarchy-pad.lock, assembled from Omarchy's own lock plugin and the
+# keyboard's files in /usr/share/omarchy-pad/lock, and installs the hook that
+# keeps it up to date with Omarchy.
+#
+#   omarchy-pad-lock-setup                set it up, or again
+#   omarchy-pad-lock-setup --first-login  only the first time for this user;
+#                                         what omarchy-pad-lock-setup.service
+#                                         runs at each login, so a user who
+#                                         went back to Omarchy's lock keeps it
+#
+# At login it runs before the session starts (graphical-session-pre.target)
+# and switches the lock in shell.json itself, before the shell reads it. The
+# session may start locked (omarchy-pad.desktop), and a lock service swapped
+# in a shell that holds the lock leaves Hyprland with a dead lock screen. Run
+# by hand in a session, it asks the running shell instead, and refuses while
+# the session is locked.
+
+set -euo pipefail
+
+files=/usr/share/omarchy-pad/lock
+omarchy=${OMARCHY_PATH:-/usr/share/omarchy}
+upstream="$omarchy/shell/plugins/lock"
+id=omarchy-pad.lock
+source_id=omarchy.lock
+target="$HOME/.config/omarchy/plugins/$id"
+config="$HOME/.config/omarchy/shell.json"
+done_file="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-pad/lock-setup"
+
+log() {
+  echo "$*"
+  logger -t omarchy-pad-lock-setup -- "$*" 2>/dev/null || true
+}
+
+if [[ ${1:-} == "--first-login" && -e $done_file ]]; then
+  exit 0
+fi
+
+[[ -f $upstream/LockView.qml && -f $upstream/Service.qml ]] || {
+  log "No Omarchy lock plugin at $upstream"
+  exit 1
+}
+
+shell_lock=$(OMARCHY_SHELL_IPC_TIMEOUT=1s timeout 5 omarchy-shell lock status 2>/dev/null || true)
+if [[ -n $shell_lock ]] && jq -e '.secure == true or .requested == true' <<<"$shell_lock" >/dev/null 2>&1; then
+  log "The session is locked; unlock it and run omarchy-pad-lock-setup again"
+  exit 1
+fi
+
+stage=$(mkdir -p "$(dirname "$target")" && mktemp -d "$(dirname "$target")/.lock-build.XXXXXX")
+trap 'rm -rf "$stage"' EXIT
+cp -aL "$upstream/." "$stage/"
+mv "$stage/LockView.qml" "$stage/UpstreamLockView.qml"
+cp "$files/manifest.json" "$files/LockView.qml" "$files/LockKeyboard.qml" "$files/KeyIcon.qml" "$files/layouts.js" "$stage/"
+rm -rf "$target"
+mv "$stage" "$target"
+trap - EXIT
+
+if [[ -n $shell_lock ]]; then
+  omarchy-shell shell rescanPlugins >/dev/null
+  for _ in {1..40}; do
+    omarchy-plugin-list --json | jq -e --arg id "$id" 'any(.[]; .id == $id)' >/dev/null && break
+    sleep 0.05
+  done
+  omarchy-plugin-enable "$id" >/dev/null
+else
+  # What the shell's enable writes for a clone that takes over a built-in: the
+  # clone in plugins[], the built-in in disabledPlugins[], and a note to turn
+  # the built-in back on when the clone is removed. With no shell.json of the
+  # user's yet, the shell's defaults are the starting point, as it uses them.
+  from=$config
+  [[ -s $from ]] || from="$omarchy/config/omarchy/shell.json"
+  jq -e '.version == 1' "$from" >/dev/null 2>&1 || {
+    log "$from is not a shell config the shell can use; $id is in place but not enabled"
+    exit 1
+  }
+  mkdir -p "$(dirname "$config")"
+  jq --arg id "$id" --arg source "$source_id" '
+    .plugins = ([(.plugins // [])[] | select(.id != $id)] + [{id: $id}])
+    | .disabledPlugins = (((.disabledPlugins // []) - [$source]) + [$source])
+    | .cloneSourceRestores = (((.cloneSourceRestores // []) - [$id]) + [$id])
+  ' "$from" >"$config.omarchy-pad-lock"
+  mv "$config.omarchy-pad-lock" "$config"
+fi
+omarchy-hook-install post-update "$files/omarchy-pad-lock.hook" >/dev/null
+
+mkdir -p "$(dirname "$done_file")"
+touch "$done_file"
+log "The lock screen is now $id; 'omarchy plugin remove $id' goes back to Omarchy's"
