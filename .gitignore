@@ -1,2 +1,9 @@
 .claude/worktrees/
 .claude/settings.local.json
+# makepkg
+**/pkgbuild/src/
+**/pkgbuild/pkg/
+firstboot/buffybox/src/
+firstboot/buffybox/pkg/
+firstboot/buffybox/*.tar.gz
+*.pkg.tar.*

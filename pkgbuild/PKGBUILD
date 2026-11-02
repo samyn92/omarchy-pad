@@ -1,0 +1,10 @@
+# omarchy-pad: Omarchy Pad as a whole, what a touch tablet installs on top of Omarchy. It holds no files: each part is
+# its own package (see ../README.md), and a device package (the OnePlus Pad 4's iceland-device) adds what its hardware
+# needs, such as the panel's scale.
+pkgname=omarchy-pad
+pkgver=0.1
+pkgrel=1
+pkgdesc="Omarchy Pad: Omarchy for touch tablets (on-screen keyboard, gestures, tablet session, touch shell, touch login)"
+arch=(any)
+license=(MIT)
+depends=(floatkey stage omarchy-pad-tablet omarchy-pad-shell omarchy-pad-lock omarchy-pad-firstboot)
