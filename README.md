@@ -23,3 +23,9 @@ The tablet session is set up once, on the tablet, after the first login:
 ```bash
 tablet/install-tablet-setup.sh
 ```
+
+Logging in by touch comes with the `omarchy-pad-lock` package
+(`lock/pkgbuild/`), which the install image carries: SDDM logs the owner in by
+itself, into a session that starts locked, and the password is typed on the
+lock screen's keyboard instead of in SDDM's greeter, which has none. See
+[lock](lock/README.md) for how it is set up and how to go back.

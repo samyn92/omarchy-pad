@@ -1,0 +1,41 @@
+#!/bin/bash
+# omarchy-pad-lock-at-start: the --locked-cmd of the Omarchy Pad session (/usr/share/wayland-sessions/omarchy-pad.desktop,
+# from the omarchy-pad-lock package).
+#
+# SDDM logs the owner in by itself, and Hyprland starts with the session already locked, drawing nothing until a
+# lock screen takes the lock over. That lock screen is Omarchy's own, so the password is typed on the lock screen,
+# where the tablet has an on-screen keyboard, instead of in SDDM's greeter, where it has none. Omarchy's shell
+# takes over a lock it finds at start by itself; this asks it as well, the way omarchy-restart-shell relocks, and
+# logs when the lock screen is up or never came.
+#
+# OMARCHY_PAD_LOCK_IPC replaces omarchy-shell, for the nested test (lock/tests/try --start-locked).
+set -u
+
+export OMARCHY_PATH=${OMARCHY_PATH:-/usr/share/omarchy}
+ipc=${OMARCHY_PAD_LOCK_IPC:-$OMARCHY_PATH/bin/omarchy-shell}
+# Giving up unlocks nothing, it only stops asking, so the wait can be long: a slow first start (an emulated install
+# took about four minutes) still ends on the lock screen.
+timeout=${OMARCHY_PAD_LOCK_TIMEOUT:-600}
+
+log() {
+  logger -t omarchy-pad-lock-at-start -- "$*" 2>/dev/null || true
+}
+
+# The shell needs a few seconds to start and load its plugins; until then it doesn't answer, or answers that its
+# lock can't lock yet. A lock asked for is followed until it is secure.
+deadline=$((SECONDS + timeout))
+while ((SECONDS < deadline)); do
+  state=$(OMARCHY_SHELL_IPC_TIMEOUT=0.5s "$ipc" lock status 2>/dev/null |
+    jq -r 'if .secure == true then "secure" elif .requested == true then "locking" else "idle" end' 2>/dev/null)
+  case $state in
+    secure)
+      log "the lock screen is up after ${SECONDS} s"
+      exit 0
+      ;;
+    idle) OMARCHY_SHELL_IPC_TIMEOUT=0.5s "$ipc" lock lock >/dev/null 2>&1 ;;
+  esac
+  sleep 0.2
+done
+
+log "no answer from the shell after ${timeout} s: Hyprland stays locked, and the shell takes the lock over when it starts"
+exit 1

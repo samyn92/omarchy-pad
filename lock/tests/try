@@ -7,11 +7,27 @@
 #   tests/try                no keyboard attached (a fake, empty /sys/class/input;
 #                            tests/plug adds and removes a keyboard there)
 #   tests/try --real-input   whatever is really attached
+#   tests/try --start-locked SCRIPT
+#                            start Hyprland already locked, the way the touch
+#                            login does (the omarchy-pad-lock package's session),
+#                            with SCRIPT (bin/omarchy-pad-lock-at-start) as its
+#                            --locked-cmd talking to the harness instead of
+#                            omarchy-shell; see SCRIPT's log in WORK_DIR/locked-cmd.log
 
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")/.." && pwd)
 shell_root="${OMARCHY_PATH:-/usr/share/omarchy}/shell"
+real_input=0
+locked_script=""
+while (($#)); do
+  case $1 in
+    --real-input) real_input=1 ;;
+    --start-locked) locked_script=$(realpath "${2:?--start-locked needs a script}"); shift ;;
+    *) echo "unknown option $1" >&2; exit 2 ;;
+  esac
+  shift
+done
 work=$(mktemp -d "${TMPDIR:-/tmp}/lock-try.XXXXXX")
 
 mkdir -p "$work/shell/plugins" "$work/pam"
@@ -32,7 +48,7 @@ account required pam_permit.so
 PAM
 
 input_env=""
-if [[ ${1:-} != "--real-input" ]]; then
+if ((!real_input)); then
   # An empty seat for tests/plug to add a keyboard to.
   mkdir -p "$work/input/sys/class/input" "$work/input/dev/input" "$work/input/run/udev/data"
   input_env="hl.env(\"OMARCHY_INPUT_ROOT\", \"$work/input\")"
@@ -55,12 +71,35 @@ hl.on("hyprland.start", function ()
 end)
 LUA
 
+locked_args=()
+if [[ -n $locked_script ]]; then
+  # Stands in for omarchy-shell: the two calls the login script makes, answered
+  # by the harness, so the nested session never reaches the real shell.
+  cat >"$work/shell-ipc" <<SHIM
+#!/bin/bash
+case "\$1 \$2" in
+  "lock status") qs -p $work/shell ipc --any-display call harness state | jq -c '{secure: (.secure // false), requested: .locked}' ;;
+  "lock lock") qs -p $work/shell ipc --any-display call harness lock ;;
+  *) exit 1 ;;
+esac
+SHIM
+  cat >"$work/locked-cmd" <<CMD
+#!/bin/bash
+export OMARCHY_PAD_LOCK_IPC=$work/shell-ipc
+logger() { shift 3; echo "\$(date +%T) \$*" >>$work/locked-cmd.log; }
+export -f logger
+exec "$locked_script" >>$work/locked-cmd.log 2>&1
+CMD
+  chmod +x "$work/shell-ipc" "$work/locked-cmd"
+  locked_args=(--locked-cmd "$work/locked-cmd")
+fi
+
 echo "Work dir: $work"
 echo "Lock it:  qs -p $work/shell ipc --any-display call harness lock"
 echo "State:    qs -p $work/shell ipc --any-display call harness state"
 [[ -z $input_env ]] || echo "Keyboard: tests/plug $work (--unplug)"
 status=0
-start-hyprland -- --config "$work/hyprland.lua" || status=$?
+start-hyprland -- --config "$work/hyprland.lua" "${locked_args[@]}" || status=$?
 # The shell's device watcher outlives a shell that goes down with its
 # compositor; the fake seat's one is recognisable by its path.
 [[ -z $input_env ]] || pkill -f -- "inotifywait .*$work/input" || true

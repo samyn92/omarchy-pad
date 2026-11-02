@@ -77,9 +77,11 @@ no on-screen keyboard, so from the second boot on SDDM logs the owner in by
 itself, into Omarchy's session started already locked (`omarchy-pad.desktop`,
 Hyprland's `--locked-cmd`), and the password is typed on this lock screen. A
 logout comes back to the lock screen too. The first boot after the setup is
-Omarchy's own: it logs the new owner in once, straight to the desktop. A tablet set up before keeps its login as it is
-(`tablet/install-login.sh` sets up the same by hand), and an encrypted install
-keeps Omarchy's, where the disk's passphrase is the login.
+Omarchy's own: it logs the new owner in once, straight to the desktop. A
+tablet set up before keeps its login as it is (`sudo
+/usr/lib/omarchy-pad/login-setup` turns it on by hand, for the user who last
+logged in), and an encrypted install keeps Omarchy's, where the disk's
+passphrase is the login.
 
 To go back to SDDM's password greeter, remove
 `/etc/sddm.conf.d/20-omarchy-pad-autologin.conf`.
@@ -95,3 +97,6 @@ there is `test`, checked by a throwaway PAM service, so wrong guesses never
 count against the real account. It starts with no keyboard attached;
 `tests/plug WORK_DIR` connects a fake one and `--unplug` takes it out again.
 `tests/try --real-input` uses the devices that are really there.
+`tests/try --start-locked bin/omarchy-pad-lock-at-start` starts the nested
+Hyprland already locked, the way the touch login does, and lets that script
+bring the lock screen up.
