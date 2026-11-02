@@ -38,6 +38,9 @@ class Stage : public QObject {
     // finger edge gestures leave them alone.
     Q_PROPERTY(bool hand READ hand NOTIFY handChanged)
     Q_PROPERTY(QRectF consoleRect READ consoleRect NOTIFY consoleOpenChanged)
+    // The console is down with no window in it: a swipe in from the right
+    // edge opens an app there.
+    Q_PROPERTY(bool consoleEmpty READ consoleEmpty NOTIFY consoleOpenChanged)
     // How Hyprland draws windows: gapsIn, gapsOut, border, rounding, and the
     // active and inactive border colors (#aarrggbb lists, with an angle).
     Q_PROPERTY(QVariantMap look READ look NOTIFY lookChanged)
@@ -68,6 +71,7 @@ public:
 
     bool consoleOpen() const { return m_consoleOpen; }
     QRectF consoleRect() const { return m_consoleRect; }
+    bool consoleEmpty() const { return m_consoleEmpty; }
     QVariantMap look() const { return m_look; }
     bool hand() const { return m_hand; }
     QVariantList dividers() const { return m_dividers; }
@@ -143,7 +147,10 @@ public:
     // Pure helpers, kept apart for the tests.
     static QVariantMap pickTarget(const QString &edge, qreal x, qreal y, const QVariantList &windows,
                                   const QRectF &usable, int limit);
-    static QRectF consoleBox(const QRectF &usable, int windows);
+    // Where an empty scratchpad's first window goes: the whole usable area,
+    // inside Hyprland's outer gap and border (`inset`), as Omarchy's
+    // scratchpad is a full-size workspace.
+    static QRectF consoleBox(const QRectF &usable, qreal inset);
     // The window a hand at x, y is on, of the visible ones (as from
     // visibleWindows), stacked the way Hyprland draws them. Empty when there
     // is none.
@@ -172,11 +179,21 @@ signals:
     void liveResizeChanged();
     void lookChanged();
     void dividersChanged();
-    // A finger on the bar pulls the console down; the bar sends its pull over
-    // the command socket (`stage top begin|follow|end`) and these follow it.
+    // The scratchpad pulled down from the top: by two fingers on the bar, or
+    // by whatever sends its pull over the command socket (`stage top
+    // begin|follow|end`).
     void topPulled(const QVariantMap &plan, const QPointF &at);
     void topMoved(const QPointF &at);
     void topReleased(const QPointF &at, bool open);
+    // Two fingers pulled down from the bar bring the scratchpad the same way;
+    // where they let go, the overlay decides whether it opens.
+    void topLetGo(const QPointF &at);
+    // Two fingers push the open scratchpad up: it follows them, and where
+    // they let go (`lifted`, rather than parting) the overlay decides
+    // whether it goes.
+    void liftStarted(const QPointF &at);
+    void liftMoved(const QPointF &at);
+    void liftEnded(const QPointF &at, bool lifted);
     void snapshotReady(int id, bool ok);
     void placed(bool ok);
     void handChanged();
@@ -211,6 +228,8 @@ signals:
 
 private:
     void sendClipboardKeys(const QString &action);
+    // Says `line` to every connected bar.
+    void tellBars(const QByteArray &line);
 
     QProcess m_clipboardWatch;
     QElapsedTimer m_clipboardSince;
@@ -238,7 +257,9 @@ private:
     int neighbour(const Monitor &m, const QString &direction) const;
     int pictureOf(const QVariantMap &window);
     void prefetchSlide();
-    void withoutAnimation(const QString &leaf, const std::function<void()> &change);
+    // `inherits`: the animation a leaf Hyprland has no setting for follows,
+    // which it is given back as afterwards.
+    void withoutAnimation(const QString &leaf, const std::function<void()> &change, const QString &inherits = {});
     void handle(const QList<Fingers::Event> &events);
     void onEvent(const QString &name, const QString &data);
     void applyInputRegion(bool force);
@@ -258,7 +279,18 @@ private:
     QVariantList m_dividers;
     QTimer m_dividersLater;
     bool m_consoleOpen = false;
+    bool m_consoleEmpty = false;
     QRectF m_consoleRect;
+    // Where the console's windows are, or would be: their bounds, or the
+    // box Omarchy gives a first one.
+    void refreshConsole();
+    qreal consoleInset() const;
+    // A hand that landed on the bar, which pulls the scratchpad down.
+    bool m_topHand = false;
+    bool m_topPulling = false;
+    bool m_lifting = false;
+    // How far below the bar a hand may land and still be on it.
+    static constexpr qreal TopHandSlack = 24;
     QList<QRect> m_inputRects;
 
     // The window being opened into the space the launcher had.

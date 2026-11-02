@@ -3,7 +3,7 @@
 iPad-style multitasking for Omarchy on a tablet. Drag in from the right edge
 and the window under your finger gets smaller: the room it gives up becomes the
 launcher, and the app you tap opens there. Drag up from the bottom edge to do
-the same the other way. Pull the scratchpad console down from the top.
+the same the other way. Pull the scratchpad down from the top with two fingers.
 
 ![Dragging in from the right edge](docs/dragging.png)
 
@@ -17,8 +17,8 @@ the same the other way. Pull the scratchpad console down from the top.
 |---|---|
 | One finger in from the **right edge** | Shrinks the window beside your finger sideways; the launcher fills the room |
 | One finger up from the **bottom edge** | Shrinks the window above your finger upward; the launcher fills the room |
-| One finger down from the middle of the **bar** (or the top edge without Omarchy Pad's bar) | Pulls Omarchy's scratchpad console down with the finger; an empty one offers the launcher |
-| Push up on the dimmed screen or from the bottom edge, with the console down | Takes the console up with the finger; a short push puts it back. A tap on the dimmed screen sends it up too |
+| Two fingers down from the **bar**, anywhere along it | Pulls Omarchy's scratchpad down with the fingers, over the whole screen, empty or not. An empty one says how to bring an app: swipe in from the right edge, and the launcher opens in its place. (Without Omarchy Pad's bar, one finger down from the top edge does it too) |
+| Two fingers pushed **up** anywhere, with the scratchpad down | Takes it up with the fingers, as it came down; a short push puts it back. One finger up from the bottom edge does the same, and a tap on the dimmed screen around it (if any shows) sends it up too |
 | Hold the **line between two windows** (0.2 s, it lights up), then drag | Both windows follow the line, resized as it moves (or as frosted pictures, see below); let go and it lands on a third, a half or two thirds. Pushed to the screen's edge, a single window leaves for an empty workspace of its own |
 | Two fingers pulled **down** on a window | The window follows them and, let go far enough or flicked, slides off and closes; a short pull puts it back |
 | Two fingers **held still** on a window (half a second) | The window lifts and follows your fingers (one is enough once it's up). Put it on a side of another window to share that window's place (its left or right third for beside, the middle for above or below), or on a workspace in the strip that comes down along the top (the last one, +, is a new one) to move it there. Anywhere else it goes back |
@@ -113,18 +113,22 @@ stage resize pictures   # or: stage resize live; remembered from then on
 stage resize            # which one it does now
 ```
 
-Omarchy Pad's bar (`../shell/bar`) hands a pull from its middle to stage over
-the command socket: `stage top begin X Y`, `stage top follow DISTANCE`,
-`stage top end 1|0`. It stays connected and says `bar here`, and while it is
-connected stage leaves the top edge to the bar, so a pull from the top always
-does what the bar's third under the finger does.
+Omarchy Pad's bar (`../shell/bar`) stays connected to stage's command socket
+and says `bar here`, and while it is connected stage leaves the top edge to the
+bar, so one finger from the top always does what the bar's third under it does.
+Two fingers that land on the bar (or within 24 px under it) are stage's: they
+pull the scratchpad rather than a window. Anything else can pull it down too
+over the socket: `stage top begin X Y`, `stage top follow DISTANCE`,
+`stage top end 1|0`.
 
 A workspace holds at most four windows (two each way), the console two. Past
 that, or splitting a window that already shares its width or height, the
 picture only gives a little and springs back, so you can feel there's no more
 room. While a docked keyboard owns the bottom edge, only the right and top work.
 
-On an empty workspace the right or bottom edge opens the launcher on the whole screen.
+On an empty workspace the right or bottom edge opens the launcher on the whole
+screen; in an empty console, the right edge opens it where the console's window
+will be.
 
 ![The scratchpad console coming down](docs/console.png)
 

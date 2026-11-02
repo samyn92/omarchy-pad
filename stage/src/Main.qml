@@ -76,7 +76,9 @@ Window {
     readonly property rect keptOuter: sideways
         ? Qt.rect(target.x - border, target.y - border, Math.max(0, boundary - gapIn - target.x + border), target.height + 2 * border)
         : Qt.rect(target.x - border, target.y - border, target.width + 2 * border, Math.max(0, boundary - gapIn - target.y + border))
-    readonly property rect roomOuter: fresh
+    readonly property rect roomOuter: fresh && plan.inConsole && plan.console
+        ? Qt.rect(plan.console.x - border, plan.console.y - border, plan.console.w + 2 * border, plan.console.h + 2 * border)
+        : fresh
         ? Qt.rect(usable.x + gapOut, usable.y + gapOut, usable.width - 2 * gapOut, usable.height - 2 * gapOut)
         : sideways
         ? Qt.rect(boundary + gapIn, target.y - border, Math.max(0, target.x + target.width + border - boundary - gapIn), target.height + 2 * border)
@@ -285,7 +287,7 @@ Window {
                     if (!liftHidden)
                         return finish()
                     phase = "leaving"
-                    stage.openConsole()
+                    handOver()
                     leaveTimer.start()
                 })
             }
@@ -323,21 +325,42 @@ Window {
         settle(0, finish)
     }
 
-    // Down it comes (the console opens, or an empty one offers apps), or back up.
+    // Down it comes, empty or not (an app goes into an empty one from the
+    // right edge, as anywhere), or back up.
     function settleTop(open) {
         if (!open) {
             settle(0, finish)
             return
         }
         settle(box.height, function () {
-            if (plan.empty) {
-                phase = "room"
-            } else {
-                phase = "leaving"
-                stage.openConsole()
-                leaveTimer.start()
-            }
+            phase = "leaving"
+            handOver()
+            leaveTimer.start()
         })
+    }
+
+    // Hyprland's console and the overlay's take over from each other in one
+    // refresh, so the screen is never dimmed twice, nor not at all: the
+    // overlay changes first, and Hyprland is asked once the overlay's frame
+    // with that change has reached the compositor. (Hyprland's own dimming
+    // comes and goes at once for these toggles, see Stage::openConsole.)
+    // `afterFrame` runs then; `frameStep` is 1 while waiting for a frame to
+    // take the change (one already being drawn may not have it), 2 while
+    // that frame is being drawn.
+    property var afterFrame: null
+    property int frameStep: 0
+    function onNextFrame(fn) {
+        afterFrame = fn
+        frameStep = 1
+    }
+    onAfterSynchronizing: if (frameStep === 1) frameStep = 2
+
+    // The console is down: the overlay's dimming goes and Hyprland opens it.
+    // The pictures stay until Hyprland says it's open.
+    property bool handedOver: false
+    function handOver() {
+        handedOver = true
+        onNextFrame(stage.openConsole)
     }
 
     // ---- the console from the bar, and back up ----
@@ -347,21 +370,45 @@ Window {
     readonly property bool lifting: plan !== null && plan.lift === true
     readonly property bool liftReady: lifting && plan.windows.every(w => ready[w.snapshot] === true)
     onLiftReadyChanged: {
-        // Pictures in, real console out, in the same frame.
+        // Pictures in, then the real console out, in the same refresh.
         if (liftReady && !liftHidden) {
             liftHidden = true
-            stage.hideConsole()
+            onNextFrame(stage.hideConsole)
         }
     }
 
     function beginLift() {
-        plan = stage.beginLift()
+        // Reset before the plan comes: with no pictures to wait for (an
+        // empty console), it takes the console over the moment it's set.
         ready = ({})
         samples = []
         veil = 1
         liftHidden = false
+        plan = stage.beginLift()
         phase = "tracking"
         pull = box.height
+    }
+
+    // Two fingers pushing the open console up, anywhere on it: the push from
+    // the bottom edge, for a hand.
+    property bool liftByHand: false
+    function handLifted(at) {
+        if (phase !== "idle")
+            return
+        start = Qt.point(at.x, at.y)
+        beginLift()
+        liftByHand = true
+    }
+    function handLiftMoved(at) {
+        if (liftByHand && phase === "tracking")
+            moved(at)
+    }
+    function handLiftEnded(at) {
+        if (!liftByHand || phase !== "tracking")
+            return
+        liftByHand = false
+        moved(at)
+        released(at)
     }
 
     function topPulled(p, at) {
@@ -413,7 +460,11 @@ Window {
         dropZone = null
         dropTile = -1
         fromTop = false
+        liftByHand = false
         liftHidden = false
+        handedOver = false
+        frameStep = 0
+        afterFrame = null
     }
 
     // ---- holding the line between two windows ----
@@ -645,6 +696,12 @@ Window {
     readonly property bool pictureInPlace: showing && closingPicture.status === Image.Ready
     onPictureInPlaceChanged: if (pictureInPlace && hidden === "") hideOnNextFrame = true
     onFrameSwapped: {
+        if (frameStep === 2) {
+            const fn = afterFrame
+            frameStep = 0
+            afterFrame = null
+            fn()
+        }
         if (!hideOnNextFrame || !pictureInPlace)
             return
         hideOnNextFrame = false
@@ -1017,7 +1074,12 @@ Window {
         function onConsoleOpenChanged() {
             if (win.phase === "leaving" && stage.consoleOpen) {
                 leaveTimer.stop()
-                fadeOut.start()
+                // The pictures are the console's windows where Hyprland now
+                // shows them: they go at once, not fading over them.
+                if (win.edge === "top")
+                    win.finish()
+                else
+                    fadeOut.start()
             }
         }
         // A hand puts down whatever one finger at an edge had started.
@@ -1037,6 +1099,17 @@ Window {
                 return
             win.moved(at)
             win.settleTop(open && win.plan.allowed)
+        }
+        // Two fingers from the bar let go: a quarter of the way down, or a
+        // flick, and the scratchpad opens.
+        function onLiftStarted(at) { win.handLifted(at) }
+        function onLiftMoved(at) { win.handLiftMoved(at) }
+        function onLiftEnded(at, lifted) { win.handLiftEnded(at) }
+        function onTopLetGo(at) {
+            if (!win.fromTop || win.phase !== "tracking")
+                return
+            win.moved(at)
+            win.settleTop(win.plan.allowed && (win.pull > win.box.height * 0.25 || win.speed() > 600))
         }
         // Hyprland has laid the windows out where the pictures were.
         function onDividersChanged() {
@@ -1158,7 +1231,7 @@ Window {
             visible: win.edge === "top" && (!win.lifting || win.liftHidden)
             anchors.fill: parent
             color: "black"
-            opacity: 0.6 * win.drop
+            opacity: win.handedOver ? 0 : 0.6 * win.drop
         }
 
         Item {
@@ -1201,14 +1274,9 @@ Window {
                 }
             }
 
-            Launcher {
+            ConsoleHint {
                 anchors.fill: parent
-                visible: win.edge === "top" && win.plan.empty === true
-                style: style
-                interactive: win.phase === "room"
-                opacity: win.phase === "launching" ? 0 : 1
-                Behavior on opacity { NumberAnimation { duration: 150 } }
-                onPicked: (appId) => win.launchApp(appId)
+                visible: win.edge === "top" && win.plan.empty === true && (!stage.consoleOpen || win.lifting)
             }
         }
 
@@ -1692,6 +1760,63 @@ Window {
         onUpdated: (touchPoints) => win.moved(touchPoints[0])
         onReleased: (touchPoints) => win.released(touchPoints[0])
         onCanceled: (touchPoints) => { if (win.phase === "tracking" && !win.closing) win.cancel() }
+    }
+
+    // An empty console, open: where an app would go, and how to bring one.
+    ConsoleHint {
+        id: openHint
+        readonly property rect box: stage.consoleRect
+        // Shown in the very frame the one that came down goes, never faded:
+        // half there, it would let the screen behind it show for a moment.
+        visible: stage.consoleOpen && stage.consoleEmpty
+                 && (win.phase === "idle" || win.phase === "leaving" && win.edge === "top")
+        x: box.x
+        y: box.y
+        width: box.width
+        height: box.height
+    }
+
+    component ConsoleHint: Rectangle {
+        id: hint
+        // Text has a `style` of its own, so the texts read the theme here.
+        readonly property QtObject ui: style
+        radius: win.look && win.look.rounding ? win.look.rounding + win.border : style.radius
+        // Solid, as an empty window would be: the screen behind it never
+        // shows through while Hyprland's dimming takes over from the
+        // overlay's.
+        color: hint.ui.panel
+        border.width: 1
+        border.color: style.edge
+        // The two things to do here, alike: open an app, or close it.
+        Column {
+            anchors.centerIn: parent
+            spacing: 36
+            Repeater {
+                model: [{glyph: "\u2190", text: "Swipe in from the right edge to open an app here"},
+                        {glyph: "\u2191\u2191", text: "Swipe up with two fingers to close"}]
+                delegate: Column {
+                    required property var modelData
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    spacing: 8
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: parent.modelData.glyph
+                        color: hint.ui.label
+                        opacity: 0.7
+                        font.family: hint.ui.font
+                        font.pixelSize: 34
+                    }
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: parent.modelData.text
+                        color: hint.ui.label
+                        opacity: 0.8
+                        font.family: hint.ui.font
+                        font.pixelSize: 15
+                    }
+                }
+            }
+        }
     }
 
     // What the clipboard just did, under the bar.

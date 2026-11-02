@@ -71,6 +71,9 @@ Stage::Stage(Hyprland *hyprland, Capture *capture, Snapshots *snapshots, Apps *a
     m_dividersLater.setSingleShot(true);
     m_dividersLater.setInterval(80);
     connect(&m_dividersLater, &QTimer::timeout, this, [this] {
+        // An app opened into the open console, or its last one gone.
+        if (m_consoleOpen)
+            refreshConsole();
         const Monitor m = monitor();
         QVariantList found;
         if (m.ok) {
@@ -115,8 +118,27 @@ Stage::Stage(Hyprland *hyprland, Capture *capture, Snapshots *snapshots, Apps *a
     const Monitor m = monitor();
     if (m.ok && m.special == Scratchpad) {
         m_consoleOpen = true;
-        m_consoleRect = consoleBox(m.usable.translated(-m.logical.topLeft()),
-                                   int(windowsOn(Scratchpad, m.logical.topLeft()).size()));
+        refreshConsole();
+    }
+}
+
+void Stage::refreshConsole()
+{
+    const Monitor m = monitor();
+    const QVariantList windows = windowsOn(Scratchpad, m.logical.topLeft());
+    QRectF rect = consoleBox(m.usable.translated(-m.logical.topLeft()), consoleInset());
+    if (!windows.isEmpty()) {
+        QRectF bounds;
+        for (const QVariant &v : windows) {
+            const QVariantMap w = v.toMap();
+            bounds = bounds.united(QRectF(w["x"].toReal(), w["y"].toReal(), w["w"].toReal(), w["h"].toReal()));
+        }
+        rect = bounds;
+    }
+    if (rect != m_consoleRect || windows.isEmpty() != m_consoleEmpty) {
+        m_consoleRect = rect;
+        m_consoleEmpty = windows.isEmpty();
+        emit consoleOpenChanged();
     }
 }
 
@@ -468,11 +490,14 @@ void Stage::refreshDividers()
         m_dividersLater.start();
 }
 
-QRectF Stage::consoleBox(const QRectF &usable, int windows)
+QRectF Stage::consoleBox(const QRectF &usable, qreal inset)
 {
-    const qreal tall = std::floor(usable.height() * 0.5);
-    const qreal wide = windows <= 1 ? qMin(usable.width(), tall * 2) : usable.width();
-    return QRectF(usable.x() + std::floor((usable.width() - wide) / 2), usable.y(), wide, tall);
+    return usable.adjusted(inset, inset, -inset, -inset);
+}
+
+qreal Stage::consoleInset() const
+{
+    return m_look.value("gapsOut").toReal() + m_look.value("border").toReal();
 }
 
 QVariantMap Stage::beginEdge(const QString &edge, qreal x, qreal y)
@@ -485,7 +510,7 @@ QVariantMap Stage::beginEdge(const QString &edge, qreal x, qreal y)
 
     if (edge == "top") {
         QVariantList windows = windowsOn(Scratchpad, origin);
-        QRectF box = consoleBox(usable, int(windows.size()));
+        QRectF box = consoleBox(usable, consoleInset());
         // Hidden windows keep the place they had, so they are the console.
         if (!windows.isEmpty()) {
             QRectF bounds;
@@ -524,6 +549,10 @@ QVariantMap Stage::beginEdge(const QString &edge, qreal x, qreal y)
     }
     result["workspace"] = workspace;
     result["inConsole"] = inConsole;
+    // An empty console's first app opens in the console's box, not on the
+    // whole screen.
+    if (inConsole)
+        result["console"] = rectMap(m_consoleRect);
     qCDebug(lcStage) << "edge at" << x << y << result;
     return result;
 }
@@ -582,20 +611,8 @@ void Stage::onEvent(const QString &name, const QString &data)
         const bool open = data.section(',', 0, 0) == Scratchpad;
         if (open != m_consoleOpen) {
             m_consoleOpen = open;
-            if (open) {
-                const Monitor m = monitor();
-                m_consoleRect = consoleBox(m.usable.translated(-m.logical.topLeft()),
-                                           int(windowsOn(Scratchpad, m.logical.topLeft()).size()));
-                const QVariantList windows = windowsOn(Scratchpad, m.logical.topLeft());
-                if (!windows.isEmpty()) {
-                    QRectF bounds;
-                    for (const QVariant &v : windows) {
-                        const QVariantMap w = v.toMap();
-                        bounds = bounds.united(QRectF(w["x"].toReal(), w["y"].toReal(), w["w"].toReal(), w["h"].toReal()));
-                    }
-                    m_consoleRect = bounds;
-                }
-            }
+            if (open)
+                refreshConsole();
             emit consoleOpenChanged();
         }
         return;
@@ -645,9 +662,13 @@ void Stage::openConsole()
 {
     if (m_consoleOpen)
         return;
-    // The finger already brought the console down, so Hyprland's own slide in
-    // is switched off for this one toggle.
-    withoutAnimation("specialWorkspaceIn", [this] { m_hyprland->dispatch("hl.dsp.workspace.toggle_special(\"scratchpad\")"); });
+    // The finger already brought the console down, dimming the screen, so
+    // Hyprland's own slide in and the fade of its dimming are switched off
+    // for this one toggle: the overlay's dimming hands over to Hyprland's in
+    // one frame, rather than both showing while Hyprland's fades in.
+    withoutAnimation("fadeDim", [this] {
+        withoutAnimation("specialWorkspaceIn", [this] { m_hyprland->dispatch("hl.dsp.workspace.toggle_special(\"scratchpad\")"); });
+    }, "fade");
 }
 
 // The workspace next to this one on its monitor: the next higher one for
@@ -999,12 +1020,18 @@ void Stage::prefetchSlide()
 
 // Runs `change` with one of Hyprland's animations switched off, and puts it
 // back the way it was a moment later.
-void Stage::withoutAnimation(const QString &leaf, const std::function<void()> &change)
+void Stage::withoutAnimation(const QString &leaf, const std::function<void()> &change, const QString &inherits)
 {
-    QJsonObject animation;
-    for (const QJsonValue &v : m_hyprland->query("animations").array().at(0).toArray())
-        if (v.toObject().value("name").toString() == leaf)
+    QJsonObject animation, parent;
+    for (const QJsonValue &v : m_hyprland->query("animations").array().at(0).toArray()) {
+        const QString name = v.toObject().value("name").toString();
+        if (name == leaf)
             animation = v.toObject();
+        if (name == inherits)
+            parent = v.toObject();
+    }
+    if (!animation.value("overridden").toBool() && !inherits.isEmpty())
+        animation = parent;
     const bool silence = animation.value("overridden").toBool() && animation.value("enabled").toBool();
     if (silence)
         m_hyprland->eval(QString("hl.animation({ leaf = %1, enabled = false })").arg(Hyprland::quote(leaf)));
@@ -1108,8 +1135,13 @@ QVariantMap Stage::beginLift()
 
 void Stage::hideConsole()
 {
+    // The overlay's pictures and dimming are already up in its place, so
+    // Hyprland's slide out and the fade of its dimming are off for this one
+    // toggle, as on the way in.
     if (m_consoleOpen)
-        withoutAnimation("specialWorkspaceOut", [this] { m_hyprland->dispatch("hl.dsp.workspace.toggle_special(\"scratchpad\")"); });
+        withoutAnimation("fadeDim", [this] {
+            withoutAnimation("specialWorkspaceOut", [this] { m_hyprland->dispatch("hl.dsp.workspace.toggle_special(\"scratchpad\")"); });
+        }, "fade");
 }
 
 void Stage::closeConsole()
@@ -1286,6 +1318,14 @@ void Stage::touch(Touchscreen::Kind kind, int slot, const QPointF &panel, qreal 
     handle(events);
 }
 
+void Stage::tellBars(const QByteArray &line)
+{
+    for (QLocalSocket *bar : std::as_const(m_bars)) {
+        bar->write(line + "\n");
+        bar->flush();
+    }
+}
+
 void Stage::handle(const QList<Fingers::Event> &events)
 {
     for (const Fingers::Event &e : events) {
@@ -1319,7 +1359,13 @@ void Stage::handle(const QList<Fingers::Event> &events)
             m_pictures.clear();
             m_locked = m_hyprland->query("locked").object().value("locked").toBool();
             const Monitor m = monitor();
-            m_handPlan = m_locked || !m.ok ? QVariantMap() : windowAt(e.at.x(), e.at.y(), visibleWindows(m), m.special);
+            // On the bar (or just under it), a hand pulls the scratchpad down
+            // rather than whatever window is there.
+            m_topHand = !m_locked && m.ok && e.at.y() < m.usable.top() - m.logical.top() + TopHandSlack;
+            if (m_topHand)
+                m_topFrom = e.at;
+            m_handPlan = m_locked || !m.ok || m_topHand ? QVariantMap()
+                                                         : windowAt(e.at.x(), e.at.y(), visibleWindows(m), m.special);
             if (!m_handPlan.isEmpty()) {
                 m_handPlan["fromX"] = e.at.x();
                 m_handPlan["fromY"] = e.at.y();
@@ -1340,10 +1386,35 @@ void Stage::handle(const QList<Fingers::Event> &events)
                 m_holdTimer.start();
             m_hand = true;
             emit handChanged();
+            // A finger of this hand on the bar may have started a drawer: the
+            // bar lets go of it, as the hand is stage's.
+            tellBars("hand down");
             break;
         }
         case Fingers::Event::PullStarted:
             m_holdTimer.stop();
+            // Two fingers up take the scratchpad up, wherever they are on it
+            // (a full-size one leaves no dimmed screen to tap); otherwise they
+            // are the apps'.
+            if (e.direction == "up") {
+                if (m_consoleOpen && !m_locked) {
+                    m_lifting = true;
+                    qCDebug(lcStage) << "scratchpad pushed up by a hand";
+                    emit liftStarted(e.at);
+                }
+                break;
+            }
+            if (m_topHand) {
+                QVariantMap plan = beginEdge("top", e.at.x(), e.at.y());
+                // From where the hand landed, so the scratchpad comes down as
+                // far as the fingers have.
+                plan["fromX"] = m_topFrom.x();
+                plan["fromY"] = m_topFrom.y();
+                m_topPulling = true;
+                qCDebug(lcStage) << "scratchpad pulled by a hand" << plan.value("empty");
+                emit topPulled(plan, e.at);
+                break;
+            }
             if (m_handPlan.isEmpty())
                 break;
             m_pulling = true;
@@ -1351,6 +1422,10 @@ void Stage::handle(const QList<Fingers::Event> &events)
             emit pullStarted(m_handPlan, e.at, e.ms);
             break;
         case Fingers::Event::PullMoved:
+            if (m_lifting)
+                emit liftMoved(e.at);
+            if (m_topPulling)
+                emit topMoved(e.at);
             if (m_pulling) {
                 if (m_timing) {
                     QMutexLocker lock(&m_timingLock);
@@ -1361,6 +1436,16 @@ void Stage::handle(const QList<Fingers::Event> &events)
             break;
         case Fingers::Event::PullEnded:
         case Fingers::Event::PullCanceled:
+            if (m_lifting) {
+                m_lifting = false;
+                emit liftEnded(e.at, e.type == Fingers::Event::PullEnded);
+                break;
+            }
+            if (m_topPulling) {
+                m_topPulling = false;
+                e.type == Fingers::Event::PullEnded ? emit topLetGo(e.at) : emit topReleased(e.at, false);
+                break;
+            }
             if (!m_pulling)
                 break;
             m_pulling = false;
@@ -1428,6 +1513,8 @@ void Stage::handle(const QList<Fingers::Event> &events)
             break;
         case Fingers::Event::HandUp:
             m_holdTimer.stop();
+            m_topHand = false;
+            tellBars("hand up");
             m_handPlan.clear();
             m_pictures.clear();
             m_hand = false;

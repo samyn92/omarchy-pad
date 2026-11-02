@@ -11,7 +11,8 @@
 // own touch input; this sees every finger, straight from the touch screen,
 // and only speaks up for a hand. Fed in the overlay's logical coordinates and
 // milliseconds, it says what the hand does:
-//  - two or three fingers moving down together pull a window down;
+//  - two or three fingers moving down together pull a window down, and two
+//    moving up push (the scratchpad) up;
 //  - three fingers moving sideways together slide the workspaces;
 //  - three fingers up swipe, once the first of them lifts;
 //  - three fingers pinching in or spreading out copy and paste, as on an iPad;
@@ -24,7 +25,8 @@ public:
     struct Event {
         enum Type {
             HandDown,      // a hand formed (again when a third finger joins); `at` is its first finger
-            PullStarted,   // it moves down together; `at` is where the hand brought its first finger
+            PullStarted,   // it moves down together (`direction` "down"), or two fingers
+                           // up ("up"); `at` is where the hand brought its first finger
             PullMoved,
             PullEnded,     // a finger lifted
             PullCanceled,  // the fingers went apart, a pinch rather than a pull

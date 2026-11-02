@@ -82,7 +82,7 @@ QList<Fingers::Event> Fingers::move(int slot, const QPointF &at, qreal ms)
         }
         m_state = State::Done;
         if (was == State::Pulling)
-            return {Event{Event::PullCanceled, pullPoint(), ms, n}};
+            return {Event{Event::PullCanceled, pullPoint(), ms, n, m_direction}};
         if (was == State::Sliding)
             return {Event{Event::SlideCanceled, pullPoint(), ms, n, m_direction}};
         return {};
@@ -90,7 +90,7 @@ QList<Fingers::Event> Fingers::move(int slot, const QPointF &at, qreal ms)
     if (m_parted)
         return {};
     if (m_state == State::Pulling)
-        return {Event{Event::PullMoved, pullPoint(), ms, n}};
+        return {Event{Event::PullMoved, pullPoint(), ms, n, m_direction}};
     if (m_state == State::Sliding)
         return {Event{Event::SlideMoved, pullPoint(), ms, n, m_direction}};
 
@@ -99,7 +99,15 @@ QList<Fingers::Event> Fingers::move(int slot, const QPointF &at, qreal ms)
         return {};
     if (t.y() > 0 && degreesOff(t, {0, 1}) <= PullDegrees && everyFingerAlong(t)) {
         m_state = State::Pulling;
-        return {Event{Event::PullStarted, pullPoint(), ms, n}};
+        m_direction = "down";
+        return {Event{Event::PullStarted, pullPoint(), ms, n, m_direction}};
+    }
+    // Two fingers push up the same way; three going up are a swipe, told
+    // once they lift.
+    if (n == 2 && t.y() < 0 && degreesOff(t, {0, -1}) <= PullDegrees && everyFingerAlong(t)) {
+        m_state = State::Pulling;
+        m_direction = "up";
+        return {Event{Event::PullStarted, pullPoint(), ms, n, m_direction}};
     }
     const QPointF level(t.x() < 0 ? -1 : 1, 0);
     if (n == 3 && degreesOff(t, level) <= SlideDegrees && everyFingerAlong(t)) {
@@ -139,7 +147,7 @@ QList<Fingers::Event> Fingers::up(int slot, qreal ms)
         m_state = State::Done;
     } else if (m_members.contains(slot) && m_fingers.contains(slot)) {
         if (m_state == State::Pulling) {
-            events << Event{Event::PullEnded, pullPoint(), ms, int(m_members.size())};
+            events << Event{Event::PullEnded, pullPoint(), ms, int(m_members.size()), m_direction};
         } else if (m_state == State::Sliding) {
             events << Event{Event::SlideEnded, pullPoint(), ms, int(m_members.size()), m_direction};
         } else if (m_state == State::Forming && m_members.size() == 3 && !m_parted) {

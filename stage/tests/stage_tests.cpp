@@ -28,6 +28,7 @@ class FakeStage : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool consoleOpen MEMBER consoleOpen NOTIFY consoleOpenChanged)
     Q_PROPERTY(QRectF consoleRect MEMBER consoleRect NOTIFY consoleOpenChanged)
+    Q_PROPERTY(bool consoleEmpty MEMBER consoleEmpty NOTIFY consoleOpenChanged)
     Q_PROPERTY(QVariantMap look MEMBER look CONSTANT)
     Q_PROPERTY(bool hand MEMBER hand NOTIFY handChanged)
     Q_PROPERTY(QVariantList dividers MEMBER dividers NOTIFY dividersChanged)
@@ -115,6 +116,7 @@ public:
     Q_INVOKABLE void showWindow(const QString &address) { hiding << "show:" + address; }
 
     bool consoleOpen = false;
+    bool consoleEmpty = false;
     QRectF consoleRect;
     QVariantMap look{{"gapsIn", 5}, {"gapsOut", 10}, {"border", 2}, {"rounding", 0},
                      {"active", Stage::parseGradient("ff7aa2f7 0deg")},
@@ -141,6 +143,10 @@ signals:
     void topPulled(const QVariantMap &plan, const QPointF &at);
     void topMoved(const QPointF &at);
     void topReleased(const QPointF &at, bool open);
+    void topLetGo(const QPointF &at);
+    void liftStarted(const QPointF &at);
+    void liftMoved(const QPointF &at);
+    void liftEnded(const QPointF &at, bool lifted);
     void pullStarted(const QVariantMap &plan, const QPointF &at, qreal ms);
     void pullMoved(const QPointF &at, qreal ms);
     void pullEnded(const QPointF &at, qreal ms);
@@ -425,11 +431,12 @@ private slots:
         QCOMPARE(Stage::pickTarget("bottom", 300, 1195, grid, usable, 3)["reason"].toString(), QString("full"));
     }
 
-    void theConsoleMatchesOmarchys()
+    void theScratchpadIsTheWholeScreen()
     {
+        // Omarchy's scratchpad is a workspace like any: its first window has
+        // the usable area, inside the outer gap and the border.
         const QRectF usable(0, 26, 1696, 1174);
-        QCOMPARE(Stage::consoleBox(usable, 1), QRectF(261, 26, 1174, 587));
-        QCOMPARE(Stage::consoleBox(usable, 2), QRectF(0, 26, 1696, 587));
+        QCOMPARE(Stage::consoleBox(usable, 12), QRectF(12, 38, 1672, 1150));
     }
 
     void desktopEntriesBecomeApps()
@@ -674,8 +681,7 @@ private slots:
 
     void handsThatDontPullDoNothing()
     {
-        // Upward, sideways, or leaning too far.
-        QCOMPARE(kinds(pull(2, -300, 300)), QStringList({"hand", "up"}));
+        // Sideways, or leaning too far.
         QCOMPARE(kinds(pull(2, 300, 300, 80)), QStringList({"hand", "up"}));
         QCOMPARE(kinds(pull(2, 300, 300, 40)), QStringList({"hand", "up"}));
         // A two-finger tap.
@@ -687,6 +693,18 @@ private slots:
             pinch += f.move(1, {700, 400 + i * 8.0}, 20 + i * 8);
         pinch += f.up(1, 300) + f.up(0, 310);
         QCOMPARE(kinds(pinch), QStringList({"hand", "up"}));
+    }
+
+    void twoFingersPushUp()
+    {
+        // Two fingers going up are a pull too, the other way (it takes the
+        // scratchpad up); three going up stay a swipe.
+        const QList<Fingers::Event> events = pull(2, -300, 300);
+        QCOMPARE(kinds(events), QStringList({"hand", "pull", "ended", "up"}));
+        QCOMPARE(last(events, Fingers::Event::PullStarted).direction, QString("up"));
+        QCOMPARE(last(events, Fingers::Event::PullEnded).direction, QString("up"));
+        QCOMPARE(last(pull(2, 300, 300), Fingers::Event::PullStarted).direction, QString("down"));
+        QCOMPARE(swiped(swipe(0, -300)), QString("up"));
     }
 
     void fingersApartAreNoHand()
@@ -951,15 +969,36 @@ private slots:
         QCOMPARE(h.fake.region.size(), 3);
     }
 
-    void anEmptyConsoleOffersApps()
+    void anEmptyConsoleComesDownEmpty()
     {
         Harness h;
         h.fake.plans["top"]["empty"] = true;
         h.fake.plans["top"]["windows"] = QVariantList();
         h.swipe(QPoint(800, 3), QPoint(800, 400));
+        // No launcher: it opens as it is, and says how to bring an app.
+        QTRY_COMPARE(h.fake.log.last(), QString("openConsole"));
+        QVERIFY(h.tile("foot").x() < 0);
+        h.fake.consoleEmpty = true;
+        emit h.fake.consoleOpenChanged();
+        QTRY_COMPARE(h.phase(), QString("idle"));
+    }
+
+    void anAppGoesIntoAnEmptyConsoleFromTheRight()
+    {
+        Harness h;
+        h.fake.consoleOpen = true;
+        h.fake.consoleEmpty = true;
+        emit h.fake.consoleOpenChanged();
+        h.fake.plans["right"] = {{"edge", "right"}, {"allowed", true}, {"empty", true}, {"inConsole", true},
+                                 {"console", rect(261, 30, 1174, 585)}, {"usable", rect(0, 30, 1696, 1170)},
+                                 {"workspace", "special:scratchpad"}};
+        h.swipe(QPoint(1693, 300), QPoint(1300, 300));
         QTRY_COMPARE(h.phase(), QString("room"));
-        h.tap(h.tile("foot"));
-        QCOMPARE(h.fake.log.last(), QString("launch:top:foot:1.00"));
+        // The launcher is in the console's box, not on the whole screen.
+        const QPoint foot = h.tile("foot");
+        QVERIFY(foot.x() > 261 && foot.x() < 261 + 1174 && foot.y() > 30 && foot.y() < 30 + 585);
+        h.tap(foot);
+        QCOMPARE(h.fake.log.last(), QString("launch:right:foot:1.00"));
     }
 
     void swipingUpFromTheBottomTakesTheConsoleUp()
@@ -1004,6 +1043,88 @@ private slots:
         QCOMPARE(qRound(h.pull()), 385);
         emit h.fake.topReleased(QPointF(848, 400), true);
         QTRY_VERIFY(h.fake.log.contains("openConsole"));
+        // Open, the pictures give way to the real console at once: a fade
+        // would show both dimmings together, a blink.
+        QCOMPARE(h.phase(), QString("idle"));
+    }
+
+    void twoFingersFromTheBarBringTheScratchpad()
+    {
+        // Far enough, it opens; a short slow pull goes back up.
+        for (const int to : {500, 160}) {
+            Harness h;
+            h.fake.plans["top"]["console"] = rect(12, 42, 1672, 1146);
+            QVariantMap plan = h.fake.plans["top"];
+            plan["fromX"] = 848;
+            plan["fromY"] = 12;
+            h.fake.hand = true;
+            emit h.fake.handChanged();
+            emit h.fake.topPulled(plan, QPointF(848, 36));
+            for (int y = 36; y <= to; y += 4) {
+                QTest::qWait(16);
+                emit h.fake.topMoved(QPointF(848, y));
+            }
+            QTest::qWait(150);
+            emit h.fake.topLetGo(QPointF(848, to));
+            h.fake.hand = false;
+            emit h.fake.handChanged();
+            QTRY_COMPARE(h.phase(), QString("idle"));
+            QCOMPARE(h.fake.log.contains("openConsole"), to == 500);
+        }
+    }
+
+    void twoFingersUpTakeTheScratchpadAway()
+    {
+        // Full size, there is no dimmed screen to tap: two fingers anywhere
+        // on it push it up. A short push puts it back; a long one or a flick
+        // takes it away.
+        for (const int dy : {-120, -500}) {
+            Harness h;
+            h.fake.consoleOpen = true;
+            h.fake.consoleRect = QRectF(12, 42, 1672, 1146);
+            emit h.fake.consoleOpenChanged();
+            h.fake.plans["top"]["console"] = rect(12, 42, 1672, 1146);
+            h.fake.hand = true;
+            emit h.fake.handChanged();
+            const QPointF from(848, 700);
+            emit h.fake.liftStarted(from);
+            for (int i = 1; i <= 20; ++i) {
+                QTest::qWait(25);
+                emit h.fake.liftMoved(from + QPointF(0, dy * i / 20.0));
+            }
+            QTest::qWait(150);
+            // It follows the fingers.
+            QCOMPARE(qRound(h.pull()), 1146 + dy);
+            emit h.fake.liftEnded(from + QPointF(0, dy), true);
+            h.fake.hand = false;
+            emit h.fake.handChanged();
+            QTRY_COMPARE(h.phase(), QString("idle"));
+            QCOMPARE(h.fake.log.contains("hideConsole"), true);
+            if (dy == -500)
+                QVERIFY(!h.fake.log.contains("openConsole"));
+            else
+                QTRY_VERIFY(h.fake.log.contains("openConsole"));
+        }
+    }
+
+    void anEmptyScratchpadIsDrawnAsItGoesUp()
+    {
+        // With no pictures to wait for, the overlay takes the console over at
+        // once, and keeps drawing it while the fingers push it up.
+        Harness h;
+        h.fake.consoleOpen = true;
+        h.fake.consoleEmpty = true;
+        emit h.fake.consoleOpenChanged();
+        h.fake.plans["top"]["empty"] = true;
+        h.fake.plans["top"]["windows"] = QVariantList();
+        h.fake.hand = true;
+        emit h.fake.handChanged();
+        emit h.fake.liftStarted(QPointF(848, 700));
+        QTRY_VERIFY(h.fake.log.contains("hideConsole"));
+        emit h.fake.liftMoved(QPointF(848, 500));
+        QVERIFY(h.window->property("liftHidden").toBool());
+        QCOMPARE(h.phase(), QString("tracking"));
+        emit h.fake.liftEnded(QPointF(848, 300), true);
         QTRY_COMPARE(h.phase(), QString("idle"));
     }
 
