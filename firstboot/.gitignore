@@ -1,0 +1,7 @@
+/pkgbuild/pkg/
+/pkgbuild/src/
+/buffybox/pkg/
+/buffybox/src/
+/buffybox/buffybox/
+/buffybox/lvgl/
+*.pkg.tar.*

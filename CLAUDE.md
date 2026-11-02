@@ -13,6 +13,7 @@ often with no keyboard attached.
 | `floatkey/` | On-screen keyboard (Qt Quick, layer-shell) plus its fcitx5 addon | `floatkey` package |
 | `stage/` | Touch gestures: edge swipes, app launcher, scratchpad console, close and workspace swipes | `stage` package |
 | `lock/` | Omarchy's lock screen with floatkey's keyboard (prototype) | Omarchy plugin, `lock/bin/install` |
+| `firstboot/` | A touch keyboard (buffyboard) under Omarchy's first-boot owner setup | `omarchy-pad-firstboot` and `buffybox` packages, for the install image |
 | `tablet/` | The tablet session: auto-rotation, starting floatkey and stage | `install-tablet-setup.sh` |
 
 Omarchy Pad is meant for any touch tablet. Work specific to the OnePlus Pad

@@ -1,0 +1,40 @@
+#!/bin/sh
+# Omarchy Pad: the touch keyboard under Omarchy's first-boot owner setup (omarchy-pad-owner-keyboard.service).
+#
+# buffyboard makes room for itself by shrinking the console's rows, but only when it starts (and then only if tty1 is
+# already in use) and when it gets SIGUSR1. The form's own font changes are handled where they happen
+# (owner-path/setfont). This watches tty1's size for anything else that gives the console its full height back, such
+# as the owner setup resetting tty1 or the display driver taking over from the boot framebuffer, and asks buffyboard to
+# shrink it again.
+
+/usr/bin/buffyboard &
+kb=$!
+trap 'kill -TERM "$kb" 2>/dev/null; wait "$kb"; exit 0' TERM INT
+
+# A SIGUSR1 that comes before buffyboard has set up its handler ends it. Wait until its status shows the signal caught
+# (SigCgt, bit 10 for SIGUSR1) before telling systemd the keyboard is ready: the owner setup starts after that.
+catches_usr1() {
+  cgt=$(sed -n 's/^SigCgt:[[:space:]]*//p' "/proc/$kb/status" 2>/dev/null)
+  [ -n "$cgt" ] && [ $((0x$cgt & 0x200)) -ne 0 ]
+}
+i=0
+while [ "$i" -lt 300 ] && kill -0 "$kb" 2>/dev/null && ! catches_usr1; do
+  sleep 0.1
+  i=$((i + 1))
+done
+catches_usr1 || { wait "$kb"; exit; }
+systemd-notify --ready
+
+last=
+while kill -0 "$kb" 2>/dev/null; do
+  size=$(stty -F /dev/tty1 size 2>/dev/null)
+  if [ "$size" != "$last" ]; then
+    kill -USR1 "$kb" 2>/dev/null
+    sleep 0.3
+    last=$(stty -F /dev/tty1 size 2>/dev/null)
+  fi
+  sleep 0.5
+done
+
+# buffyboard's own exit status, so a crash restarts the service
+wait "$kb"

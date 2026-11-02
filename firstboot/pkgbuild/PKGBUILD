@@ -1,0 +1,14 @@
+# omarchy-pad-firstboot: the first-boot owner setup by touch. Omarchy's own form (omarchy-provision-owner on tty1)
+# stays as it is; buffyboard draws a touch keyboard under it while it runs. See ../README.md.
+pkgname=omarchy-pad-firstboot
+pkgver=0.3
+pkgrel=1
+pkgdesc="Omarchy Pad: a touch keyboard for Omarchy's first-boot owner setup"
+arch=(any)
+license=(MIT)
+depends=(buffybox systemd)
+
+package() {
+  cp -a --no-preserve=ownership "$startdir/files/." "$pkgdir/"
+  install -Dm644 "$startdir/../README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

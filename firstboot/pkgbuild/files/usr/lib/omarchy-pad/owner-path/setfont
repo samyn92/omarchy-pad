@@ -1,0 +1,19 @@
+#!/bin/sh
+# Omarchy Pad: setfont for Omarchy's first-boot owner form, first on the form's PATH
+# (omarchy-provision-owner.service.d/50-omarchy-pad-keyboard.conf).
+#
+# The form picks its console font with setfont, reading the console's size after each try, and fits the font again
+# whenever the size changes. A font change gives the console its full height back, over the touch keyboard. So after
+# the real setfont this has buffyboard shrink the console again and waits for it, before the form reads the size: the
+# form lays itself out above the keyboard and never sees a resize that it would answer with another setfont.
+
+/usr/bin/setfont "$@" || exit
+pgrep -x buffyboard >/dev/null || exit 0
+full=$(stty size </dev/tty 2>/dev/null) || exit 0
+pkill -USR1 -x buffyboard
+i=0
+while [ "$i" -lt 40 ] && [ "$(stty size </dev/tty 2>/dev/null)" = "$full" ]; do
+  sleep 0.05
+  i=$((i + 1))
+done
+exit 0

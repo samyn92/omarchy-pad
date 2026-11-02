@@ -1,0 +1,34 @@
+# buffybox: postmarketOS's framebuffer on-screen keyboard (buffyboard) and LUKS unlock screen (unl0kr), as
+# released upstream. Arch Linux ARM does not package it. Omarchy Pad uses buffyboard for the first-boot owner setup
+# (../pkgbuild), and unl0kr is the candidate for unlocking an encrypted disk by touch. LVGL is the git submodule the
+# release pins.
+pkgname=buffybox
+pkgver=3.6.0
+pkgrel=1
+pkgdesc="Touch keyboard on the Linux framebuffer (buffyboard) and a touch unlock screen (unl0kr)"
+arch=(aarch64 x86_64)
+url="https://gitlab.postmarketos.org/postmarketOS/buffybox"
+license=(GPL-3.0-or-later MIT)
+depends=(libinput libxkbcommon libdrm libinih systemd-libs)
+makedepends=(git meson scdoc)
+provides=(buffyboard unl0kr)
+backup=(etc/buffyboard.conf etc/unl0kr.conf)
+source=("buffybox::git+https://gitlab.postmarketos.org/postmarketOS/buffybox.git#tag=$pkgver"
+  "lvgl::git+https://github.com/lvgl/lvgl.git")
+sha256sums=('SKIP' 'SKIP')
+
+prepare() {
+  cd buffybox
+  git submodule init
+  git config submodule.lvgl.url "$srcdir/lvgl"
+  git -c protocol.file.allow=always submodule update
+}
+
+build() {
+  arch-meson buffybox build -Dman=true -Dsystemd=false
+  meson compile -C build
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+}
