@@ -1,0 +1,15 @@
+# Omarchy Pad: the shell plugins for touch (the bar, the pull-down drawers, the swiping picker) for a user, before
+# the session starts, so the shell starts with them (omarchy-pad-shell-setup). After the lock's setup: both write the
+# user's shell.json.
+[Unit]
+Description=Omarchy Pad: the shell plugins for touch, kept up to date for the user
+ConditionUser=!@system
+Before=graphical-session-pre.target
+After=omarchy-pad-lock-setup.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/omarchy-pad-shell-setup --first-login
+
+[Install]
+WantedBy=graphical-session-pre.target

@@ -1,0 +1,20 @@
+# omarchy-pad-shell: Omarchy Pad's shell plugins (every folder in ../ with a manifest.json), assembled here and put
+# in each user's ~/.config/omarchy/plugins at their login by omarchy-pad-shell-setup. See ../README.md.
+pkgname=omarchy-pad-shell
+pkgver=0.1
+pkgrel=1
+pkgdesc="Omarchy Pad: Omarchy shell plugins for touch: the tablet bar, pull-down drawers and a swiping picker"
+arch=(any)
+license=(MIT)
+depends=(omarchy jq systemd)
+makedepends=(omarchy jq)
+optdepends=('stage: two-finger pulls from the bar, and the scratchpad console'
+            'omarchy-pad-tablet: the rotation lock in quick settings')
+
+package() {
+  local shell="$startdir/.."
+  cp -a --no-preserve=ownership "$startdir/files/." "$pkgdir/"
+  "$shell/bin/install" --to "$pkgdir/usr/share/omarchy-pad/shell"
+  install -Dm755 "$shell/bin/omarchy-pad-shell-setup" "$pkgdir/usr/bin/omarchy-pad-shell-setup"
+  install -Dm644 "$shell/README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

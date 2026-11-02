@@ -1,0 +1,98 @@
+#!/bin/bash
+
+# The packaged shell/bin/install (omarchy-pad-shell): puts the plugins assembled in /usr/share/omarchy-pad/shell in
+# the user's ~/.config/omarchy/plugins, and turns them on: omarchy-pad.bar becomes the bar in use, the drawers are
+# loaded, and the swiping picker takes the place of Omarchy's.
+#
+#   omarchy-pad-shell-setup                set them up, or again, and restart the shell
+#   omarchy-pad-shell-setup --first-login  what omarchy-pad-shell-setup.service runs at each login, before the shell
+#                                          starts: the plugins are kept up to date with the package, but turned on
+#                                          only the first time, so a user who went back to Omarchy's bar keeps it
+#
+# 'omarchy bar reset' goes back to Omarchy's bar, 'omarchy plugin disable <id>' turns off the others.
+
+set -euo pipefail
+
+files=/usr/share/omarchy-pad/shell
+omarchy=${OMARCHY_PATH:-/usr/share/omarchy}
+plugins="$HOME/.config/omarchy/plugins"
+config="$HOME/.config/omarchy/shell.json"
+done_file="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-pad/shell-setup"
+
+log() {
+  echo "$*"
+  logger -t omarchy-pad-shell-setup -- "$*" 2>/dev/null || true
+}
+
+first_login=0
+[[ ${1:-} == "--first-login" ]] && first_login=1
+
+ids=()
+for src in "$files"/*/; do
+  [[ -f $src/manifest.json ]] || continue
+  id=$(jq -r '.id // empty' "$src/manifest.json")
+  [[ -n $id ]] || continue
+  ids+=("$id")
+  target="$plugins/$id"
+  diff -rq "$src" "$target" >/dev/null 2>&1 && continue
+  # Beside the target first, hidden, so a running shell never sees half of it.
+  mkdir -p "$plugins"
+  stage=$(mktemp -d "$plugins/.$id.build.XXXXXX")
+  cp -a "$src/." "$stage/"
+  chmod 755 "$stage"
+  rm -rf "$target"
+  mv "$stage" "$target"
+  log "Put $id in $plugins"
+done
+(( ${#ids[@]} > 0 )) || { log "No plugins in $files"; exit 1; }
+
+if (( first_login )) && [[ -e $done_file ]]; then
+  exit 0
+fi
+
+shell_up=$(OMARCHY_SHELL_IPC_TIMEOUT=1s timeout 5 omarchy-shell shell ping 2>/dev/null || true)
+if [[ -n $shell_up ]] && (( !first_login )); then
+  # A running shell turns them on itself, as shell/bin/install does.
+  omarchy-shell shell rescanPlugins >/dev/null
+  for id in "${ids[@]}"; do
+    for _ in {1..40}; do
+      omarchy-plugin-list --json | jq -e --arg id "$id" 'any(.[]; .id == $id)' >/dev/null && break
+      sleep 0.05
+    done
+    omarchy-plugin-enable "$id" >/dev/null
+  done
+  omarchy-restart-shell >/dev/null || log "Restart the shell to finish: omarchy restart shell"
+else
+  # What the shell's enable writes, before it starts: a bar becomes .bar.id, a clone that takes over a built-in goes
+  # in plugins[] with the built-in in disabledPlugins[] and a note to turn it back on when the clone goes, and any
+  # other plugin goes in plugins[]. With no shell.json of the user's yet, the shell's defaults are the start.
+  from=$config
+  [[ -s $from ]] || from="$omarchy/config/omarchy/shell.json"
+  jq -e '.version == 1' "$from" >/dev/null 2>&1 || {
+    log "$from is not a shell config the shell can use; the plugins are in place but not turned on"
+    exit 1
+  }
+  json=$(<"$from")
+  for id in "${ids[@]}"; do
+    manifest="$plugins/$id/manifest.json"
+    if jq -e '.kinds | index("bar")' "$manifest" >/dev/null; then
+      json=$(jq --arg id "$id" '.bar = ((.bar // {}) | .id = $id)' <<<"$json")
+    else
+      source_id=$(jq -r '.omarchy.clonedFrom // empty' "$manifest")
+      json=$(jq --arg id "$id" --arg source "$source_id" '
+        .plugins = ([(.plugins // [])[] | select(.id != $id)] + [{id: $id}])
+        | if $source == "" then . else
+            .disabledPlugins = (((.disabledPlugins // []) - [$source]) + [$source])
+            | .cloneSourceRestores = (((.cloneSourceRestores // []) - [$id]) + [$id])
+          end
+      ' <<<"$json")
+    fi
+  done
+  mkdir -p "$(dirname "$config")"
+  printf '%s\n' "$json" >"$config.omarchy-pad-shell"
+  mv "$config.omarchy-pad-shell" "$config"
+fi
+
+mkdir -p "$(dirname "$done_file")"
+touch "$done_file"
+log "Turned on ${ids[*]}; 'omarchy bar reset' goes back to Omarchy's bar"
