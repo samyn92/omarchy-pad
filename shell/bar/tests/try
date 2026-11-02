@@ -50,7 +50,7 @@ if [[ -n $drawers ]]; then
   cp "$drawers"/*.qml "$drawers/manifest.json" "$drawers/quick-settings-state" "$work/shell/plugins/drawers/"
   cp "$here/tests/harness/RealDrawers.qml" "$work/shell/"
   for command in omarchy-brightness-display omarchy-audio-output-sink pactl omarchy-bluetooth-power \
-    iceland-rotate-lock floatkey omarchy-shell; do
+    omarchy-pad-rotate-lock floatkey omarchy-shell; do
     ln -s "$drawers/tests/fake-bin/fake" "$work/bin/$command"
   done
   touch "$work/state/bluetooth"

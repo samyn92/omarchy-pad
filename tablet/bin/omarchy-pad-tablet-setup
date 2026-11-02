@@ -1,0 +1,72 @@
+#!/bin/bash
+
+# Sets up Omarchy Pad's tablet session in a user's Hyprland config: writes ~/.config/hypr/omarchy_pad_tablet.lua
+# from the package's template, with the panel and scale from the tablet settings (lib/tablet-conf), and loads it
+# from ~/.config/hypr/hyprland.lua.
+#
+#   omarchy-pad-tablet-setup                set it up, or again (after changing tablet.conf), and reload Hyprland
+#   omarchy-pad-tablet-setup --first-login  what omarchy-pad-tablet-setup.service runs at each login, before the
+#                                           session starts: the settings file is kept up to date with the package,
+#                                           but the line in hyprland.lua is added only the first time, so a user
+#                                           who took it out keeps it out
+#
+# Rotation, the keyboard and the gestures then start with Hyprland (omarchy-pad-tablet-session).
+
+set -euo pipefail
+
+here=$(dirname "$(readlink -f "$0")")
+lib=$here/../lib
+template=$here/../hypr/omarchy_pad_tablet.lua
+if [[ ! -r $lib/tablet-conf ]]; then
+  lib=/usr/lib/omarchy-pad
+  template=/usr/share/omarchy-pad/tablet/omarchy_pad_tablet.lua
+fi
+# shellcheck source=../lib/tablet-conf
+. "$lib/tablet-conf"
+
+first_login=0
+[[ ${1:-} == "--first-login" ]] && first_login=1
+hypr=${XDG_CONFIG_HOME:-$HOME/.config}/hypr
+conf=$hypr/hyprland.lua
+done_file=${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-pad/tablet-setup
+
+log() {
+  echo "$*"
+  logger -t omarchy-pad-tablet-setup -- "$*" 2>/dev/null || true
+}
+
+[[ $SCALE =~ ^[0-9]+(\.[0-9]+)?$ ]] || { log "SCALE must be a number such as 2 or 1.6, not '$SCALE'"; exit 2; }
+[[ $PANEL =~ ^[A-Za-z0-9_-]+$ ]] || { log "PANEL must be an output name such as DSI-1, not '$PANEL'"; exit 2; }
+
+# Omarchy writes the user's Hyprland config at the first login; until it is there, there is nothing to load into.
+[[ -f $conf ]] || { log "No $conf yet; the tablet session is set up at the next login"; exit 0; }
+
+wanted=$(sed -e "s|@PANEL@|$PANEL|" -e "s|@SCALE@|$SCALE|" "$template")
+if [[ ! -f $hypr/omarchy_pad_tablet.lua ]] || [[ $(<"$hypr/omarchy_pad_tablet.lua") != "$wanted" ]]; then
+  printf '%s\n' "$wanted" >"$hypr/omarchy_pad_tablet.lua.new"
+  mv "$hypr/omarchy_pad_tablet.lua.new" "$hypr/omarchy_pad_tablet.lua"
+  log "Wrote $hypr/omarchy_pad_tablet.lua for $PANEL at scale $SCALE"
+fi
+
+# Before it was a package the session was the device layer's iceland_tablet.lua: its commands are gone, so its line
+# becomes this one.
+if grep -q '^require("hypr.iceland_tablet")' "$conf"; then
+  sed -i 's|^require("hypr.iceland_tablet")|require("hypr.omarchy_pad_tablet")|' "$conf"
+  rm -f "$hypr/iceland_tablet.lua"
+  log "Replaced the iceland_tablet line in $conf"
+fi
+
+if ! grep -q 'require("hypr.omarchy_pad_tablet")' "$conf" && { ((!first_login)) || [[ ! -e $done_file ]]; }; then
+  if grep -q '^require("hypr.autostart")' "$conf"; then
+    sed -i '/^require("hypr.autostart")/a require("hypr.omarchy_pad_tablet")' "$conf"
+  else
+    printf '\nrequire("hypr.omarchy_pad_tablet")\n' >>"$conf"
+  fi
+  log "Loaded the tablet session from $conf"
+fi
+mkdir -p "${done_file%/*}"
+touch "$done_file"
+
+if ((!first_login)) && [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
+  hyprctl reload >/dev/null
+fi

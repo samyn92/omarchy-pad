@@ -1,0 +1,13 @@
+# Omarchy Pad: the tablet session (rotation, on-screen keyboard, gestures) in a user's Hyprland config, before the
+# session starts, so Hyprland starts with it (omarchy-pad-tablet-setup).
+[Unit]
+Description=Omarchy Pad: the tablet session in the user's Hyprland config
+ConditionUser=!@system
+Before=graphical-session-pre.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/omarchy-pad-tablet-setup --first-login
+
+[Install]
+WantedBy=graphical-session-pre.target

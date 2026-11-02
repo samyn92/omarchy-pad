@@ -1,10 +1,10 @@
 #!/bin/bash
-# Show, hide or toggle the on-screen keyboard: iceland-osk [toggle|show|hide]
+# Show, hide or toggle the on-screen keyboard: omarchy-pad-osk [toggle|show|hide]
 # floatkey when it is installed (it starts itself if needed), else wvkbd.
 if command -v floatkey >/dev/null; then
   case ${1:-toggle} in
     show | hide | toggle) exec floatkey "${1:-toggle}" ;;
-    *) echo "usage: iceland-osk [toggle|show|hide]" >&2; exit 2 ;;
+    *) echo "usage: omarchy-pad-osk [toggle|show|hide]" >&2; exit 2 ;;
   esac
 fi
 # wvkbd: SIGUSR1 hides, SIGUSR2 shows, SIGRTMIN toggles.
@@ -12,7 +12,7 @@ case ${1:-toggle} in
   show) sig=USR2 ;;
   hide) sig=USR1 ;;
   toggle) sig=RTMIN ;;
-  *) echo "usage: iceland-osk [toggle|show|hide]" >&2; exit 2 ;;
+  *) echo "usage: omarchy-pad-osk [toggle|show|hide]" >&2; exit 2 ;;
 esac
 if ! pkill -"$sig" -u "$USER" -x wvkbd-mobintl; then
   command -v wvkbd-mobintl >/dev/null || { notify-send "On-screen keyboard" "wvkbd is not installed"; exit 1; }

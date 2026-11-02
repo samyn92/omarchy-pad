@@ -1,26 +1,27 @@
 #!/bin/bash
-# OnePlus Pad 4 tablet session for Omarchy's Hyprland, started by hypr/iceland_tablet.lua:
+# Omarchy Pad's tablet session for Omarchy's Hyprland, started by hypr/omarchy_pad_tablet.lua:
 #  - auto-rotate: follows iio-sensor-proxy's accelerometer (monitor-sensor) and turns the panel, the touch
-#    screen and the pen together, unless the rotation lock is on (iceland-rotate-lock);
-#  - the on-screen keyboard (floatkey, else wvkbd), started hidden; iceland-osk shows and hides it;
+#    screen and the pen together, unless the rotation lock is on (omarchy-pad-rotate-lock);
+#  - the on-screen keyboard (floatkey, else wvkbd), started hidden; omarchy-pad-osk shows and hides it;
 #  - touch gestures: stage, which does them all (edge swipes, two fingers pulling a window down to close it,
 #    three-finger swipes) and follows the rotation itself.
-# Settings: ~/.config/iceland/tablet.conf (PANEL, SCALE, ROTATE_FLIP; see install-tablet-setup.sh).
+# Settings: PANEL, SCALE and ROTATE_FLIP, from the files lib/tablet-conf lists.
 set -u
 
-conf=${XDG_CONFIG_HOME:-$HOME/.config}/iceland/tablet.conf
-state=${XDG_RUNTIME_DIR:-/tmp}/iceland-tablet
-lock=${XDG_CONFIG_HOME:-$HOME/.config}/iceland/rotation-locked
-PANEL=DSI-1 SCALE=2 ROTATE_FLIP=0
-# shellcheck source=/dev/null
-[[ -r $conf ]] && . "$conf"
+here=$(dirname "$(readlink -f "$0")")
+lib=$here/../lib
+[[ -r $lib/tablet-conf ]] || lib=/usr/lib/omarchy-pad
+# shellcheck source=../lib/tablet-conf
+. "$lib/tablet-conf"
+state=${XDG_RUNTIME_DIR:-/tmp}/omarchy-pad-tablet
+lock=${XDG_CONFIG_HOME:-$HOME/.config}/omarchy-pad/rotation-locked
 mkdir -p "$state"
 
 # only one session per login
 exec 9>"$state/lock"
 flock -n 9 || exit 0
 
-log() { echo "iceland-tablet: $*" >&2; }
+log() { echo "omarchy-pad-tablet: $*" >&2; }
 
 start_osk() {
   if command -v floatkey >/dev/null; then

@@ -146,7 +146,7 @@ Scope {
 
   function setRotationLocked(on) {
     root.rotationLocked = on
-    root.run("rotationlock", ["iceland-rotate-lock", on ? "on" : "off"])
+    root.run("rotationlock", ["omarchy-pad-rotate-lock", on ? "on" : "off"])
   }
 
   function setKeyboardShown(on) {

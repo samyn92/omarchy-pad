@@ -1,12 +1,12 @@
 #!/bin/bash
-# Lock or unlock auto-rotation: iceland-rotate-lock [toggle|on|off]
-lock=${XDG_CONFIG_HOME:-$HOME/.config}/iceland/rotation-locked
+# Lock or unlock auto-rotation: omarchy-pad-rotate-lock [toggle|on|off]
+lock=${XDG_CONFIG_HOME:-$HOME/.config}/omarchy-pad/rotation-locked
 mkdir -p "${lock%/*}"
 case ${1:-toggle} in
   on) touch "$lock" ;;
   off) rm -f "$lock" ;;
   toggle) if [[ -e $lock ]]; then rm -f "$lock"; else touch "$lock"; fi ;;
-  *) echo "usage: iceland-rotate-lock [toggle|on|off]" >&2; exit 2 ;;
+  *) echo "usage: omarchy-pad-rotate-lock [toggle|on|off]" >&2; exit 2 ;;
 esac
 if [[ -e $lock ]]; then
   notify-send -t 1500 "Rotation locked"

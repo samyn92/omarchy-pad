@@ -35,7 +35,7 @@ case "$name" in
       is-on) flag bluetooth ;;
     esac
     ;;
-  iceland-rotate-lock)
+  omarchy-pad-rotate-lock)
     # The flag file the drawer reads, under tests/try's own XDG_CONFIG_HOME.
     lock=$XDG_CONFIG_HOME/iceland/rotation-locked
     mkdir -p "${lock%/*}"

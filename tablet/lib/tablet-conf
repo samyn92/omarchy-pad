@@ -1,0 +1,32 @@
+# Sourced by omarchy-pad-tablet-session and omarchy-pad-tablet-setup: the tablet's settings, each file overriding the
+# ones before it:
+#   /usr/share/omarchy-pad/tablet.conf.d/*.conf   defaults from the device layer (a device package ships one: the
+#                                                 OnePlus Pad 4's says DSI-1 at scale 2)
+#   /etc/omarchy-pad/tablet.conf                  this machine
+#   ~/.config/omarchy-pad/tablet.conf             this user (~/.config/iceland/tablet.conf is still read, from before
+#                                                 the tablet session was a package)
+# PANEL   the built-in screen's output name; found from the DRM connectors when no file sets it
+# SCALE   the desktop scale on that screen
+# ROTATE_FLIP=1 swaps the two portrait directions, for a panel mounted the other way round
+# shellcheck shell=bash
+
+PANEL="" SCALE=2 ROTATE_FLIP=0
+omarchy_pad_cfg=${XDG_CONFIG_HOME:-$HOME/.config}
+for omarchy_pad_conf in /usr/share/omarchy-pad/tablet.conf.d/*.conf /etc/omarchy-pad/tablet.conf \
+  "$omarchy_pad_cfg/iceland/tablet.conf" "$omarchy_pad_cfg/omarchy-pad/tablet.conf"; do
+  # shellcheck source=/dev/null
+  [[ -r $omarchy_pad_conf ]] && . "$omarchy_pad_conf"
+done
+unset omarchy_pad_conf
+
+# The first connected built-in screen: card1-DSI-1 is Hyprland's DSI-1. This works before Hyprland runs, which is
+# when the setup writes the Hyprland settings.
+if [[ -z $PANEL ]]; then
+  for omarchy_pad_conn in /sys/class/drm/card*-DSI-* /sys/class/drm/card*-eDP-*; do
+    [[ $(cat "$omarchy_pad_conn/status" 2>/dev/null) == connected ]] || continue
+    PANEL=${omarchy_pad_conn##*/card[0-9]-}
+    break
+  done
+  unset omarchy_pad_conn
+  PANEL=${PANEL:-eDP-1}
+fi

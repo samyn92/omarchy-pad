@@ -1,0 +1,4 @@
+# Omarchy Pad: stage and floatkey read the touch screen themselves (two- and three-finger gestures, taps on the
+# keyboard), so the user at the screen gets it, as logind gives them the sound card and the GPU. Before 73-seat-late,
+# which turns the uaccess tag into the access rights.
+ACTION!="remove", SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_TOUCHSCREEN}=="1", TAG+="uaccess"

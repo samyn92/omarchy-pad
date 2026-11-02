@@ -151,7 +151,7 @@ bin/install
 ```
 
 builds the package and installs it with `makepkg -si`. On the OnePlus Pad
-tablet setup (`pad4-tablet`), `iceland-osk` and the swipe up from the bottom
+tablet session (`omarchy-pad-tablet`), `omarchy-pad-osk` and the swipe up from the bottom
 edge use floatkey when it is installed.
 
 For Hyprland, keep the compositor from animating the overlay (floatkey animates

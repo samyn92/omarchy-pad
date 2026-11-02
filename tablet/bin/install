@@ -1,0 +1,8 @@
+#!/bin/sh
+# Builds and installs the omarchy-pad-tablet package, then sets the session up for you now (the package's login unit
+# does it for every user at their next login).
+set -eu
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+cd "$ROOT/pkgbuild"
+makepkg -fsi "$@"
+/usr/bin/omarchy-pad-tablet-setup

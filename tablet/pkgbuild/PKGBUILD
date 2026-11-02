@@ -1,0 +1,23 @@
+# omarchy-pad-tablet: the tablet session for Omarchy's Hyprland (auto-rotation, starting floatkey and stage), set up
+# in each user's Hyprland config at their first login (an autostart unit). The panel and scale come from the device
+# layer's defaults in /usr/share/omarchy-pad/tablet.conf.d/. See ../CLAUDE.md.
+pkgname=omarchy-pad-tablet
+pkgver=0.1
+pkgrel=1
+pkgdesc="Omarchy Pad: the tablet session for Omarchy's Hyprland: auto-rotation, the on-screen keyboard and gestures"
+arch=(any)
+license=(MIT)
+depends=(hyprland iio-sensor-proxy libnotify systemd)
+optdepends=('floatkey: the on-screen keyboard'
+            'stage: the touch gestures'
+            'wvkbd: an on-screen keyboard where floatkey is not installed')
+
+package() {
+  local tablet="$startdir/.."
+  cp -a --no-preserve=ownership "$startdir/files/." "$pkgdir/"
+  install -Dm755 -t "$pkgdir/usr/bin" "$tablet/bin/omarchy-pad-tablet-session" "$tablet/bin/omarchy-pad-tablet-setup" \
+    "$tablet/bin/omarchy-pad-osk" "$tablet/bin/omarchy-pad-rotate-lock"
+  install -Dm644 "$tablet/lib/tablet-conf" "$pkgdir/usr/lib/omarchy-pad/tablet-conf"
+  install -Dm644 "$tablet/hypr/omarchy_pad_tablet.lua" "$pkgdir/usr/share/omarchy-pad/tablet/omarchy_pad_tablet.lua"
+  install -d "$pkgdir/usr/share/omarchy-pad/tablet.conf.d"
+}

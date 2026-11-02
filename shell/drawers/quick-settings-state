@@ -30,7 +30,7 @@ echo "dnd=$(omarchy-shell notifications isDnd 2>/dev/null)"
 echo "nightlight=$(omarchy-shell nightlight status 2>/dev/null | jq -r '.enabled' 2>/dev/null)"
 echo "stayawake=$(omarchy-shell idle status 2>/dev/null | jq -r '.stayAwake' 2>/dev/null)"
 
-[[ -e ${XDG_CONFIG_HOME:-$HOME/.config}/iceland/rotation-locked ]] && echo "rotationlock=on" || echo "rotationlock=off"
+[[ -e ${XDG_CONFIG_HOME:-$HOME/.config}/omarchy-pad/rotation-locked ]] && echo "rotationlock=on" || echo "rotationlock=off"
 
 status=$(floatkey status 2>/dev/null) && echo "keyboard=${status%% *}" || echo "keyboard=unavailable"
 
