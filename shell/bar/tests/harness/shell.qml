@@ -211,6 +211,9 @@ ShellRoot {
 
     function clearCalls(): void { harness.drawerCalls = [] }
 
+    // What stage would say over its socket ("hand down", "hand up").
+    function stageSays(line: string): void { bar.stageSaid(line) }
+
     // What omarchy-bar background would leave in shell.json.
     function setLook(look: string): void { harness.look = look }
 

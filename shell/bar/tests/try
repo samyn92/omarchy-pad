@@ -36,7 +36,7 @@ ln -s "$shell_root/plugins" "$work/shell/omarchy-plugins"
 touch "$work/commands.log"
 
 # Stand-ins for what the widgets may run: logged, never run.
-for command in omarchy-bar omarchy-menu-timezone omarchy-launch-wifi omarchy-launch-bluetooth omarchy-launch-audio; do
+for command in omarchy-bar omarchy-menu omarchy-menu-timezone omarchy-launch-wifi omarchy-launch-bluetooth omarchy-launch-audio; do
   printf '#!/bin/bash\necho "%s $*" >> %s/commands.log\n' "$command" "$work" >"$work/bin/$command"
   chmod +x "$work/bin/$command"
 done
@@ -172,13 +172,27 @@ expect "a second finger sends the drawer back up" "$(state '.settled')" '["settl
 pull omarchy.clock false 200 600
 expect "a mouse pulls a drawer down too" "$(state '.begun + .settled')" '["begin left","settle 1"]'
 
+call clearCalls >/dev/null
+call press omarchy.clock true >/dev/null; call moveBy 0 120 200 >/dev/null; sleep 0.3
+call stageSays "hand down" >/dev/null; call moveBy 0 120 200 >/dev/null; sleep 0.3
+call release >/dev/null; call stageSays "hand up" >/dev/null; sleep 0.4
+expect "two fingers, even one of them below the bar, are stage's: the drawer goes back" "$(state '.settled')" '["settle 0"]'
+call clearCalls >/dev/null
+call stageSays "hand down" >/dev/null
+call press omarchy.clock true >/dev/null; call moveBy 0 200 300 >/dev/null; sleep 0.4
+call release >/dev/null; call stageSays "hand up" >/dev/null; sleep 0.4
+expect "and a hand already down opens none" "$(state '.calls')" '[]'
+pull omarchy.clock true 200 600
+expect "once it's up, one finger pulls again" "$(state '.settled')" '["settle 1"]'
+
 pull x:0.5 true 40 600
-expect "a short pull from the middle leaves the console" "$(scratchpad)" ""
+expect "a short pull from the middle opens nothing" "$(grep -c 'omarchy-menu' "$work/commands.log" || true)" 0
 pull x:0.5 true 300 500
-expect "a long one brings it down" "$(scratchpad)" "special:scratchpad"
-expect "and asks the drawers nothing" "$(state '.calls')" '[]'
-pull x:0.5 true 300 500
-expect "another sends it back up" "$(scratchpad)" ""
+expect "a long one opens Omarchy's menu" "$(tail -1 "$work/commands.log")" "omarchy-menu summon"
+expect "and leaves the scratchpad and the drawers alone" "$(scratchpad)$(state '.calls')" '[]'
+pull x:0.4 true 300 500
+expect "anywhere in the middle third" "$(grep -c 'omarchy-menu summon' "$work/commands.log")" 2
+
 
 expect "nothing was written to shell.json" "$(state '.writes')" '[]'
 expect "the bar stays at the top" "$(state '[.widgets[] | .y + .height] | max <= 30')" true

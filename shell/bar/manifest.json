@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "omarchy-pad.bar",
   "name": "Pad Bar",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "Omarchy Pad",
   "description": "A status bar for touch: the time on the left, status on the right, and drawers that pull down from it.",
   "kinds": [

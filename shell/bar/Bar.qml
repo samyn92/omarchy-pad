@@ -18,7 +18,9 @@ import qs.Commons as Commons
 //
 // Pulling down from the left third opens the notifications drawer, from the
 // right third quick settings (the omarchy-pad.drawers plugin, called in
-// process), and from the middle the scratchpad console.
+// process), and from the middle Omarchy's menu. Two fingers pulled down from
+// anywhere on it bring the scratchpad: stage reads those from the touch
+// screen, and a second finger here lets go of any one-finger pull.
 Item {
   id: root
 
@@ -301,7 +303,7 @@ Item {
 
   // ---- Pulling down.
 
-  // The pull in progress: "left", "right", "middle", or "" for none.
+  // The pull in progress: "left", "right", "menu", or "" for none.
   property string pullZone: ""
   // How far down the drawer opens, for the release rule.
   property real pullHeight: 0
@@ -315,15 +317,32 @@ Item {
     return IpcRegistry.call("omarchy-pad.drawers", method, args || [])
   }
 
+  // A hand is down (stage says so): one finger of it on the bar pulls
+  // nothing.
+  property bool handDown: false
+
+  function stageSaid(line) {
+    if (line === "hand up") {
+      handDown = false
+    } else if (line === "hand down") {
+      handDown = true
+      if (!pullZone) return
+      pullLifted = false
+      endPull()
+    }
+  }
+
   function beginPull(screen, share) {
+    if (handDown) return
     pullScreen = screen
     pullDistance = 0
     pullSpeed = 0
     pullLifted = false
-    var zone = share < 1 / 3 ? "left" : share > 2 / 3 ? "right" : "middle"
-    if (zone === "middle") {
-      pullHeight = screen ? screen.height * 0.5 : 0
-      consoleBegin(screen, share)
+    var zone = share < 1 / 3 ? "left" : share > 2 / 3 ? "right" : "menu"
+    if (zone === "menu") {
+      // Omarchy's menu has no pull of its own: it opens as it does from a
+      // key once the pull goes far enough, by the same rule as a drawer.
+      pullHeight = Style.space(240)
     } else {
       // The drawers decide which screen they open on; without them a pull
       // here does nothing.
@@ -339,8 +358,7 @@ Item {
     pullDistance = Math.max(0, distance)
     pullSpeed = speed
     pullMovedAt = Date.now()
-    if (pullZone === "middle") consoleFollow(pullDistance)
-    else drawers("follow", [String(Math.round(pullDistance))])
+    if (pullZone !== "menu") drawers("follow", [String(Math.round(pullDistance))])
   }
 
   // Let go, or taken away (a second finger: stage's gestures take over), in
@@ -354,25 +372,30 @@ Item {
     // An open panel goes once something comes down over it. Not sooner:
     // closing its popup while the finger is down ends the touch.
     if (open) closePopout()
-    if (pullZone === "middle") consoleEnd(open)
+    if (pullZone === "menu") { if (open) run("omarchy-menu summon") }
     else drawers("settle", [open ? "1" : "0"])
     pullZone = ""
     pullScreen = null
   }
 
-  // The scratchpad console. stage draws it coming down with the finger: the
-  // bar hands it the pull over stage's command socket (`stage top begin`,
-  // `follow`, `end`), the same one `stage simulate` uses. Without stage, a
-  // pull past the threshold runs Omarchy's own toggle.
+  // stage's command socket, the one `stage simulate` uses. Saying the bar is
+  // here makes stage leave the top edge to it.
   Socket {
     id: stage
     path: Quickshell.env("XDG_RUNTIME_DIR") + "/stage-" + Quickshell.env("WAYLAND_DISPLAY") + ".sock"
     connected: true
     // stage answers each line with "ok"; the bar has nothing to do with it.
-    parser: SplitParser { onRead: function(data) {} }
+    // stage answers each line with "ok", and says when two or three fingers
+    // are down together: those are its gestures (two from the bar pull the
+    // scratchpad), even where only one of them is on the bar.
+    parser: SplitParser { onRead: function(data) { root.stageSaid(data) } }
     // Saying so makes stage drop its own strip along the top edge, so every
     // pull from the top comes through the bar and its thirds.
-    onConnectedChanged: if (connected) root.tellStage("bar here")
+    onConnectedChanged: {
+      // A "hand up" lost with the connection must not leave pulls off.
+      root.handDown = false
+      if (connected) root.tellStage("bar here")
+    }
   }
 
   // stage may start after the shell, or restart with an install, and a failed
@@ -384,28 +407,9 @@ Item {
     onTriggered: stage.connected = true
   }
 
-  property bool consoleToStage: false
-
   function tellStage(line) {
     stage.write(line + "\n")
     stage.flush()
-  }
-
-  function consoleBegin(screen, share) {
-    consoleToStage = stage.connected
-    if (!consoleToStage) return
-    var x = screen ? share * screen.width : 0
-    tellStage("top begin " + Math.round(x) + " " + Math.round(root.barSize / 2))
-  }
-
-  function consoleFollow(distance) {
-    if (consoleToStage) tellStage("top follow " + Math.round(distance))
-  }
-
-  function consoleEnd(open) {
-    if (consoleToStage) tellStage("top end " + (open ? "1" : "0"))
-    else if (open) Hyprland.dispatch('hl.dsp.workspace.toggle_special("scratchpad")')
-    consoleToStage = false
   }
 
   // ---- See-through on a tap.

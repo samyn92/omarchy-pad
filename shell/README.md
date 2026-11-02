@@ -21,9 +21,14 @@ Pull down from the bar to open a drawer:
 
 - from the left third, notifications;
 - from the right third, quick settings;
-- from the middle, the scratchpad console, following the finger (stage draws
-  it; without stage, Omarchy's own toggle). A push up from the bottom, or on
-  the dimmed screen, takes it back up.
+- from the middle third, Omarchy's menu, once the pull goes about a third of
+  the way it would for a drawer.
+
+Two fingers pulled down from anywhere on the bar bring the scratchpad down
+over the whole screen, following the fingers (stage reads them from the touch
+screen and draws it), even when it's empty: swipe in from the right edge then
+to open an app in it. Two fingers pushed up anywhere on it take it back up
+(or one finger from the bottom edge).
 
 The drawer follows your finger. Let go past about a third of the way down, or
 flick, and it opens; otherwise it goes back up. A mouse can pull them down too.
