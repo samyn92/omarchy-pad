@@ -113,6 +113,7 @@ floatkey --hidden        # start it hidden, for a session autostart
 floatkey toggle          # show or hide (starts it if needed); also show, hide
 floatkey dock            # also float, orb
 floatkey status          # shown docked de
+floatkey region          # where the keyboard takes touches (x y w h), or none: stage asks before a long press
 floatkey type "Grüße 👋"  # type into the focused window
 floatkey key ctrl+c      # press a key: BackSpace, Return, super+space, shift+Left...
 floatkey copy            # also cut, paste, undo, redo: shift added in a terminal

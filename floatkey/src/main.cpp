@@ -35,6 +35,7 @@ static const char *usage =
     "  float                float it, small, wherever it was last dragged\n"
     "  orb                  only the voice orb, floating, for voice typing\n"
     "  status               print whether it is shown, its mode and layout\n"
+    "  region               where the keyboard takes touches (x y w h), or none\n"
     "  layouts              print its layouts and what their keys type, as JSON\n"
     "  type TEXT            type TEXT into the focused window\n"
     "  clipboard            show the keyboard on its clipboard page\n"
@@ -203,7 +204,7 @@ int main(int argc, char *argv[])
         return 0;
     }
     if (args.contains("--version")) {
-        std::puts("floatkey 0.6.0");
+        std::puts("floatkey 0.6.1");
         return 0;
     }
     if (args.value(0) == "layouts")
@@ -232,7 +233,7 @@ int main(int argc, char *argv[])
     QQuickWindow::setDefaultAlphaBuffer(true);
     QGuiApplication app(argc, argv);
     app.setApplicationName("floatkey");
-    app.setApplicationVersion("0.6.0");
+    app.setApplicationVersion("0.6.1");
     app.setDesktopFileName("floatkey");
     if (QGuiApplication::platformName() != "wayland") {
         std::fputs("floatkey needs a Wayland session\n", stderr);

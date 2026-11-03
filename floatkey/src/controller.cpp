@@ -215,6 +215,14 @@ QString Controller::command(const QString &line)
         show();
     } else if (verb == "status")
         return QString("ok %1 %2 %3").arg(m_visible ? "shown" : "hidden", m_mode, m_layouts.value(m_layoutIndex));
+    // Where the keyboard takes touches, in the screen's logical coordinates (the overlay covers the screen), or none
+    // while it is hidden: stage asks before a long press there becomes a right click.
+    else if (verb == "region") {
+        if (!m_visible || m_inputRegion.isEmpty())
+            return "ok none";
+        return QString("ok %1 %2 %3 %4").arg(m_inputRegion.x()).arg(m_inputRegion.y()).arg(m_inputRegion.width())
+            .arg(m_inputRegion.height());
+    }
     else if (verb == "type") {
         if (!m_keyboard || !m_keyboard->isReady())
             return "error typing is unavailable" + (m_keyboard ? ": " + m_keyboard->error() : QString());

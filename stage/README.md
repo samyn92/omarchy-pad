@@ -27,6 +27,7 @@ the same the other way. Pull the scratchpad down from the top with two fingers.
 | Three fingers down | Pulls the window down, as with two |
 | Three fingers **pinched in** | Copies, as on an iPad (floatkey sends the keys, with shift in a terminal) |
 | Three fingers **spread out** | Pastes |
+| One finger **held still** on a window (half a second) | A right click there when you lift it: a ring fills around the finger and stays full once it will click. Moving the finger or adding another calls it off |
 
 Whenever anything is copied, by a pinch, a key or an app's menu, a small
 "Copied" pill shows under the bar for a moment. Two fingers pinching are left
@@ -111,6 +112,21 @@ Once grabbed, the windows follow the line in one of two ways:
 ```bash
 stage resize pictures   # or: stage resize live; remembered from then on
 stage resize            # which one it does now
+```
+
+A long press clicks with a pointer of stage's own (Hyprland's virtual pointer),
+since the app already has the finger as a touch, and only once the finger has
+lifted: a right click while it was still down was closed again by the lift. It
+leaves alone stage's own edges, the bar, the desktop, the lock screen, floatkey's
+keyboard (where a long press means accents) and the apps that open their own
+menu on a long press, Chromium and its web apps and the Electron apps. In
+`~/.config/stage/stage.conf`:
+
+```ini
+[longpress]
+enabled=true
+ms=500
+skip=chromium|google-chrome.*|chrome-.*|code|obsidian   ; app classes (a regular expression) it leaves alone
 ```
 
 Omarchy Pad's bar (`../shell/bar`) stays connected to stage's command socket

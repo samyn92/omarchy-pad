@@ -10,11 +10,14 @@
 #include <QLoggingCategory>
 #include <QMap>
 #include <QQuickWindow>
+#include <QLineF>
 #include <QRegion>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QWindow>
 #include <QtMath>
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <limits>
@@ -43,6 +46,12 @@ static qreal clockMs()
     return std::chrono::duration<qreal, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
+// The apps a long press leaves alone: they open their own menu on one (Chromium, its web apps and the Electron apps
+// Omarchy brings), where a right click as well would make two. stage.conf's longpress/skip replaces it.
+static const char DefaultLongPressSkip[] =
+    "chromium|Chromium|google-chrome.*|Google-chrome.*|brave-browser.*|Brave-browser.*|chrome-.*|code|Code|code-oss|"
+    "obsidian|Obsidian|signal|Signal|discord|Slack|typora|Typora|1Password|electron.*";
+
 static QVariantMap rectMap(const QRectF &r)
 {
     return {{"x", r.x()}, {"y", r.y()}, {"w", r.width()}, {"h", r.height()}};
@@ -64,6 +73,14 @@ Stage::Stage(Hyprland *hyprland, Capture *capture, Snapshots *snapshots, Apps *a
     m_holdTimer.setSingleShot(true);
     m_holdTimer.setInterval(HoldMs);
     connect(&m_holdTimer, &QTimer::timeout, this, &Stage::startGrab);
+    // The long press (handlePress, armPress): stage.conf can turn it off, time it and name the apps it leaves alone.
+    QSettings settings("stage", "stage");
+    m_longPressOn = settings.value("longpress/enabled", true).toBool();
+    m_longPressMs = qBound(250, settings.value("longpress/ms", 500).toInt(), 2000);
+    m_longPressSkip = settings.value("longpress/skip", QString(DefaultLongPressSkip)).toString();
+    m_pressTimer.setSingleShot(true);
+    m_pressTimer.setInterval(m_longPressMs);
+    connect(&m_pressTimer, &QTimer::timeout, this, &Stage::armPress);
 
     connect(m_hyprland, &Hyprland::hyprlandEvent, this, &Stage::onEvent);
     // Several layout events come in a burst; the dividers are found once,
@@ -157,6 +174,8 @@ void Stage::attach(QWindow *window)
     layer->setKeyboardInteractivity(LayerShellQt::Window::KeyboardInteractivityNone);
     layer->setActivateOnShow(false);
     layer->setExclusiveZone(-1);
+    if (!m_pointer.connectToCompositor())
+        qWarning("stage: the compositor has no virtual pointer; a long press won't right-click");
     connect(window, &QWindow::visibleChanged, this, [this](bool visible) {
         if (visible)
             applyInputRegion(true);
@@ -1285,6 +1304,10 @@ void Stage::touch(Touchscreen::Kind kind, int slot, const QPointF &panel, qreal 
         qCDebug(lcStage) << "finger" << slot << "at" << at;
         m_touches.insert(slot, Touch{panel, panel, ms});
         events = m_fingers.down(slot, at, ms);
+        // One finger alone may become a long press (not on stage's own strips); a second one makes a hand.
+        handlePress(m_longPress.down(slot, at, m_touches.size() == 1 && m_longPressOn && m_pointer.isAvailable(),
+                                     std::any_of(m_inputRects.cbegin(), m_inputRects.cend(),
+                                                 [&at](const QRect &r) { return r.contains(at.toPoint()); })));
         break;
     case Touchscreen::Move:
         // Held until the panel's frame, when every finger that moved has.
@@ -1293,6 +1316,7 @@ void Stage::touch(Touchscreen::Kind kind, int slot, const QPointF &panel, qreal 
         m_moved.insert(slot, {at, ms});
         return;
     case Touchscreen::Up:
+        handlePress(m_longPress.up(slot));
         m_touches.remove(slot);
         m_moved.remove(slot);
         events = m_fingers.up(slot, ms);
@@ -1303,6 +1327,8 @@ void Stage::touch(Touchscreen::Kind kind, int slot, const QPointF &panel, qreal 
         // has come counts.
         for (auto it = m_moved.cbegin(); it != m_moved.cend(); ++it)
             events += m_fingers.move(it.key(), it->first, it->second);
+        for (auto it = m_moved.cbegin(); it != m_moved.cend(); ++it)
+            handlePress(m_longPress.move(it.key(), it->first));
         m_moved.clear();
         for (const auto type : {Fingers::Event::PullMoved, Fingers::Event::SlideMoved, Fingers::Event::GrabMoved}) {
             const auto last = std::find_if(events.crbegin(), events.crend(), [type](const Fingers::Event &e) { return e.type == type; });
@@ -1316,6 +1342,95 @@ void Stage::touch(Touchscreen::Kind kind, int slot, const QPointF &panel, qreal 
     }
     }
     handle(events);
+}
+
+void Stage::handlePress(LongPress::Result result)
+{
+    switch (result) {
+    case LongPress::Started:
+        m_pressTimer.start();
+        emit pressStarted(m_longPress.at(), m_longPressMs);
+        break;
+    case LongPress::Canceled:
+        m_pressTimer.stop();
+        emit pressCanceled();
+        break;
+    case LongPress::Click:
+        // The armed finger lifted: the click, once the app has had the end of its touch.
+        QTimer::singleShot(PressClickDelayMs, this, &Stage::firePress);
+        break;
+    case LongPress::Nothing:
+        break;
+    }
+}
+
+// The finger has rested long enough: armed, if it is on a window of an app that wants a right click there. Hyprland
+// is asked only now, not for every touch.
+void Stage::armPress()
+{
+    const QPointF at = m_longPress.at();
+    auto refuse = [this](const QString &why) {
+        qCDebug(lcStage) << "long press:" << why;
+        m_longPress.cancel();
+        emit pressCanceled();
+    };
+    if (m_hyprland->query("locked").object().value("locked").toBool())
+        return refuse("the session is locked");
+    const Monitor m = monitor();
+    if (!m.ok)
+        return refuse("no monitor");
+    const QVariantMap window = windowAt(at.x(), at.y(), visibleWindows(m), m.special);
+    if (window.isEmpty())
+        return refuse("no window there");
+    const QString appClass = window["appClass"].toString();
+    if (QRegularExpression("^(?:" + m_longPressSkip + ")$").match(appClass).hasMatch())
+        return refuse(appClass + " opens its own menu");
+    if (overKeyboard(at))
+        return refuse("on the keyboard");
+    // Absolute motion is a fraction of every output together.
+    QRectF layout;
+    for (const QJsonValue &value : m_hyprland->query("monitors").array()) {
+        const QJsonObject o = value.toObject();
+        const double scale = o.value("scale").toDouble(1);
+        double width = o.value("width").toDouble(), height = o.value("height").toDouble();
+        if (o.value("transform").toInt() % 2 == 1)
+            std::swap(width, height);
+        layout |= QRectF(o.value("x").toDouble(), o.value("y").toDouble(), width / scale, height / scale);
+    }
+    if (!m_longPress.arm())
+        return;
+    m_pressAt = at;
+    m_pressGlobal = at + m.logical.topLeft();
+    m_pressLayout = layout;
+    qCDebug(lcStage) << "long press: armed on" << appClass << "at" << at;
+    emit pressArmed(at);
+}
+
+// The armed finger lifted, and the app has had the end of its touch: the right click.
+void Stage::firePress()
+{
+    if (!m_pointer.rightClick(m_pressGlobal, m_pressLayout)) {
+        qCDebug(lcStage) << "long press: the click didn't go";
+        emit pressCanceled();
+        return;
+    }
+    qCDebug(lcStage) << "long press: right click at" << m_pressAt;
+    emit pressFired(m_pressAt);
+}
+
+// floatkey's keyboard is where a long press means its accents. A floatkey that can't say where its keyboard is
+// counts as covering the screen while it is shown.
+bool Stage::overKeyboard(const QPointF &at) const
+{
+    const QString socket = Ipc::socketPath().replace("/stage-", "/floatkey-");
+    QString reply;
+    if (Ipc::send(socket, "region", &reply, 150) && reply.startsWith("ok ")) {
+        const QStringList parts = reply.split(' ');
+        if (parts.size() == 5)
+            return QRectF(parts[1].toDouble(), parts[2].toDouble(), parts[3].toDouble(), parts[4].toDouble()).contains(at);
+        return false;   // "ok none": hidden
+    }
+    return Ipc::send(socket, "status", &reply, 150) && reply.contains(" shown ");
 }
 
 void Stage::tellBars(const QByteArray &line)

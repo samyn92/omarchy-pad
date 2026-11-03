@@ -14,6 +14,8 @@
 #include <functional>
 
 #include "fingers.h"
+#include "longpress.h"
+#include "pointer.h"
 #include "touchscreen.h"
 
 class Apps;
@@ -225,6 +227,15 @@ signals:
     void slideEnded(const QPointF &at, qreal ms);
     void slideCanceled();
     void workspaceShown(const QString &name);
+    // One finger held still on a window: it began at `at` (the overlay shows
+    // a ring there from a moment on); after LongPressMs it is armed
+    // (`pressArmed`, the ring full), and when it lifts it right-clicks there
+    // (`pressFired`). Moving, another finger, or lifting before it is armed
+    // calls it off (`pressCanceled`).
+    void pressStarted(const QPointF &at, int ms);
+    void pressArmed(const QPointF &at);
+    void pressCanceled();
+    void pressFired(const QPointF &at);
 
 private:
     void sendClipboardKeys(const QString &action);
@@ -320,6 +331,28 @@ private:
     static constexpr int HoldMs = 500;
     static constexpr qreal HoldSlack = 14;
     QTimer m_holdTimer;
+
+    // A long press, one finger held still on a window, right-clicks there, as
+    // on a tablet: through a pointer of stage's own, since the app already has
+    // the finger as a touch. The click comes when the finger lifts, after the
+    // app has had the end of its touch (as Windows does it): sent while the
+    // finger was still down, the lift that followed closed the menu it had
+    // opened (3 Nov 2026). Not on stage's own strips, the keyboard, the lock
+    // screen or the desktop, and not in the apps that open their own menu on a
+    // long press (Chromium and Electron ones, `longpress/skip` in stage.conf).
+    void handlePress(LongPress::Result result);
+    void armPress();
+    void firePress();
+    bool overKeyboard(const QPointF &at) const;
+    static constexpr int PressClickDelayMs = 40;   // after the lift, for the app to have taken the touch's end
+    LongPress m_longPress;
+    QPointF m_pressAt, m_pressGlobal;   // where the armed press clicks, and every output together
+    QRectF m_pressLayout;
+    QTimer m_pressTimer;
+    int m_longPressMs = 500;
+    bool m_longPressOn = true;
+    QString m_longPressSkip;
+    Pointer m_pointer;
     QHash<QString, int> m_pictures;   // this hand's pictures, by window address
     // Windows asked to close, kept from animating; a window that stays (it
     // asked about unsaved work, say) gets its animations back.

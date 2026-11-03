@@ -17,6 +17,8 @@ HEADERS += \
     ../src/hyprland.h \
     ../src/images.h \
     ../src/ipc.h \
+    ../src/longpress.h \
+    ../src/pointer.h \
     ../src/shelves.h \
     ../src/stage.h \
     ../src/theme.h \
@@ -32,6 +34,7 @@ SOURCES += \
     ../src/hyprland.cpp \
     ../src/images.cpp \
     ../src/ipc.cpp \
+    ../src/pointer.cpp \
     ../src/shelves.cpp \
     ../src/stage.cpp \
     ../src/theme.cpp \

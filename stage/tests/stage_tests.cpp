@@ -16,6 +16,7 @@
 #include "apps.h"
 #include "shelves.h"
 #include "fingers.h"
+#include "longpress.h"
 #include "hyprland.h"
 #include "images.h"
 #include "stage.h"
@@ -161,6 +162,10 @@ signals:
     void slideEnded(const QPointF &at, qreal ms);
     void slideCanceled();
     void workspaceShown(const QString &name);
+    void pressStarted(const QPointF &at, int ms);
+    void pressArmed(const QPointF &at);
+    void pressCanceled();
+    void pressFired(const QPointF &at);
 };
 
 static QVariantMap rect(qreal x, qreal y, qreal w, qreal h)
@@ -833,6 +838,77 @@ private slots:
         for (int id = 1; id <= Stage::LastWorkspace; ++id)
             full << ws(id);
         QCOMPARE(Stage::workspaceTiles(full, {}, "DSI-1", 1).size(), Stage::LastWorkspace);
+    }
+
+    // ---- a long press: one finger held still right-clicks where it is ----
+
+    void aFingerHeldStillArmsAndItsLiftClicks()
+    {
+        LongPress p;
+        QCOMPARE(p.down(3, {400, 300}, true, false), LongPress::Started);
+        QCOMPARE(p.move(3, {405, 304}), LongPress::Nothing);   // fingers wander a little, held still
+        QVERIFY(p.arm());
+        QVERIFY(p.armed());
+        QCOMPARE(p.at(), QPointF(400, 300));
+        QCOMPARE(p.up(3), LongPress::Click);
+        QVERIFY(!p.on());
+    }
+
+    void aLiftBeforeItIsArmedIsATapNotAClick()
+    {
+        LongPress p;
+        QCOMPARE(p.down(0, {400, 300}, true, false), LongPress::Started);
+        QCOMPARE(p.up(0), LongPress::Canceled);
+        QVERIFY(!p.arm());   // the timer that fires after it finds nothing
+    }
+
+    void movingOrASecondFingerCallsALongPressOff()
+    {
+        LongPress p;
+        p.down(0, {400, 300}, true, false);
+        QCOMPARE(p.move(0, {400, 300 + LongPress::Slack + 1}), LongPress::Canceled);
+        QCOMPARE(p.up(0), LongPress::Nothing);
+
+        p.down(0, {400, 300}, true, false);
+        QVERIFY(p.arm());
+        QCOMPARE(p.move(0, {420, 300}), LongPress::Canceled);   // armed, then moved: no click
+        QCOMPARE(p.up(0), LongPress::Nothing);
+
+        p.down(0, {400, 300}, true, false);
+        QCOMPARE(p.down(1, {600, 300}, false, false), LongPress::Canceled);   // a hand, not a long press
+        QCOMPARE(p.up(0), LongPress::Nothing);
+        QCOMPARE(p.move(7, {0, 0}), LongPress::Nothing);   // another finger's moves are not its own
+    }
+
+    void stagesOwnStripsHaveNoLongPress()
+    {
+        LongPress p;
+        QCOMPARE(p.down(0, {1690, 600}, true, true), LongPress::Nothing);
+        QVERIFY(!p.on());
+    }
+
+    void theRingFillsAroundTheFingerAndGoesWithTheClick()
+    {
+        Harness h;
+        auto *ring = h.window->findChild<QQuickItem *>("longPress");
+        QVERIFY(ring);
+        emit h.fake.pressStarted(QPointF(400, 300), 500);
+        QTest::qWait(80);
+        QCOMPARE(ring->opacity(), 0.0);   // a tap never flashes it
+        QCOMPARE(ring->x() + ring->width() / 2, 400.0);
+        QVERIFY(ring->width() >= 120);   // around a fingertip, not under it
+        QTRY_VERIFY_WITH_TIMEOUT(ring->property("progress").toReal() > 0.99, 1000);
+        QCOMPARE(ring->opacity(), 1.0);
+        emit h.fake.pressArmed(QPointF(400, 300));
+        QTest::qWait(200);
+        QCOMPARE(ring->opacity(), 1.0);   // held full while the finger stays
+        emit h.fake.pressFired(QPointF(400, 300));
+        QTRY_COMPARE_WITH_TIMEOUT(ring->opacity(), 0.0, 1000);
+
+        emit h.fake.pressStarted(QPointF(800, 500), 500);
+        QTRY_VERIFY_WITH_TIMEOUT(ring->opacity() > 0.5, 1000);
+        emit h.fake.pressCanceled();
+        QTRY_COMPARE_WITH_TIMEOUT(ring->opacity(), 0.0, 1000);
     }
 
     // ---- the gestures, on the real QML ----
