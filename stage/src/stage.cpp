@@ -48,6 +48,8 @@ static qreal clockMs()
 
 // The apps a long press leaves alone: they open their own menu on one (Chromium, its web apps and the Electron apps
 // Omarchy brings), where a right click as well would make two. stage.conf's longpress/skip replaces it.
+static const char Screensaver[] = "org.omarchy.screensaver";
+
 static const char DefaultLongPressSkip[] =
     "chromium|Chromium|google-chrome.*|Google-chrome.*|brave-browser.*|Brave-browser.*|chrome-.*|code|Code|code-oss|"
     "obsidian|Obsidian|signal|Signal|discord|Slack|typora|Typora|1Password|electron.*";
@@ -640,8 +642,11 @@ void Stage::onEvent(const QString &name, const QString &data)
         emit workspaceShown(data);
         return;
     }
+    if (name == "openwindow" && data.section(',', 2, 2) == Screensaver)
+        m_screensavers.insert("0x" + data.section(',', 0, 0));
     if (name == "closewindow") {
         const QString address = "0x" + data.section(',', 0, 0);
+        m_screensavers.remove(address);
         if (QTimer *timer = m_closing.take(address))
             timer->deleteLater();
         m_hidden.remove(address);
@@ -1302,6 +1307,11 @@ void Stage::touch(Touchscreen::Kind kind, int slot, const QPointF &panel, qreal 
     switch (kind) {
     case Touchscreen::Down:
         qCDebug(lcStage) << "finger" << slot << "at" << at;
+        // A touch on the screensaver ends it, and does nothing else.
+        if (!m_screensavers.isEmpty()) {
+            endScreensaver();
+            return;
+        }
         m_touches.insert(slot, Touch{panel, panel, ms});
         events = m_fingers.down(slot, at, ms);
         // One finger alone may become a long press (not on stage's own strips); a second one makes a hand.
@@ -1342,6 +1352,21 @@ void Stage::touch(Touchscreen::Kind kind, int slot, const QPointF &panel, qreal 
     }
     }
     handle(events);
+}
+
+// Closing its window is what ends it as a key does: its terminal goes, and the screensaver's own trap puts the
+// cursor back. Hyprland is asked once for any it hasn't told stage about (stage started after it opened).
+void Stage::endScreensaver()
+{
+    for (const QJsonValue &value : m_hyprland->query("clients").array()) {
+        const QJsonObject o = value.toObject();
+        if (o.value("class").toString() == Screensaver)
+            m_screensavers.insert(o.value("address").toString());
+    }
+    qCDebug(lcStage) << "a touch ends the screensaver" << m_screensavers.values();
+    for (const QString &address : std::as_const(m_screensavers))
+        m_hyprland->dispatch(QString("hl.dsp.window.close({ window = \"address:%1\" })").arg(address));
+    m_screensavers.clear();
 }
 
 void Stage::handlePress(LongPress::Result result)

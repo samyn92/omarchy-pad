@@ -340,6 +340,10 @@ private:
     // opened (3 Nov 2026). Not on stage's own strips, the keyboard, the lock
     // screen or the desktop, and not in the apps that open their own menu on a
     // long press (Chromium and Electron ones, `longpress/skip` in stage.conf).
+    // Omarchy's screensaver ends on a key or when it loses focus, never on a touch; on a tablet the first touch ends
+    // it. Its windows (org.omarchy.screensaver, one per monitor), from Hyprland's events.
+    void endScreensaver();
+    QSet<QString> m_screensavers;
     void handlePress(LongPress::Result result);
     void armPress();
     void firePress();

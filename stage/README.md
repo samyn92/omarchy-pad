@@ -27,6 +27,7 @@ the same the other way. Pull the scratchpad down from the top with two fingers.
 | Three fingers down | Pulls the window down, as with two |
 | Three fingers **pinched in** | Copies, as on an iPad (floatkey sends the keys, with shift in a terminal) |
 | Three fingers **spread out** | Pastes |
+| A touch on Omarchy's **screensaver** | Ends it, as a key does, and does nothing else |
 | One finger **held still** on a window (half a second) | A right click there when you lift it: a ring fills around the finger and stays full once it will click. Moving the finger or adding another calls it off |
 
 Whenever anything is copied, by a pinch, a key or an app's menu, a small
