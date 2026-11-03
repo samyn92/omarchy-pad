@@ -18,7 +18,7 @@ build() {
   (cd "$root/$1" && PKGDEST=$out makepkg -f --nodeps --noconfirm --cleanbuild >/dev/null)
 }
 
-for p in floatkey/pkgbuild stage/pkgbuild tablet/pkgbuild shell/pkgbuild lock/pkgbuild firstboot/pkgbuild pkgbuild; do
+for p in keyring/pkgbuild floatkey/pkgbuild stage/pkgbuild tablet/pkgbuild shell/pkgbuild lock/pkgbuild firstboot/pkgbuild pkgbuild; do
   build "$p"
 done
 compgen -G "$out/buffybox-*.pkg.tar.*" >/dev/null || build firstboot/buffybox

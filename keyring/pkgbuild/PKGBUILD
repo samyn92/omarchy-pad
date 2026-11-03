@@ -1,0 +1,14 @@
+# omarchy-pad-keyring: the key Omarchy Pad's packages and repository databases are signed with, for pacman's keyring,
+# as omarchy-keyring does it for Omarchy's. See ../README.md.
+pkgname=omarchy-pad-keyring
+pkgver=20261103
+pkgrel=1
+pkgdesc="Omarchy Pad: the key its packages are signed with"
+arch=(any)
+license=(MIT)
+install=omarchy-pad-keyring.install
+
+package() {
+  install -Dm644 -t "$pkgdir/usr/share/pacman/keyrings" \
+    "$startdir/../omarchy-pad.gpg" "$startdir/../omarchy-pad-trusted" "$startdir/../omarchy-pad-revoked"
+}

@@ -41,6 +41,21 @@ starts locked, and the password is typed on the lock screen's keyboard instead
 of in SDDM's greeter, which has none. See [lock](lock/README.md) for how it is
 set up and how to go back.
 
+## Updates
+
+Omarchy Pad's packages come from its own signed pacman repository, as Omarchy's come from pkgs.omarchy.org, so
+`omarchy update` (or `pacman -Syu`) brings them:
+
+```ini
+[omarchy-pad]
+SigLevel = Required DatabaseRequired
+Server = https://samyn92.github.io/omarchy-pad/$repo/stable/$arch
+```
+
+The key comes in `omarchy-pad-keyring` ([keyring/](keyring/)). A tablet's device packages have a repository of their
+own on the same site (the OnePlus Pad 4's: `[iceland]`). `bin/publish REPO CHANNEL [PKGDIR]` signs and stages a
+repository, `--push` publishes it (the `gh-pages` branch).
+
 ## Licence
 
 MIT ([LICENSE](LICENSE)). floatkey and stage carry their own MIT licence files; buffybox, built from its upstream

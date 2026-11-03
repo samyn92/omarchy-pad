@@ -1,0 +1,96 @@
+#!/bin/bash
+# Publishes packages as a signed pacman repository on the GitHub Pages site of samyn92/omarchy-pad (its gh-pages
+# branch), where a tablet's pacman finds them as
+#
+#   [REPO]
+#   Server = https://samyn92.github.io/omarchy-pad/$repo/CHANNEL/$arch
+#
+#   bin/publish REPO CHANNEL [PKGDIR]     stage it: the site in ~/.cache/omarchy-pad-publish/site, committed, not pushed
+#   bin/publish --push REPO CHANNEL ...   and push it
+#
+# REPO: omarchy-pad (this repository's packages; without PKGDIR they are built with bin/packages) or a device's
+# repository such as iceland (PKGDIR from its device layer). CHANNEL: stable or edge. The packages in PKGDIR replace
+# what REPO/CHANNEL held. Every package and the database are signed with the key of omarchy-pad-keyring
+# (keyring/README.md), from its own GnuPG home, OMARCHY_PAD_GNUPGHOME (~/.local/share/omarchy-pad-signing/gnupg).
+# The gh-pages branch keeps one commit: the site as it is, never a history of every package ever published.
+set -euo pipefail
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+push=0
+[[ ${1:-} == --push ]] && { push=1; shift; }
+repo=${1:?usage: bin/publish [--push] REPO CHANNEL [PKGDIR]}
+channel=${2:?usage: bin/publish [--push] REPO CHANNEL [PKGDIR]}
+pkgdir=${3:-}
+[[ $repo =~ ^[a-z0-9-]+$ ]] || { echo "bin/publish: REPO must be lower-case letters, digits and -" >&2; exit 2; }
+[[ $channel == stable || $channel == edge ]] || { echo "bin/publish: CHANNEL is stable or edge" >&2; exit 2; }
+
+key=A9EDDCA320FC25A5EC8B7F3790104B1A1337F4A9
+export GNUPGHOME=${OMARCHY_PAD_GNUPGHOME:-$HOME/.local/share/omarchy-pad-signing/gnupg}
+gpg --list-secret-keys "$key" >/dev/null 2>&1 || { echo "bin/publish: no secret key $key in $GNUPGHOME" >&2; exit 1; }
+remote=https://github.com/samyn92/omarchy-pad.git
+site=${OMARCHY_PAD_SITE:-$HOME/.cache/omarchy-pad-publish/site}
+arches=(aarch64)
+
+if [[ -z $pkgdir ]]; then
+  [[ $repo == omarchy-pad ]] || { echo "bin/publish: give the PKGDIR of $repo" >&2; exit 2; }
+  pkgdir=$(mktemp -d "${TMPDIR:-/tmp}/omarchy-pad-packages.XXXXXX")
+  "$root/bin/packages" "$pkgdir" >/dev/null
+fi
+mapfile -t pkgs < <(find "$pkgdir" -maxdepth 1 -name '*.pkg.tar.*' ! -name '*.sig' | sort)
+((${#pkgs[@]})) || { echo "bin/publish: no packages in $pkgdir" >&2; exit 1; }
+
+# The site: the gh-pages branch as published, or a new one
+if [[ ! -d $site/.git ]]; then
+  mkdir -p "$site"
+  git -C "$site" init -q -b gh-pages
+  git -C "$site" remote add origin "$remote"
+  if git -C "$site" fetch -q origin gh-pages 2>/dev/null; then
+    git -C "$site" reset -q --hard FETCH_HEAD
+  fi
+fi
+touch "$site/.nojekyll"
+
+for arch in "${arches[@]}"; do
+  dir=$site/$repo/$channel/$arch
+  rm -rf "$dir"
+  mkdir -p "$dir"
+  n=0
+  for p in "${pkgs[@]}"; do
+    case $p in
+      *-"$arch".pkg.tar.* | *-any.pkg.tar.*) ;;
+      *) continue ;;
+    esac
+    cp "$p" "$dir/"
+    gpg --batch --yes --quiet --local-user "$key" --detach-sign --output "$dir/$(basename "$p").sig" "$dir/$(basename "$p")"
+    n=$((n + 1))
+  done
+  ((n)) || { rmdir "$dir"; continue; }
+  mapfile -t files < <(cd "$dir" && ls | grep -E '\.pkg\.tar\.[a-z0-9]+$')
+  (cd "$dir" && repo-add -q -s -k "$key" "$repo.db.tar.zst" "${files[@]}")
+  # GitHub Pages serves files, not symlinks: the names pacman asks for are copies
+  for f in db files; do
+    rm -f "$dir/$repo.$f" "$dir/$repo.$f.sig"
+    cp "$dir/$repo.$f.tar.zst" "$dir/$repo.$f"
+    cp "$dir/$repo.$f.tar.zst.sig" "$dir/$repo.$f.sig"
+  done
+  echo "$repo/$channel/$arch: $n packages"
+done
+
+git -C "$site" add -A
+git -C "$site" -c user.name="$(git -C "$root" config user.name)" -c user.email="$(git -C "$root" config user.email)" \
+  commit -q --amend --allow-empty -m "Omarchy Pad package repositories" 2>/dev/null ||
+  git -C "$site" -c user.name="$(git -C "$root" config user.name)" -c user.email="$(git -C "$root" config user.email)" \
+    commit -q -m "Omarchy Pad package repositories"
+
+if ((push)); then
+  git -C "$site" push -q --force origin gh-pages
+  echo "published: https://samyn92.github.io/omarchy-pad/$repo/$channel/"
+else
+  echo "staged in $site (bin/publish --push $repo $channel ... publishes it)"
+fi
+cat <<EOF
+
+[$repo]
+SigLevel = Required DatabaseRequired
+Server = https://samyn92.github.io/omarchy-pad/\$repo/$channel/\$arch
+EOF
