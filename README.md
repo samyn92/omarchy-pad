@@ -40,3 +40,8 @@ Logging in by touch comes with the `omarchy-pad-lock` package
 starts locked, and the password is typed on the lock screen's keyboard instead
 of in SDDM's greeter, which has none. See [lock](lock/README.md) for how it is
 set up and how to go back.
+
+## Licence
+
+MIT ([LICENSE](LICENSE)). floatkey and stage carry their own MIT licence files; buffybox, built from its upstream
+source for the first-boot fallback keyboard, is GPL-3.0-or-later and MIT.
