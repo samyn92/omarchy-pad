@@ -1,0 +1,50 @@
+#!/bin/bash
+# Runs the touch owner form offscreen against Omarchy's own setup questions (setup-form.sh, sourced as the owner setup
+# sources it), through the stand-in gum, with no root and no user created. The form answers each page with test values
+# (--autotest) and pictures it; this checks the answers that come back to Omarchy's prompts, then plays the setup's
+# progress. The pictures stay in the folder it prints.
+#
+#   tests/check            build first if needed (form/bin/build)
+set -euo pipefail
+
+here=$(cd "$(dirname "$0")/.." && pwd)
+app=$here/form/build/omarchy-pad-owner-form
+[[ -x $app ]] || "$here/form/bin/build" >/dev/null
+omarchy=${OMARCHY_PATH:-/usr/share/omarchy}
+
+work=$(mktemp -d "${TMPDIR:-/tmp}/owner-form-check.XXXXXX")
+mkdir -p "$work/shots"
+printf 'KEYMAP=de\nXKBLAYOUT=de\n' >"$work/vconsole.conf"
+: >"$work/screen"
+QT_QPA_PLATFORM=offscreen QT_IM_MODULE=none "$app" --socket "$work/sock" --tty none --vcs "$work/screen" \
+  --state "$work/state" --vconsole "$work/vconsole.conf" --omarchy "$omarchy" --autotest "$work/shots" \
+  >"$work/form.log" 2>&1 &
+form=$!
+trap 'kill $form 2>/dev/null || true' EXIT
+for _ in {1..50}; do [[ -S $work/sock ]] && break; sleep 0.1; done
+[[ -S $work/sock ]] || { cat "$work/form.log"; echo "FAIL the form did not come up"; exit 1; }
+
+# The owner setup's questions, in its order, as its run_setup asks them.
+PATH="$here/pkgbuild/files/usr/lib/omarchy-pad/owner-path:$PATH" OMARCHY_PAD_FORM_SOCKET="$work/sock" OMARCHY_PAD_FORM="$app" \
+  OMARCHY_FORM_TIMEZONE_DEFAULT=Europe/Berlin OMARCHY_PATH="$omarchy" bash -c '
+  set -u
+  notice() { echo "notice: $1"; }
+  source "$OMARCHY_PATH/install/provisioning/setup-form.sh"
+  omarchy_prompt_keyboard; echo "keyboard=$keyboard_label|$keyboard"
+  omarchy_prompt_username; echo "username=$username"
+  omarchy_prompt_password; echo "password=$password|$password_confirmation"
+  omarchy_prompt_hostname; echo "hostname=$hostname"
+  omarchy_prompt_timezone; echo "timezone=$timezone"
+  printf "Field,Value\nKeyboard,%s\nUsername,%s\nPassword,****\nHostname,%s\nTimezone,%s\n" \
+    "$keyboard_label" "$username" "$hostname" "$timezone" | gum table -s "," -p >/dev/null
+  gum confirm --negative "No, change it" "Does this look right?" && echo confirm=yes || echo confirm=no
+' >"$work/answers" 2>&1
+for state in account finalize boot done; do echo "$state" >"$work/state"; sleep 0.8; done
+
+cat "$work/answers"
+expected=$'keyboard=English (US)|us\nusername=owner\npassword=test|test\nhostname=pad\ntimezone=Europe/Berlin\nconfirm=yes'
+if [[ $(<"$work/answers") == "$expected" ]]; then
+  echo "PASS: Omarchy's prompts got the form's answers; pictures in $work/shots"
+else
+  echo "FAIL: expected"; echo "$expected"; echo "(form log: $work/form.log)"; exit 1
+fi

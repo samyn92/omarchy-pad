@@ -1,0 +1,110 @@
+#!/bin/bash
+# Omarchy Pad: gum for Omarchy's first-boot owner setup, first on the setup's PATH
+# (omarchy-provision-owner.service.d/50-omarchy-pad-keyboard.conf).
+#
+# The setup asks every question through gum: choose, filter, input, confirm, and table for the summary. While the
+# touch form is up (omarchy-pad-owner-form, its socket below), each of them goes to the form instead, as one JSON line,
+# and this prints the answer and exits with the status gum would have: 0, 1 for Esc (back), 130 for Ctrl+C (the
+# setup's reboot offer). Everything else (gum style draws the setup's text), and everything once the form is not
+# there, is the real gum's, so the text form works as it always has.
+
+real=/usr/bin/gum
+socket=${OMARCHY_PAD_FORM_SOCKET:-/run/omarchy-pad/owner-form.sock}
+form=${OMARCHY_PAD_FORM:-/usr/bin/omarchy-pad-owner-form}
+
+cmd=${1:-}
+case $cmd in
+  choose | filter | input | confirm | table) ;;
+  *) exec "$real" "$@" ;;
+esac
+[[ -S $socket && -x $form ]] && command -v jq >/dev/null || exec "$real" "$@"
+shift
+
+# gum's flags as Omarchy passes them: --name value or --name=value; these take no value.
+header="" selected="" placeholder="" prompt="" value="" affirmative="" negative="" separator="," password=false
+positional=()
+while (($#)); do
+  arg=$1
+  shift
+  case $arg in
+    --password) password=true ;;
+    -p | --print | --no-limit | --show-help | --strict | --fuzzy | --no-fuzzy | --default) ;;
+    --*=*) flag=${arg%%=*} val=${arg#*=} ;;&
+    --header=*) header=$val ;;
+    --selected=*) selected=$val ;;
+    --placeholder=*) placeholder=$val ;;
+    --prompt=*) prompt=$val ;;
+    --value=*) value=$val ;;
+    --affirmative=*) affirmative=$val ;;
+    --negative=*) negative=$val ;;
+    --separator=*) separator=$val ;;
+    --*=*) ;;
+    --header) header=${1:-}; shift ;;
+    --selected) selected=${1:-}; shift ;;
+    --placeholder) placeholder=${1:-}; shift ;;
+    --prompt) prompt=${1:-}; shift ;;
+    --value) value=${1:-}; shift ;;
+    --affirmative) affirmative=${1:-}; shift ;;
+    --negative) negative=${1:-}; shift ;;
+    -s | --separator) separator=${1:-,}; shift ;;
+    -*) shift ;;
+    *) positional+=("$arg") ;;
+  esac
+done
+unset flag val
+
+# choose, filter and table read their lines from stdin unless given as arguments; keep them, for the real gum too.
+input=""
+if [[ $cmd == choose || $cmd == filter || $cmd == table ]] && ((${#positional[@]} == 0)) && [[ ! -t 0 ]]; then
+  input=$(cat)
+fi
+fallback() {
+  if [[ -n $input ]]; then
+    printf '%s\n' "$input" | "$real" "$cmd" "${original[@]}"
+  else
+    "$real" "$cmd" "${original[@]}"
+  fi
+  exit
+}
+lines=$(if ((${#positional[@]})); then printf '%s\n' "${positional[@]}"; elif [[ -n $input ]]; then printf '%s\n' "$input"; fi)
+
+case $cmd in
+  choose | filter)
+    # gum splits --selected on commas, so Omarchy escapes them.
+    request=$(jq -cn --arg cmd "$cmd" --arg header "$header" --arg selected "${selected//\\,/,}" \
+      --arg placeholder "$placeholder" --arg lines "$lines" \
+      '{cmd: $cmd, header: $header, selected: $selected, placeholder: $placeholder,
+        options: ($lines | split("\n") | map(select(. != "")))}') ;;
+  input)
+    request=$(jq -cn --arg prompt "$prompt" --arg placeholder "$placeholder" --arg value "$value" \
+      --argjson password "$password" \
+      '{cmd: "input", prompt: $prompt, placeholder: $placeholder, value: $value, password: $password}') ;;
+  confirm)
+    request=$(jq -cn --arg prompt "${positional[0]:-}" --arg affirmative "$affirmative" --arg negative "$negative" \
+      '{cmd: "confirm", prompt: $prompt, affirmative: $affirmative, negative: $negative}') ;;
+  table)
+    request=$(jq -cn --arg lines "$lines" --arg sep "$separator" \
+      '{cmd: "table", rows: ($lines | split("\n") | map(select(. != "") | split($sep)))}') ;;
+esac
+
+# The form answers when the owner does, however long that takes.
+reply=$(printf '%s\n' "$request" | "$form" ask "$socket" 2>/dev/null) || reply=""
+status=$(jq -r '.status // empty' <<<"$reply" 2>/dev/null)
+if [[ ! $status =~ ^[0-9]+$ ]]; then
+  # The form went away mid-question: ask on the console instead.
+  original=()
+  [[ -n $header ]] && original+=(--header "$header")
+  [[ -n $placeholder ]] && original+=(--placeholder "$placeholder")
+  [[ -n $prompt ]] && original+=(--prompt "$prompt")
+  [[ $password == true ]] && original+=(--password)
+  [[ -n $selected ]] && original+=(--selected "$selected")
+  [[ -n $affirmative ]] && original+=(--affirmative "$affirmative")
+  [[ -n $negative ]] && original+=(--negative "$negative")
+  [[ $cmd == table ]] && original+=(-s "$separator" -p)
+  [[ $cmd == confirm && -n ${positional[0]:-} ]] && original+=("${positional[0]}")
+  fallback
+fi
+
+output=$(jq -r '.output // ""' <<<"$reply")
+[[ -n $output ]] && printf '%s\n' "$output"
+exit "$status"

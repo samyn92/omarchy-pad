@@ -1,0 +1,37 @@
+#!/bin/bash
+# Opens the touch owner form in a window and asks it Omarchy's own setup questions (setup-form.sh, as the owner setup
+# asks them) through the stand-in gum, so you can tap through it. No root, no user created, nothing written outside a
+# temporary folder. The answers Omarchy's prompts got are printed at the end.
+#
+#   tests/try              build first if needed (form/bin/build)
+set -euo pipefail
+
+here=$(cd "$(dirname "$0")/.." && pwd)
+app=$here/form/build/omarchy-pad-owner-form
+[[ -x $app ]] || "$here/form/bin/build" >/dev/null
+omarchy=${OMARCHY_PATH:-/usr/share/omarchy}
+
+work=$(mktemp -d "${TMPDIR:-/tmp}/owner-form-try.XXXXXX")
+printf 'KEYMAP=us\nXKBLAYOUT=us\n' >"$work/vconsole.conf"
+: >"$work/screen"
+QT_IM_MODULE=none "$app" --windowed --socket "$work/sock" --tty none --vcs "$work/screen" --state "$work/state" \
+  --vconsole "$work/vconsole.conf" --omarchy "$omarchy" &
+form=$!
+trap 'kill $form 2>/dev/null || true; rm -rf "$work"' EXIT
+for _ in {1..50}; do [[ -S $work/sock ]] && break; sleep 0.1; done
+echo "Tap Start setup in the window."
+
+PATH="$here/pkgbuild/files/usr/lib/omarchy-pad/owner-path:$PATH" OMARCHY_PAD_FORM_SOCKET="$work/sock" \
+  OMARCHY_PAD_FORM="$app" OMARCHY_PATH="$omarchy" bash -c '
+  notice() { echo "notice: $1"; }
+  source "$OMARCHY_PATH/install/provisioning/setup-form.sh"
+  until omarchy_prompt_keyboard; do :; done; echo "keyboard: $keyboard_label"
+  until omarchy_prompt_username; do :; done; echo "username: $username"
+  until omarchy_prompt_password; do :; done; echo "password: (${#password} characters, confirmation matches: $([[ $password == "$password_confirmation" ]] && echo yes || echo no))"
+  until omarchy_prompt_hostname; do :; done; echo "hostname: $hostname"
+  until omarchy_prompt_timezone; do :; done; echo "timezone: $timezone"
+  printf "Field,Value\nKeyboard,%s\nUsername,%s\nPassword,****\nHostname,%s\nTimezone,%s\n" \
+    "$keyboard_label" "$username" "$hostname" "$timezone" | gum table -s "," -p >/dev/null
+  gum confirm --negative "No, change it" "Does this look right?" && echo "confirmed" || echo "not confirmed"
+'
+for state in account finalize boot done; do echo "$state" >"$work/state"; sleep 1.5; done

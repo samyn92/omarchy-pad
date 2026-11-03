@@ -1,0 +1,5 @@
+#!/bin/sh
+# Omarchy Pad: the touch form inside its Hyprland (owner-form/hyprland.lua starts this). When the form ends, so does
+# Hyprland, and with it the service, which leaves the questions to the text form.
+/usr/bin/omarchy-pad-owner-form
+hyprctl dispatch exit >/dev/null 2>&1

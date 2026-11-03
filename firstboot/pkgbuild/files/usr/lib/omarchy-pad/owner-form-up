@@ -1,0 +1,19 @@
+#!/bin/sh
+# Omarchy Pad: whether the first-boot touch form is up. Waits until its window's socket is there (exit 0), or its
+# service is not running (exit 1), for at most 90 s (exit 1).
+#
+#   owner-form-up [UNIT]     UNIT: omarchy-pad-owner-form.service
+#
+# The owner setup runs it before asking anything (its drop-in), and buffyboard only when it says no
+# (omarchy-pad-owner-keyboard.service). The service cannot say it is ready itself: its session (PAMName=) moves its
+# processes out of its own cgroup, where systemd takes readiness from (2 Nov 2026).
+unit=${1:-omarchy-pad-owner-form.service}
+sock=/run/omarchy-pad/owner-form.sock
+i=0
+while [ "$i" -lt 450 ]; do
+  [ -S "$sock" ] && exit 0
+  systemctl -q is-active "$unit" || exit 1
+  sleep 0.2
+  i=$((i + 1))
+done
+exit 1

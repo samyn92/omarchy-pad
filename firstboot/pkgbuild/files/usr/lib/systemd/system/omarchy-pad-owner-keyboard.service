@@ -2,6 +2,7 @@
 # and the hostname on tty1 (omarchy-provision-owner.service). A tablet has no keyboard of its own; buffyboard draws one
 # on the framebuffer and types through /dev/uinput. Started and stopped by the owner setup's drop-in
 # (omarchy-provision-owner.service.d/50-omarchy-pad-keyboard.conf), so it never runs on a machine already set up.
+# Since 0.4 it is the fallback: the touch form (omarchy-pad-owner-form.service) asks instead when it comes up.
 [Unit]
 Description=Omarchy Pad: touch keyboard for the first-boot owner setup
 Documentation=file:///usr/share/doc/omarchy-pad-firstboot/README.md
@@ -9,9 +10,12 @@ ConditionPathExists=/var/lib/omarchy/provisioning/pending
 # After Omarchy's deferred hardware setup (the pacman keyring and the hardware scripts, minutes on a first boot), which
 # comes before the form anyway: the keyboard quits Plymouth, and the screen would be dark until the form came.
 After=systemd-user-sessions.service systemd-udev-settle.service omarchy-provision-hardware.service
+After=omarchy-pad-owner-form.service
 Before=omarchy-provision-owner.service
 
 [Service]
+# Only when the touch form did not come up (owner-form-up waits for it)
+ExecCondition=/bin/sh -c '! /usr/lib/omarchy-pad/owner-form-up'
 # Ready once buffyboard can take the signal that makes room for it (see the script)
 Type=notify
 NotifyAccess=all

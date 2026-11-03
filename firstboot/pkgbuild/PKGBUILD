@@ -1,14 +1,27 @@
 # omarchy-pad-firstboot: the first-boot owner setup by touch. Omarchy's own form (omarchy-provision-owner on tty1)
-# stays as it is; buffyboard draws a touch keyboard under it while it runs. See ../README.md.
+# asks the questions; a full-screen window with floatkey's keys (omarchy-pad-owner-form, in a minimal Hyprland on
+# tty2) answers them through a stand-in gum, and buffyboard draws a touch keyboard under the text form when the window
+# cannot come up.
+# See ../README.md.
 pkgname=omarchy-pad-firstboot
-pkgver=0.3
+pkgver=0.4.2
 pkgrel=1
-pkgdesc="Omarchy Pad: a touch keyboard for Omarchy's first-boot owner setup"
-arch=(any)
+pkgdesc="Omarchy Pad: Omarchy's first-boot owner setup by touch"
+arch=(x86_64 aarch64)
 license=(MIT)
-depends=(buffybox systemd)
+depends=(hyprland qt6-base qt6-declarative qt6-svg qt6-wayland systemd-libs jq gum buffybox systemd)
+makedepends=(gcc make)
+optdepends=('adwaita-fonts: the form and its keys in Adwaita Sans')
+
+build() {
+  cd "$startdir/../form"
+  # From scratch, so the package is built from the files as they are.
+  rm -rf build
+  ./bin/build
+}
 
 package() {
   cp -a --no-preserve=ownership "$startdir/files/." "$pkgdir/"
+  install -Dm755 "$startdir/../form/build/omarchy-pad-owner-form" "$pkgdir/usr/bin/omarchy-pad-owner-form"
   install -Dm644 "$startdir/../README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
 }

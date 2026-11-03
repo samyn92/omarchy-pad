@@ -1,0 +1,46 @@
+# Omarchy Pad: the first-boot owner setup by touch. A full-screen window (omarchy-pad-owner-form, in a minimal Hyprland
+# on tty2) answers Omarchy's owner setup, which runs on tty1 unseen and asks its questions through the stand-in gum
+# (/usr/lib/omarchy-pad/owner-path/gum). Started and stopped by the owner setup's drop-in
+# (omarchy-provision-owner.service.d/50-omarchy-pad-keyboard.conf), so it never runs on a machine already set up. If it
+# does not come up, buffyboard (omarchy-pad-owner-keyboard.service) does, under the text form.
+[Unit]
+Description=Omarchy Pad: first-boot owner setup by touch
+Documentation=file:///usr/share/doc/omarchy-pad-firstboot/README.md
+ConditionPathExists=/var/lib/omarchy/provisioning/pending
+# After Omarchy's deferred hardware setup (minutes on a first boot), so the boot splash stays up until then
+After=systemd-user-sessions.service systemd-udev-settle.service omarchy-provision-hardware.service
+Before=omarchy-provision-owner.service
+# What the form needs root for: the Return into tty1 after Start, and tty1's screen
+Wants=omarchy-pad-owner-form-helper.service
+
+[Service]
+# Started once running: the owner setup and buffyboard wait for the window's socket themselves (owner-form-up), as
+# the session below moves the processes out of the service's cgroup, where systemd would take readiness from
+Type=exec
+# Hyprland does not run as root; the form runs unprivileged with it, and its helper service does the root part
+User=omarchy-pad-setup
+RuntimeDirectory=omarchy-pad
+StateDirectory=omarchy-pad-setup
+Environment=HOME=/var/lib/omarchy-pad-setup XDG_SESSION_TYPE=wayland QT_QPA_PLATFORM=wayland QT_IM_MODULE=none
+ExecStartPre=+-/usr/bin/plymouth quit
+# tty2 is the form's: no login prompt there while it runs. Switching to a VT with no session makes logind start one,
+# which takes the VT and hangs up the form's session (Hyprland died 3 s in, 2 Nov 2026). Masked for this boot only.
+ExecStartPre=+-/usr/bin/systemctl mask --runtime --now getty@tty2.service autovt@tty2.service
+ExecStartPre=+-/usr/bin/chvt 2
+ExecStart=/usr/lib/omarchy-pad/owner-form-compositor
+# Back to the text form's console when the window ends, whichever way; a window that went away mid-setup leaves the
+# questions to the text form, with buffyboard under it.
+ExecStopPost=+-/usr/bin/chvt 1
+ExecStopPost=+-/usr/bin/systemctl unmask --runtime getty@tty2.service autovt@tty2.service
+ExecStopPost=+-/usr/bin/systemctl --no-block start omarchy-pad-owner-keyboard.service
+# A session on tty2 (logind hands it the display and the touch screen)
+TTYPath=/dev/tty2
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+StandardInput=tty-fail
+StandardOutput=journal
+StandardError=journal
+PAMName=login
+UtmpIdentifier=tty2
+UtmpMode=user

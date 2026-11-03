@@ -1,0 +1,16 @@
+#!/bin/sh
+# Omarchy Pad: what the touch form needs root for, run as root beside it (omarchy-pad-owner-form-helper.service) while
+# the form itself runs unprivileged. Each second, while the form's runtime folder is there:
+#   - while the form has left a "start" file (its Start button), a Return into tty1, which passes Omarchy's
+#     "Press Return" greeter; the form's first question takes the file away;
+#   - tty1's screen as text (screen.txt), where the form reads Omarchy's messages (a taken user name...).
+dir=/run/omarchy-pad
+while [ -d "$dir" ]; do
+  if [ -e "$dir/start" ]; then
+    /usr/bin/omarchy-pad-owner-form return /dev/tty1 >/dev/null 2>&1
+  fi
+  if iconv -f UTF-32LE -t UTF-8 /dev/vcsu1 >"$dir/screen.new" 2>/dev/null; then
+    chmod 644 "$dir/screen.new" && mv -f "$dir/screen.new" "$dir/screen.txt"
+  fi
+  sleep 1
+done

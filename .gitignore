@@ -7,3 +7,4 @@ firstboot/buffybox/src/
 firstboot/buffybox/pkg/
 firstboot/buffybox/*.tar.gz
 *.pkg.tar.*
+firstboot/form/build/

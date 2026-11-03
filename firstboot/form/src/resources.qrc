@@ -1,0 +1,10 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+<qresource prefix="/form">
+    <file>Main.qml</file>
+    <!-- floatkey's keys, as the lock screen draws them inside its own window -->
+    <file alias="LockKeyboard.qml">../../../lock/LockKeyboard.qml</file>
+    <file alias="KeyIcon.qml">../../../floatkey/src/KeyIcon.qml</file>
+    <file alias="layouts.js">../../../floatkey/src/layouts.js</file>
+</qresource>
+</RCC>

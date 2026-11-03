@@ -1,0 +1,14 @@
+# Omarchy Pad: the first-boot touch form's root helper (/usr/lib/omarchy-pad/owner-form-helper): the Return that passes
+# Omarchy's greeter on tty1 after the form's Start button, and tty1's screen for the form to read. Its own service, as
+# systemd kills whatever an ExecStartPre= leaves running before the main process starts (the form stuck on
+# "Starting...", 3 Nov 2026). Started with the form and stopped with it.
+[Unit]
+Description=Omarchy Pad: first-boot owner setup by touch, its root helper
+Documentation=file:///usr/share/doc/omarchy-pad-firstboot/README.md
+ConditionPathExists=/var/lib/omarchy/provisioning/pending
+# Once the form's process runs, its runtime folder (/run/omarchy-pad) is there
+After=omarchy-pad-owner-form.service
+PartOf=omarchy-pad-owner-form.service
+
+[Service]
+ExecStart=/usr/lib/omarchy-pad/owner-form-helper

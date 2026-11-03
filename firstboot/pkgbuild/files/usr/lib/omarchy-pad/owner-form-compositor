@@ -1,0 +1,5 @@
+#!/bin/sh
+# Omarchy Pad: the touch form's compositor (omarchy-pad-owner-form.service). A minimal Hyprland, started as SDDM starts
+# its greeter's, which runs the form full screen (owner-form-session). cage cannot drive the OnePlus Pad 4's panel
+# (wlroots hangs or loops on its first modeset, 2 Nov 2026); Hyprland drives it every day.
+exec env -u NOTIFY_SOCKET /usr/bin/start-hyprland -- --config /usr/share/omarchy-pad/owner-form/hyprland.lua
