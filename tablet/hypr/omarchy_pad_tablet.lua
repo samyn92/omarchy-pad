@@ -26,6 +26,16 @@ o.launch_on_start("omarchy-pad-tablet-session")
 o.bind("SUPER + CTRL + SHIFT + R", "Lock or unlock screen rotation", "omarchy-pad-rotate-lock toggle")
 o.bind("SUPER + CTRL + SHIFT + K", "On-screen keyboard", "omarchy-pad-osk toggle")
 
+-- The power button as on a phone or tablet, in place of Omarchy's power menu (omarchy-pad-power): a short press
+-- sleeps or wakes, holding it opens the power screen, and with Volume Down it takes a screenshot. Also on the lock
+-- screen. omarchy-pad-tablet-session tells the system that the session handles the key (a handle-power-key
+-- inhibitor), so a device layer that also watches it leaves it alone.
+hl.unbind("XF86PowerOff")
+o.bind_hold("XF86PowerOff", "Power button", "omarchy-pad-power press", "Power button released",
+  "omarchy-pad-power release", { locked = true })
+o.rebind("XF86AudioLowerVolume", "Volume down, or a screenshot with the power button", "omarchy-pad-power volume-down",
+  { locked = true, repeating = true })
+
 -- floatkey slides and fades itself in and out, over the whole screen; a compositor animation on top would fade the
 -- entire overlay.
 hl.layer_rule({ match = { namespace = "^floatkey$" }, no_anim = true, animation = "none" })

@@ -1,0 +1,98 @@
+#!/bin/bash
+# omarchy-pad-power against fake commands: Hyprland, the shell, systemctl, the journal and Omarchy's commands only log
+# what they are asked (and answer as the case says), so nothing here sleeps, locks or opens anything.
+#
+#   tests/power-button
+
+set -u
+here=$(cd "$(dirname "$0")/.." && pwd)
+work=$(mktemp -d "${TMPDIR:-/tmp}/power-button.XXXXXX")
+trap 'rm -rf "$work"' EXIT
+mkdir -p "$work/bin" "$work/run"
+export XDG_RUNTIME_DIR=$work/run PATH="$work/bin:$PATH" WORK=$work
+
+# Each fake logs its command line, and answers from $WORK/<name> when that file is there.
+fake() {
+  cat >"$work/bin/$1" <<FAKE
+#!/bin/bash
+echo "$1 \$*" >>"\$WORK/log"
+$2
+FAKE
+  chmod +x "$work/bin/$1"
+}
+fake hyprctl '[[ -e $WORK/screen-off ]] && echo "[{\"disabled\":false,\"dpmsStatus\":false}]" || echo "[{\"disabled\":false,\"dpmsStatus\":true}]"'
+fake omarchy-hyprland-session-locked '[[ -e $WORK/locked ]]'
+fake journalctl '[[ -e $WORK/resumed ]]'
+fake omarchy-shell 'case "$2" in summon) [[ -e $WORK/no-plugin ]] && echo unknown || echo ok ;; call) [[ -e $WORK/open ]] && echo true || echo false ;; esac'
+fake systemctl '[[ -e $WORK/inhibited ]] && { echo "Operation inhibited by \"iceland-battery-guard\"" >&2; exit 1; }; :'
+fake omarchy-sleep-disabled 'exit 1'
+fake omarchy-toggle-enabled 'exit 1'
+for c in omarchy-system-lock omarchy-system-wake omarchy-brightness-display omarchy-menu omarchy-capture-screenshot \
+  omarchy-audio-output-volume logger; do
+  fake "$c" ':'
+done
+cat >"$work/bin/logger" <<'FAKE'
+#!/bin/bash
+echo "said: ${*: -1}" >>"$WORK/log"
+FAKE
+chmod +x "$work/bin/logger"
+
+power=$here/bin/omarchy-pad-power
+failures=0
+reset() { rm -f "$work"/{log,screen-off,locked,resumed,no-plugin,open,inhibited}; rm -rf "$work/run"; mkdir -p "$work/run"; touch "$work/log"; }
+# What it did: the commands that act, leaving out the questions it asks on the way.
+did() {
+  grep -v -E '^(hyprctl|journalctl|omarchy-hyprland-session-locked|omarchy-sleep-disabled|omarchy-toggle-enabled|omarchy-shell shell call)' \
+    "$work/log" | paste -sd ';'
+}
+expect() {
+  if [[ $2 == "$3" ]]; then echo "ok    $1"; else echo "FAIL  $1: got '$2', want '$3'"; failures=$((failures + 1)); fi
+}
+tap() { "$power" press; sleep 0.1; "$power" release; sleep 0.8; }
+hold() { "$power" press; sleep 0.9; "$power" release; sleep 0.2; }
+
+reset; tap
+expect "a tap turns the screen off first, then locks behind it and sleeps" "$(did)" \
+  "omarchy-brightness-display off;omarchy-system-lock ;systemctl suspend --no-ask-password"
+
+reset; touch "$work/inhibited"; tap
+expect "where sleep is held off, the screen stays off and locked" "$(did | sed 's/said: .*/said/')" \
+  "omarchy-brightness-display off;omarchy-system-lock ;systemctl suspend --no-ask-password;said"
+
+reset; touch "$work/screen-off"; tap
+expect "with the screen off, a tap turns it on" "$(did)" "omarchy-system-wake "
+
+reset; touch "$work/resumed"; tap
+expect "the press that woke the tablet does nothing more" "$(did)" "said: the press that woke the tablet: the screen on, nothing more"
+
+reset; touch "$work/resumed" "$work/screen-off"; tap
+expect "and lights the screen if the wake left it dark" "$(did)" \
+  "omarchy-system-wake ;said: the press that woke the tablet: the screen on, nothing more"
+
+reset; hold
+expect "holding opens the power screen, and letting go does nothing more" "$(did)" \
+  "omarchy-shell shell summon omarchy-pad.power {}"
+
+reset; touch "$work/no-plugin"; hold
+expect "without the power screen, Omarchy's power menu" "$(did)" \
+  "omarchy-shell shell summon omarchy-pad.power {};omarchy-menu summon system"
+
+reset; touch "$work/locked"; hold
+expect "held on the lock screen: nothing opens over it" "$(did)" \
+  "said: held on the lock screen: no power screen"
+
+reset; touch "$work/open"; tap
+expect "a tap while the power screen is open closes it" "$(did)" "omarchy-shell shell hide omarchy-pad.power"
+
+reset; "$power" press; sleep 0.1; "$power" volume-down; "$power" volume-down; sleep 0.1; "$power" release; sleep 0.8
+expect "Power + Volume Down takes one screenshot, and no sleep" "$(did)" "omarchy-capture-screenshot fullscreen"
+
+reset; "$power" volume-down
+expect "Volume Down alone turns the volume down" "$(did)" "omarchy-audio-output-volume lower"
+
+reset; "$power" release & sleep 0.05; "$power" press; wait; sleep 0.8
+expect "a release started before its press still counts as a tap" "$(did)" \
+  "omarchy-brightness-display off;omarchy-system-lock ;systemctl suspend --no-ask-password"
+
+((failures)) && { echo "$failures failed"; exit 1; }
+echo "All passed"

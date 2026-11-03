@@ -51,6 +51,16 @@ Omarchy update reaches it too. Installed, it takes the place of Omarchy's
 (`omarchy plugin disable omarchy-pad.image-picker` goes back), wherever the
 picker opens from: the Omarchy menu, its keys, or the quick settings drawer.
 
+## The power screen (`omarchy-pad.power`)
+
+Power off, Restart and Lock as three big round buttons over the dimmed
+desktop, side by side in landscape and one above the other in portrait. Holding
+the tablet's power button opens it (`omarchy-pad-power` in the tablet session,
+`omarchy-pad-tablet`); a tap anywhere else, Esc or another press of the button
+closes it. The buttons run what Omarchy's power menu runs. It does not open on
+the lock screen, which covers everything else. `power/tests/try --check` taps
+it in a nested Hyprland with fake Omarchy commands.
+
 ## Installing
 
 ```bash

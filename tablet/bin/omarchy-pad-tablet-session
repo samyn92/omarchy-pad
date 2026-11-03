@@ -5,6 +5,8 @@
 #  - the on-screen keyboard (floatkey, else wvkbd), started hidden; omarchy-pad-osk shows and hides it;
 #  - touch gestures: stage, which does them all (edge swipes, two fingers pulling a window down to close it,
 #    three-finger swipes) and follows the rotation itself.
+#  - the power button: holds a handle-power-key inhibitor for the session, which says the session handles the key
+#    (omarchy-pad-power, bound in hypr/omarchy_pad_tablet.lua), so a device layer that watches it leaves it alone.
 # Settings: PANEL, SCALE and ROTATE_FLIP, from the files lib/tablet-conf lists.
 set -u
 
@@ -58,8 +60,14 @@ hl.config({ input = { touchdevice = { output = \"$PANEL\", transform = $1 }, tab
   echo "$1" >"$state/transform"
 }
 
+start_power_key() {
+  systemd-inhibit --what=handle-power-key --mode=block --who="Omarchy Pad" \
+    --why="The power button sleeps the tablet or opens the power screen" sleep infinity 9>&- &
+}
+
 start_osk
 start_stage
+start_power_key
 
 command -v monitor-sensor >/dev/null || { log "monitor-sensor (iio-sensor-proxy) is missing: no auto-rotate"; wait; exit 0; }
 

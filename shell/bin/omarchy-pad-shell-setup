@@ -1,19 +1,19 @@
 #!/bin/bash
 
 # The packaged shell/bin/install (omarchy-pad-shell): puts the plugins assembled in /usr/share/omarchy-pad/shell in
-# the user's ~/.config/omarchy/plugins, and turns them on: omarchy-pad.bar becomes the bar in use, the drawers are
-# loaded, and the swiping picker takes the place of Omarchy's.
+# the user's ~/.config/omarchy/plugins, and turns them on: omarchy-pad.bar becomes the bar in use, the drawers and the
+# power screen are loaded, and the swiping picker takes the place of Omarchy's.
 #
 #   omarchy-pad-shell-setup                set them up, or again, and restart the shell
 #   omarchy-pad-shell-setup --first-login  what omarchy-pad-shell-setup.service runs at each login, before the shell
-#                                          starts: the plugins are kept up to date with the package, but turned on
-#                                          only the first time, so a user who went back to Omarchy's bar keeps it
+#                                          starts: the plugins are kept up to date with the package, but each one
+#                                          turned on only once, so a user who went back to Omarchy's bar keeps it
 #
 # 'omarchy bar reset' goes back to Omarchy's bar, 'omarchy plugin disable <id>' turns off the others.
 
 set -euo pipefail
 
-files=/usr/share/omarchy-pad/shell
+files=${OMARCHY_PAD_SHELL_FILES:-/usr/share/omarchy-pad/shell}
 omarchy=${OMARCHY_PATH:-/usr/share/omarchy}
 plugins="$HOME/.config/omarchy/plugins"
 config="$HOME/.config/omarchy/shell.json"
@@ -45,9 +45,19 @@ for src in "$files"/*/; do
   log "Put $id in $plugins"
 done
 (( ${#ids[@]} > 0 )) || { log "No plugins in $files"; exit 1; }
+all_ids=("${ids[@]}")
 
+# At a login after the first, only plugins the package has brought since are turned on: the setup file lists the
+# ones turned on before (empty from omarchy-pad-shell 0.1, which turned on the first three), and a plugin the user
+# turned off stays off.
 if (( first_login )) && [[ -e $done_file ]]; then
-  exit 0
+  mapfile -t known <"$done_file"
+  (( ${#known[@]} )) || known=(omarchy-pad.bar omarchy-pad.drawers omarchy-pad.image-picker)
+  ids=()
+  for id in "${all_ids[@]}"; do
+    [[ " ${known[*]} " == *" $id "* ]] || ids+=("$id")
+  done
+  (( ${#ids[@]} )) || exit 0
 fi
 
 shell_up=$(OMARCHY_SHELL_IPC_TIMEOUT=1s timeout 5 omarchy-shell shell ping 2>/dev/null || true)
@@ -94,5 +104,5 @@ else
 fi
 
 mkdir -p "$(dirname "$done_file")"
-touch "$done_file"
+printf '%s\n' "${all_ids[@]}" >"$done_file"
 log "Turned on ${ids[*]}; 'omarchy bar reset' goes back to Omarchy's bar"

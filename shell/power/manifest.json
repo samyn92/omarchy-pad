@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "omarchy-pad.power",
+  "name": "Power screen",
+  "version": "0.1.0",
+  "author": "Omarchy Pad",
+  "description": "Power off, restart and lock with big buttons, opened by holding the tablet's power button.",
+  "kinds": [
+    "overlay"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "overlay": "PowerScreen.qml"
+  }
+}

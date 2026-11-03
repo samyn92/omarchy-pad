@@ -15,6 +15,22 @@ before the session starts, so no one has to run anything after installing.
 - follows the accelerometer and rotates the panel, the touch screen and the
   pen together;
 - starts `floatkey --hidden` (falling back to wvkbd) and `stage`.
+- holds a `handle-power-key` inhibitor for the session: the session handles the
+  power button, so a device layer that watches the key leaves it alone.
+
+`bin/omarchy-pad-power`, bound to the power button and Volume Down in
+`hypr/omarchy_pad_tablet.lua` (also on the lock screen) in place of Omarchy's
+power menu:
+- a short press turns the screen off at once, then locks behind the dark
+  screen and sleeps, so the lock screen is first seen on waking; where sleep is
+  held off (a device layer keeping the tablet awake while it charges, Omarchy's
+  suspend turned off) it stays locked with the screen off; with the screen off
+  it turns it on; the press that woke the tablet (a kernel "PM: suspend exit"
+  in the last 4 s) only turns the screen on;
+- held 0.6 s it opens the power screen (`omarchy-pad.power` in `shell/`, else
+  Omarchy's power menu); a press while it is open closes it;
+- with Volume Down, a full-screen screenshot; Volume Down alone, the volume.
+`tests/power-button` runs it against fake commands.
 
 Settings (`lib/tablet-conf`): PANEL, SCALE, ROTATE_FLIP, from the device
 layer's `/usr/share/omarchy-pad/tablet.conf.d/*.conf`, then

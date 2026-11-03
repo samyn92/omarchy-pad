@@ -1,0 +1,127 @@
+#!/bin/bash
+# Omarchy Pad: the power button as on a phone or tablet, bound in the tablet session (hypr/omarchy_pad_tablet.lua) in
+# place of Omarchy's power menu:
+#  - a short press with the screen on turns the screen off at once, then locks the session behind it and puts the
+#    tablet to sleep; where it may not sleep (another program holds sleep off, such as a device layer that keeps the
+#    tablet awake while it charges, or Omarchy's suspend is turned off) it stays locked with the screen off;
+#  - a short press with the screen off turns it on, and the press that woke the tablet only turns the screen on;
+#  - holding it opens the power screen (Power off, Restart, Lock: the omarchy-pad.power shell plugin, else Omarchy's
+#    power menu); a press while it is open closes it;
+#  - with Volume Down, a screenshot.
+#
+#   omarchy-pad-power press | release       the power button (Hyprland's press and release binds)
+#   omarchy-pad-power volume-down           Volume Down: a screenshot while the power button is held, else the volume
+#   omarchy-pad-power sleep | screen        what a short press does, or opens the power screen
+set -u
+
+hold=0.6       # seconds: a press held this long opens the power screen
+woke=4         # seconds: a press released this soon after a resume woke the tablet
+plugin=omarchy-pad.power
+
+dir=${XDG_RUNTIME_DIR:-/tmp}/omarchy-pad-power
+mkdir -p "$dir"
+exec 8>"$dir/lock"
+
+log() { logger -t omarchy-pad-power -- "$*" 2>/dev/null || true; }
+
+screen_on() {
+  hyprctl monitors -j 2>/dev/null | jq -e '[.[] | select(.disabled == false)] | length > 0 and all(.dpmsStatus)' \
+    >/dev/null 2>&1
+}
+
+locked() { omarchy-hyprland-session-locked >/dev/null 2>&1; }
+
+just_resumed() {
+  journalctl -k -b -q --no-pager -S "-${woke}s" -g 'PM: suspend exit' >/dev/null 2>&1
+}
+
+screen_open() {
+  [[ $(omarchy-shell shell call "$plugin" isOpen "" 2>/dev/null) == true ]]
+}
+
+open_screen() {
+  locked && { log "held on the lock screen: no power screen"; return; }
+  [[ $(omarchy-shell shell summon "$plugin" "{}" 2>/dev/null) == ok ]] || omarchy-menu summon system
+}
+
+# The screen goes dark at once, as a tablet's does, and the lock comes up behind it (as Omarchy locks for a closing
+# lid, so it is up before the tablet sleeps): the lock screen is first seen on waking. Omarchy's lock keeps a dark
+# screen dark until it is touched or woken.
+go_to_sleep() {
+  omarchy-brightness-display off
+  omarchy-system-lock >/dev/null 2>&1 || true
+  local why=""
+  if omarchy-sleep-disabled >/dev/null 2>&1 || omarchy-toggle-enabled suspend-off >/dev/null 2>&1; then
+    why="Omarchy's suspend is off"
+  elif ! err=$(systemctl suspend --no-ask-password 2>&1); then
+    why="suspend refused: ${err:0:120}"
+  fi
+  [[ -z $why ]] || log "locked, screen off ($why)"
+}
+
+press() {
+  flock 8
+  local id=$EPOCHREALTIME
+  echo "$id" >"$dir/down"
+  rm -f "$dir/used"
+  flock -u 8
+  (
+    sleep "$hold"
+    flock 8
+    [[ $(cat "$dir/down" 2>/dev/null) == "$id" && ! -e $dir/used ]] || exit 0
+    touch "$dir/used"
+    flock -u 8
+    if ! screen_open; then
+      open_screen
+    fi
+  ) 8>"$dir/lock" </dev/null >/dev/null 2>&1 &
+}
+
+release() {
+  flock 8
+  # Hyprland starts the press and the release apart: a quick tap's release can come first.
+  for _ in 1 2 3 4 5; do
+    [[ -e $dir/down ]] && break
+    flock -u 8; sleep 0.05; flock 8
+  done
+  local used=0
+  [[ -e $dir/used ]] && used=1
+  rm -f "$dir/down" "$dir/used"
+  flock -u 8
+  ((used)) && return
+
+  if just_resumed; then
+    # The screen went dark before the sleep and may still be: the press that woke the tablet lights it, no more.
+    screen_on || omarchy-system-wake
+    log "the press that woke the tablet: the screen on, nothing more"
+  elif ! screen_on; then
+    omarchy-system-wake
+  elif screen_open; then
+    omarchy-shell shell hide "$plugin" >/dev/null 2>&1
+  else
+    go_to_sleep
+  fi
+}
+
+volume_down() {
+  flock 8
+  if [[ -e $dir/down && ! -e $dir/used ]]; then
+    touch "$dir/used"
+    flock -u 8
+    omarchy-capture-screenshot fullscreen
+  elif [[ -e $dir/down ]]; then
+    flock -u 8
+  else
+    flock -u 8
+    omarchy-audio-output-volume lower
+  fi
+}
+
+case ${1:-} in
+  press) press ;;
+  release) release ;;
+  volume-down) volume_down ;;
+  sleep) go_to_sleep ;;
+  screen) open_screen ;;
+  *) echo "usage: omarchy-pad-power press|release|volume-down|sleep|screen" >&2; exit 2 ;;
+esac

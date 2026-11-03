@@ -14,8 +14,8 @@ often with no keyboard attached.
 | `stage/` | Touch gestures: edge swipes, app launcher, scratchpad console, close and workspace swipes | `stage` package |
 | `lock/` | Omarchy's lock screen with floatkey's keyboard (prototype), and logging in on it by touch | Omarchy plugin, `lock/bin/install`; `omarchy-pad-lock` package for the install image |
 | `firstboot/` | Omarchy's first-boot owner setup by touch: a full-screen form with floatkey's keys (buffyboard as the fallback) | `omarchy-pad-firstboot` and `buffybox` packages, for the install image |
-| `tablet/` | The tablet session: auto-rotation, starting floatkey and stage | `omarchy-pad-tablet` package |
-| `shell/` | Omarchy shell plugins for touch: the bar, the pull-down drawers, the swiping picker | `omarchy-pad-shell` package, or `shell/bin/install` |
+| `tablet/` | The tablet session: auto-rotation, starting floatkey and stage, the power button | `omarchy-pad-tablet` package |
+| `shell/` | Omarchy shell plugins for touch: the bar, the pull-down drawers, the swiping picker, the power screen | `omarchy-pad-shell` package, or `shell/bin/install` |
 | `pkgbuild/` | `omarchy-pad`: pulls in all of the above, what a tablet installs | `omarchy-pad` package |
 
 Omarchy Pad is meant for any touch tablet. Work specific to the OnePlus Pad
