@@ -31,6 +31,16 @@ UpstreamLockView {
   onHardwareKeyboardChanged: keyboardChoice = ""
   onInputEnabledChanged: if (!inputEnabled) keyboardChoice = ""
 
+  // The power button's wake (omarchy-pad-power, in the tablet session) lights the screen itself and then writes this
+  // file, so the lock does what a touch does: its own wake, with a fresh countdown before it blanks again. Without it
+  // the countdown started at lock went on after a short sleep and blanked the screen 2 s after waking (3 Nov 2026).
+  FileView {
+    path: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omarchy-pad-power/wake"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: root.wakeRequested()
+  }
+
   // Same test as floatkey's KeyboardWatcher: a keyboard is an input device
   // with Q, A, Z, M and space, which leaves out power buttons, lid switches,
   // headset jacks and the virtual keyboards Hyprland makes. Those keys all sit

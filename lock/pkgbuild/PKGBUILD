@@ -2,7 +2,7 @@
 # it up once), and on a machine whose owner was set up with it, the login on that lock screen. See ../README.md.
 pkgname=omarchy-pad-lock
 pkgver=0.2
-pkgrel=1
+pkgrel=2
 pkgdesc="Omarchy Pad: Omarchy's lock screen with an on-screen keyboard, and logging in on it by touch"
 arch=(any)
 license=(MIT)

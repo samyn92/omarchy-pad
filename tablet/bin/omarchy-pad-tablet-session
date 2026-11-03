@@ -60,14 +60,34 @@ hl.config({ input = { touchdevice = { output = \"$PANEL\", transform = $1 }, tab
   echo "$1" >"$state/transform"
 }
 
+# floatkey and stage read the touch screen themselves, through the access logind gives the user at the screen
+# (70-omarchy-pad-touch.rules, uaccess). The session can start a moment before that access is there, and both then
+# give up on touch for the whole session ("can't read the touch screen": image 15, 3 Nov 2026). So wait for it, up
+# to 30 s; a tablet without a touch screen starts them at once.
+wait_for_touch() {
+  local e i
+  for ((i = 0; i < 150; i++)); do
+    local touch=0 readable=0
+    for e in /dev/input/event*; do
+      udevadm info -q property -n "$e" 2>/dev/null | grep -qx 'ID_INPUT_TOUCHSCREEN=1' || continue
+      touch=1
+      [[ -r $e ]] && readable=1
+    done
+    ((touch == 0 || readable)) && return 0
+    sleep 0.2
+  done
+  log "the touch screen is still not readable after 30 s; starting floatkey and stage anyway"
+}
+
 start_power_key() {
   systemd-inhibit --what=handle-power-key --mode=block --who="Omarchy Pad" \
     --why="The power button sleeps the tablet or opens the power screen" sleep infinity 9>&- &
 }
 
+start_power_key
+wait_for_touch
 start_osk
 start_stage
-start_power_key
 
 command -v monitor-sensor >/dev/null || { log "monitor-sensor (iio-sensor-proxy) is missing: no auto-rotate"; wait; exit 0; }
 

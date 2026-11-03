@@ -17,16 +17,26 @@ before the session starts, so no one has to run anything after installing.
 - starts `floatkey --hidden` (falling back to wvkbd) and `stage`.
 - holds a `handle-power-key` inhibitor for the session: the session handles the
   power button, so a device layer that watches the key leaves it alone.
+- waits (up to 30 s) until the touch screen is readable before starting
+  floatkey and stage: the session can start before logind gives the user its
+  access, and both gave up on touch for the whole session.
 
 `bin/omarchy-pad-power`, bound to the power button and Volume Down in
 `hypr/omarchy_pad_tablet.lua` (also on the lock screen) in place of Omarchy's
-power menu:
-- a short press turns the screen off at once, then locks behind the dark
-  screen and sleeps, so the lock screen is first seen on waking; where sleep is
-  held off (a device layer keeping the tablet awake while it charges, Omarchy's
-  suspend turned off) it stays locked with the screen off; with the screen off
-  it turns it on; the press that woke the tablet (a kernel "PM: suspend exit"
-  in the last 4 s) only turns the screen on;
+power menu. The button is the only thing that decides what its press does:
+the tablet session turns off Hyprland's `key_press_enables_dpms`, and the
+script acts on the screen state as it was at the press.
+- a short press with the screen on: backlight to 0 at once, the lock up behind
+  it, then the screen off and the brightness put back (Hyprland lights the
+  screen when a lock appears, so DPMS alone showed a glow); the tablet sleeps
+  after 30 s of dark screen, so a press within that time lights it at once
+  (the Pad 4 takes 1.3 s to wake from sleep, nearly all of it its Wi-Fi);
+- a short press with the screen off lights it and tells the lock screen to
+  wake as a touch does (a file `lock/LockView.qml` watches), so its countdown
+  to blank starts again;
+- the press that woke the tablet only lights the screen: the kernel's suspend
+  count went up since the script sent it to sleep (never the journal, which
+  lagged and sent the tablet straight back to sleep);
 - held 0.6 s it opens the power screen (`omarchy-pad.power` in `shell/`, else
   Omarchy's power menu); a press while it is open closes it;
 - with Volume Down, a full-screen screenshot; Volume Down alone, the volume.

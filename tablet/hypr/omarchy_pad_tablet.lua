@@ -30,6 +30,10 @@ o.bind("SUPER + CTRL + SHIFT + K", "On-screen keyboard", "omarchy-pad-osk toggle
 -- sleeps or wakes, holding it opens the power screen, and with Volume Down it takes a screenshot. Also on the lock
 -- screen. omarchy-pad-tablet-session tells the system that the session handles the key (a handle-power-key
 -- inhibitor), so a device layer that also watches it leaves it alone.
+-- The power button is the only thing that decides what its press does: Omarchy's "any key lights the screen" lit the
+-- screen at the press, and the release then read a lit screen and put the tablet to sleep (3 Nov 2026). A touch, a
+-- moved pointer or a key on a keyboard still wakes the screen through Omarchy's idle service.
+hl.config({ misc = { key_press_enables_dpms = false } })
 hl.unbind("XF86PowerOff")
 o.bind_hold("XF86PowerOff", "Power button", "omarchy-pad-power press", "Power button released",
   "omarchy-pad-power release", { locked = true })

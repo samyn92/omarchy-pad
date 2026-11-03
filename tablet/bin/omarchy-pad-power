@@ -1,8 +1,9 @@
 #!/bin/bash
 # Omarchy Pad: the power button as on a phone or tablet, bound in the tablet session (hypr/omarchy_pad_tablet.lua) in
 # place of Omarchy's power menu:
-#  - a short press with the screen on turns the screen off at once, then locks the session behind it and puts the
-#    tablet to sleep; where it may not sleep (another program holds sleep off, such as a device layer that keeps the
+#  - a short press with the screen on darkens the screen at once and locks the session behind it; the tablet sleeps
+#    once the screen has stayed dark for $sleep_after s (a press within that time lights it at once: waking from
+#    sleep takes the Pad 4 about 1.3 s, nearly all of it its Wi-Fi coming back); where it may not sleep (another program holds sleep off, such as a device layer that keeps the
 #    tablet awake while it charges, or Omarchy's suspend is turned off) it stays locked with the screen off;
 #  - a short press with the screen off turns it on, and the press that woke the tablet only turns the screen on;
 #  - holding it opens the power screen (Power off, Restart, Lock: the omarchy-pad.power shell plugin, else Omarchy's
@@ -15,8 +16,11 @@
 set -u
 
 hold=0.6       # seconds: a press held this long opens the power screen
-woke=4         # seconds: a press released this soon after a resume woke the tablet
+sleep_after=${OMARCHY_PAD_SLEEP_AFTER:-30}   # seconds of dark screen before the tablet really sleeps
+woke=1         # seconds: a press that began this soon after a resume woke the tablet (it arrives ~0.05 s after it)
 plugin=omarchy-pad.power
+sysbl=${OMARCHY_PAD_SYS_BACKLIGHT:-/sys/class/backlight}   # tests: a folder standing in for it
+suspends=${OMARCHY_PAD_SUSPEND_COUNT:-/sys/power/suspend_stats/success}   # tests: a file standing in for it
 
 dir=${XDG_RUNTIME_DIR:-/tmp}/omarchy-pad-power
 mkdir -p "$dir"
@@ -31,8 +35,30 @@ screen_on() {
 
 locked() { omarchy-hyprland-session-locked >/dev/null 2>&1; }
 
-just_resumed() {
-  journalctl -k -b -q --no-pager -S "-${woke}s" -g 'PM: suspend exit' >/dev/null 2>&1
+# The press that woke the tablet only lights the screen. Two ways to know it:
+#  - this script sent the tablet to sleep (go_to_sleep leaves "slept": the kernel's count of suspends and the
+#    monotonic clock then), the count has gone up since, and less than 5 s of monotonic time has passed (it stops
+#    while the tablet sleeps: about 1 s to fall asleep and 0.3 s to wake). The kernel counts the suspend before the
+#    press arrives, so this never races with anything (the journal did: a wake press read as a new press sent the
+#    tablet straight back to sleep, 3 Nov 2026);
+#  - otherwise (it slept another way, such as the cover), the kernel's "PM: suspend exit" in the journal less than
+#    $woke s before the press began.
+monotonic() { python3 -I -c 'import time; print("%.3f" % time.clock_gettime(time.CLOCK_MONOTONIC))'; }
+suspend_count() { cat "$suspends" 2>/dev/null || echo 0; }
+
+just_resumed() { # just_resumed PRESS_TIME
+  if [[ -s $dir/slept ]]; then
+    local count since
+    read -r count since <"$dir/slept"
+    if (($(suspend_count) > count)); then
+      rm -f "$dir/slept"
+      awk -v now="$(monotonic)" -v since="$since" 'BEGIN { exit !(now - since < 5) }' && return 0
+    fi
+  fi
+  local resumed
+  resumed=$(journalctl -k -b -q --no-pager -o short-unix -n 1 -g 'PM: suspend exit' 2>/dev/null | awk 'END { print $1 }')
+  [[ $resumed =~ ^[0-9]+(\.[0-9]+)?$ ]] || return 1
+  awk -v p="$1" -v r="$resumed" -v w="$woke" 'BEGIN { exit !(p >= r - 0.5 && p - r < w) }'
 }
 
 screen_open() {
@@ -44,17 +70,87 @@ open_screen() {
   [[ $(omarchy-shell shell summon "$plugin" "{}" 2>/dev/null) == ok ]] || omarchy-menu summon system
 }
 
-# The screen goes dark at once, as a tablet's does, and the lock comes up behind it (as Omarchy locks for a closing
-# lid, so it is up before the tablet sleeps): the lock screen is first seen on waking. Omarchy's lock keeps a dark
-# screen dark until it is touched or woken.
+# The screen goes dark at once, as a tablet's does, and the lock comes up behind it, so the lock screen is first seen
+# on waking. Turning the screen off (DPMS) is not enough on its own: Hyprland lights the screen again when the lock
+# appears, which showed as the backlight coming on once just before the tablet slept (and stayed on with a charger).
+# So the backlight goes to 0 first (immediate), the lock comes up unseen, then the screen is turned off and the
+# brightness put back while it is off. The brightness is put back whatever happens (restore_brightness).
+backlight() { # the panel's backlight, as brightnessctl names it
+  local d
+  for d in "$sysbl"/*; do
+    [[ -e $d/brightness ]] && { basename "$d"; return 0; }
+  done
+  return 1
+}
+
+restore_brightness() {
+  [[ -s $dir/brightness ]] || return 0
+  local bl b
+  read -r bl b <"$dir/brightness"
+  brightnessctl -q -d "$bl" set "$b" >/dev/null 2>&1
+  rm -f "$dir/brightness"
+}
+
+wait_for() { # wait_for STEPS CMD...: CMD every 50 ms, at most STEPS times; 0 once it succeeds
+  local i
+  for ((i = 0; i < $1; i++)); do
+    "${@:2}" && return 0
+    sleep 0.05
+  done
+  return 1
+}
+
+# The screen on, at once: DPMS only. omarchy-system-wake also restores a keyboard backlight and settles external
+# monitors, which took 0.4 s of a tablet's wake (3 Nov 2026); the brightness is already back (go_to_sleep).
+screen_wake() {
+  rm -f "$dir/sleep-pending"
+  hyprctl dispatch 'hl.dsp.dpms({ action = "enable" })' >/dev/null 2>&1 || omarchy-system-wake
+  # The lock screen's own wake, as a touch does it (omarchy-pad-lock's LockView watches the file)
+  echo "$EPOCHREALTIME" >"$dir/wake"
+}
+
+lock_secure() { omarchy-shell lock status 2>/dev/null | jq -e '.secure == true' >/dev/null 2>&1; }
+
+screen_dark() { # the screen is off and, where there is a backlight, its power too
+  ! screen_on || return 1
+  local bl
+  bl=$(backlight) || return 0
+  [[ $(cat "$sysbl/$bl/bl_power" 2>/dev/null || echo 4) != 0 ]]
+}
+
 go_to_sleep() {
-  omarchy-brightness-display off
+  local bl
+  : >>"$dir/wake"
+  if bl=$(backlight) && b=$(brightnessctl -d "$bl" get 2>/dev/null) && ((b > 0)); then
+    echo "$bl $b" >"$dir/brightness"
+    trap restore_brightness EXIT
+    brightnessctl -q -d "$bl" set 0 >/dev/null 2>&1
+  fi
   omarchy-system-lock >/dev/null 2>&1 || true
+  wait_for 30 lock_secure || log "the lock did not say it was up within 1.5 s"
+  omarchy-brightness-display off
+  wait_for 10 screen_dark
+  restore_brightness
+  # The real sleep comes later, if the screen is still dark then (sleep_later, on its own)
+  local id=$EPOCHREALTIME
+  echo "$id" >"$dir/sleep-pending"
+  setsid "$0" sleep-later "$id" 8>&- </dev/null >/dev/null 2>&1 &
+}
+
+# sleep_later ID: after $sleep_after s, the suspend of the press that went dark as ID, unless the screen has been lit
+# since (a press, a touch on the lock screen) or another press went dark after it.
+sleep_later() {
+  sleep "$sleep_after"
+  [[ $(cat "$dir/sleep-pending" 2>/dev/null) == "$1" ]] || return 0
+  rm -f "$dir/sleep-pending"
+  screen_on && return 0
   local why=""
   if omarchy-sleep-disabled >/dev/null 2>&1 || omarchy-toggle-enabled suspend-off >/dev/null 2>&1; then
     why="Omarchy's suspend is off"
-  elif ! err=$(systemctl suspend --no-ask-password 2>&1); then
-    why="suspend refused: ${err:0:120}"
+  else
+    echo "$(suspend_count) $(monotonic)" >"$dir/slept"
+    err=$(systemctl suspend --no-ask-password 2>&1) && err=""
+    [[ -z $err ]] || why="suspend refused: ${err:0:120}"
   fi
   [[ -z $why ]] || log "locked, screen off ($why)"
 }
@@ -62,13 +158,16 @@ go_to_sleep() {
 press() {
   flock 8
   local id=$EPOCHREALTIME
-  echo "$id" >"$dir/down"
+  # The screen as it was when the press began: the release acts on that, whatever lit or darkened it since.
+  local lit=0
+  screen_on && lit=1
+  echo "$id $lit" >"$dir/down"
   rm -f "$dir/used"
   flock -u 8
   (
     sleep "$hold"
     flock 8
-    [[ $(cat "$dir/down" 2>/dev/null) == "$id" && ! -e $dir/used ]] || exit 0
+    [[ $(cut -d' ' -f1 "$dir/down" 2>/dev/null) == "$id" && ! -e $dir/used ]] || exit 0
     touch "$dir/used"
     flock -u 8
     if ! screen_open; then
@@ -84,18 +183,24 @@ release() {
     [[ -e $dir/down ]] && break
     flock -u 8; sleep 0.05; flock 8
   done
-  local used=0
+  local used=0 pressed lit
   [[ -e $dir/used ]] && used=1
+  read -r pressed lit <"$dir/down" 2>/dev/null
+  [[ -n $pressed ]] || pressed=$EPOCHREALTIME
+  if [[ -z $lit ]]; then
+    lit=0
+    screen_on && lit=1
+  fi
   rm -f "$dir/down" "$dir/used"
   flock -u 8
   ((used)) && return
 
-  if just_resumed; then
+  if just_resumed "$pressed"; then
     # The screen went dark before the sleep and may still be: the press that woke the tablet lights it, no more.
-    screen_on || omarchy-system-wake
+    screen_on || screen_wake
     log "the press that woke the tablet: the screen on, nothing more"
-  elif ! screen_on; then
-    omarchy-system-wake
+  elif ((!lit)); then
+    screen_wake
   elif screen_open; then
     omarchy-shell shell hide "$plugin" >/dev/null 2>&1
   else
@@ -122,6 +227,7 @@ case ${1:-} in
   release) release ;;
   volume-down) volume_down ;;
   sleep) go_to_sleep ;;
+  sleep-later) sleep_later "${2:-}" ;;
   screen) open_screen ;;
   *) echo "usage: omarchy-pad-power press|release|volume-down|sleep|screen" >&2; exit 2 ;;
 esac
