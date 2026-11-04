@@ -1,0 +1,12 @@
+# Omarchy Pad: links the user's pre-refresh-pacman hook at each login, so `omarchy refresh pacman` and a channel
+# switch keep Omarchy Pad's package repositories (omarchy-pad-repos).
+[Unit]
+Description=Omarchy Pad: keep its package repositories through a pacman refresh
+ConditionUser=!@system
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/omarchy-pad-repos --link-hook
+
+[Install]
+WantedBy=default.target

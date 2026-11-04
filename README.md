@@ -57,6 +57,17 @@ own, on a site of their own, so the core stays device-neutral: the OnePlus Pad 4
 [omarchy-pad-iceland](https://github.com/samyn92/omarchy-pad-iceland). `bin/publish REPO CHANNEL [PKGDIR]` signs and
 stages a repository, `--push` publishes it (the site's `gh-pages` branch).
 
+Each repository is a file in `/etc/pacman.d/omarchy-pad/`, from the package it serves (`omarchy-pad`, the device
+package), and `pacman.conf` includes the folder above `[omarchy]`:
+
+```ini
+Include = /etc/pacman.d/omarchy-pad/*.conf
+```
+
+`omarchy refresh pacman`, which an Omarchy channel switch runs too, writes `pacman.conf` from Omarchy's templates;
+Omarchy Pad's hook (linked into `~/.config/omarchy/hooks/pre-refresh-pacman.d/` at each login) puts the line back
+before the update runs. `omarchy-pad-repos` does it by hand ([repos/](repos/), test: `repos/tests/repos`).
+
 ## Licence
 
 MIT ([LICENSE](LICENSE)). floatkey and stage carry their own MIT licence files; buffybox, built from its upstream

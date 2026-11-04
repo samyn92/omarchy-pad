@@ -16,6 +16,7 @@ often with no keyboard attached.
 | `firstboot/` | Omarchy's first-boot owner setup by touch: a full-screen form with floatkey's keys (buffyboard as the fallback) | `omarchy-pad-firstboot` and `buffybox` packages, for the install image |
 | `tablet/` | The tablet session: auto-rotation, starting floatkey and stage, the power button | `omarchy-pad-tablet` package |
 | `shell/` | Omarchy shell plugins for touch: the bar, the pull-down drawers, the swiping picker, the power screen | `omarchy-pad-shell` package, or `shell/bin/install` |
+| `repos/` | the package repositories' place in pacman.conf: `omarchy-pad-repos`, `[omarchy-pad]`'s file, the pre-refresh-pacman hook | `omarchy-pad` package |
 | `pkgbuild/` | `omarchy-pad`: pulls in all of the above, what a tablet installs | `omarchy-pad` package |
 
 Omarchy Pad is meant for any touch tablet. Work specific to the OnePlus Pad

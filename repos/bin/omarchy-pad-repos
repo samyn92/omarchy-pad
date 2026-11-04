@@ -1,0 +1,65 @@
+#!/bin/bash
+
+# Keeps Omarchy Pad's package repositories in pacman's configuration. They live in /etc/pacman.d/omarchy-pad/, one
+# file per repository from the package it serves: [omarchy-pad] from omarchy-pad, a device's (the OnePlus Pad 4's
+# [iceland]) from its device package. /etc/pacman.conf includes the folder above [omarchy], so their packages are
+# found first:
+#
+#   Include = /etc/pacman.d/omarchy-pad/*.conf
+#
+#   omarchy-pad-repos              puts that line above [omarchy] (through sudo unless pacman.conf is writable), and
+#                                  takes out sections of the same repositories that an older pacman.conf held inline
+#   omarchy-pad-repos --check      exit 0 when pacman.conf is so already, 1 when not; changes nothing
+#   omarchy-pad-repos --link-hook  what omarchy-pad-repos-hook.service runs at each login: links the user's
+#                                  pre-refresh-pacman hook, which runs omarchy-pad-repos once `omarchy refresh pacman`
+#                                  (and so a channel switch) has written pacman.conf from Omarchy's templates
+
+set -euo pipefail
+
+conf=${OMARCHY_PAD_PACMAN_CONF:-/etc/pacman.conf}
+dir=${OMARCHY_PAD_REPOS_DIR:-/etc/pacman.d/omarchy-pad}
+hook=${OMARCHY_PAD_REPOS_HOOK:-/usr/share/omarchy-pad/repos/pre-refresh-pacman}
+line="Include = $dir/*.conf"
+
+case ${1:-} in
+  --link-hook)
+    hooks=${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/hooks/pre-refresh-pacman.d
+    mkdir -p "$hooks"
+    ln -sfn "$hook" "$hooks/omarchy-pad-repos"
+    exit 0
+    ;;
+  --check | "") ;;
+  *) echo "usage: omarchy-pad-repos [--check | --link-hook]" >&2; exit 2 ;;
+esac
+
+compgen -G "$dir/*.conf" >/dev/null || { echo "omarchy-pad-repos: no repositories in $dir" >&2; exit 1; }
+ours=$(sed -n 's/^\[\(.*\)\]$/\1/p' "$dir"/*.conf)
+
+# pacman.conf as it should be: the Include line once, right above [omarchy] (at the end without one), and no section
+# of our own repositories besides
+want=$(awk -v line="$line" -v ours="$ours" '
+  BEGIN { n = split(ours, names, "\n"); for (i = 1; i <= n; i++) own[names[i]] = 1 }
+  /^\[.*\]$/ {
+    name = substr($0, 2, length($0) - 2)
+    skip = name in own
+    if (name == "omarchy" && !placed) { print line; print ""; placed = 1 }
+  }
+  # the line from before, and the blank line after it that is printed again with it
+  $0 == line { again = 1; next }
+  again && $0 == "" { again = 0; next }
+  { again = 0 }
+  !skip { print }
+  END { if (!placed) { print ""; print line } }' "$conf")
+
+[[ $want == "$(<"$conf")" ]] && exit 0
+[[ ${1:-} == --check ]] && exit 1
+
+tmp=$(mktemp)
+trap 'rm -f "$tmp"' EXIT
+printf '%s\n' "$want" >"$tmp"
+echo "Adding Omarchy Pad's package repositories to $conf"
+if [[ -w $conf ]]; then
+  cat "$tmp" >"$conf"
+else
+  sudo install -m 644 "$tmp" "$conf"
+fi

@@ -1,0 +1,43 @@
+#!/bin/bash
+# omarchy-pad-repos against copies of pacman.conf, read back with pacman's own parser (pacman-conf):
+# fixtures/omarchy-edge.conf is Omarchy's aarch64 edge template as `omarchy refresh pacman` writes it (4.5.0rc3),
+# fixtures/inline.conf a tablet's from before the Include line (image 16 after the move of [iceland], 4 Nov 2026).
+#
+#   tests/repos
+
+set -u
+here=$(cd "$(dirname "$0")/.." && pwd)
+work=$(mktemp -d "${TMPDIR:-/tmp}/repos.XXXXXX")
+trap 'rm -rf "$work"' EXIT
+mkdir -p "$work/repos" "$work/home"
+cp "$here/omarchy-pad.conf" "$work/repos/"
+printf '[iceland]\nSigLevel = Required DatabaseRequired\nServer = https://samyn92.github.io/omarchy-pad-iceland/$repo/stable/$arch\n' \
+  >"$work/repos/iceland.conf"
+export OMARCHY_PAD_PACMAN_CONF=$work/pacman.conf OMARCHY_PAD_REPOS_DIR=$work/repos HOME=$work/home XDG_CONFIG_HOME=
+run=$here/bin/omarchy-pad-repos
+fails=0
+check() { # NAME COMMAND...
+  if "${@:2}" >/dev/null 2>&1; then echo "ok   $1"; else echo "FAIL $1"; fails=$((fails + 1)); fi
+}
+repos() { pacman-conf --config "$work/pacman.conf" --repo-list | tr '\n' ' '; }
+server() { pacman-conf --config "$work/pacman.conf" --repo "$1" Server; }
+
+for f in omarchy-edge inline; do
+  cp "$here/tests/fixtures/$f.conf" "$work/pacman.conf"
+  [[ $f == omarchy-edge ]] && check "$f: --check sees the line missing" bash -c "! $run --check"
+  check "$f: puts it in" "$run"
+  check "$f: --check is content" "$run" --check
+  check "$f: ours ahead of [omarchy], Omarchy's in their order" test "$(repos)" = "iceland omarchy-pad omarchy core extra alarm "
+  check "$f: [omarchy-pad] from its file" test "$(server omarchy-pad)" = 'https://samyn92.github.io/omarchy-pad/omarchy-pad/stable/aarch64'
+  check "$f: [iceland] from its file" test "$(server iceland)" = 'https://samyn92.github.io/omarchy-pad-iceland/iceland/stable/aarch64'
+  check "$f: the Include line once" test "$(grep -c '^Include = .*/repos/\*\.conf$' "$work/pacman.conf")" = 1
+  check "$f: no inline section of ours" bash -c "! grep -qx '\[omarchy-pad\]\|\[iceland\]' '$work/pacman.conf'"
+  cp "$work/pacman.conf" "$work/before"
+  check "$f: a second run changes nothing" bash -c "'$run' && cmp -s '$work/before' '$work/pacman.conf'"
+done
+
+check "--link-hook links the user's hook" bash -c "'$run' --link-hook && [[ \$(readlink '$work/home/.config/omarchy/hooks/pre-refresh-pacman.d/omarchy-pad-repos') == /usr/share/omarchy-pad/repos/pre-refresh-pacman ]]"
+rm -f "$work"/repos/*
+check "no repositories: says so, changes nothing" bash -c "! '$run' && cmp -s '$work/before' '$work/pacman.conf'"
+
+((fails == 0)) && echo "all passed" || { echo "$fails failed"; exit 1; }

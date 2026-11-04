@@ -1,10 +1,22 @@
-# omarchy-pad: Omarchy Pad as a whole, what a touch tablet installs on top of Omarchy. It holds no files: each part is
-# its own package (see ../README.md), and a device package (the OnePlus Pad 4's iceland-device) adds what its hardware
-# needs, such as the panel's scale.
+# omarchy-pad: Omarchy Pad as a whole, what a touch tablet installs on top of Omarchy. Each part is its own package
+# (see ../README.md), and a device package (the OnePlus Pad 4's iceland-device) adds what its hardware needs, such as
+# the panel's scale and its package repository. This one holds the package repositories' place in pacman.conf
+# (../repos: omarchy-pad-repos, [omarchy-pad]'s file, and the hook that keeps them through a channel switch).
 pkgname=omarchy-pad
-pkgver=0.2
+pkgver=0.3
 pkgrel=1
 pkgdesc="Omarchy Pad: Omarchy for touch tablets (on-screen keyboard, gestures, tablet session, touch shell, touch login)"
 arch=(any)
 license=(MIT)
 depends=(omarchy-pad-keyring floatkey stage omarchy-pad-tablet omarchy-pad-shell omarchy-pad-lock omarchy-pad-firstboot)
+backup=(etc/pacman.d/omarchy-pad/omarchy-pad.conf)
+
+package() {
+  local repos="$startdir/../repos"
+  install -Dm755 "$repos/bin/omarchy-pad-repos" "$pkgdir/usr/bin/omarchy-pad-repos"
+  install -Dm644 "$repos/omarchy-pad.conf" "$pkgdir/etc/pacman.d/omarchy-pad/omarchy-pad.conf"
+  install -Dm755 "$repos/pre-refresh-pacman" "$pkgdir/usr/share/omarchy-pad/repos/pre-refresh-pacman"
+  install -Dm644 "$repos/omarchy-pad-repos-hook.service" "$pkgdir/usr/lib/systemd/user/omarchy-pad-repos-hook.service"
+  install -d "$pkgdir/usr/lib/systemd/user/default.target.wants"
+  ln -s ../omarchy-pad-repos-hook.service "$pkgdir/usr/lib/systemd/user/default.target.wants/"
+}

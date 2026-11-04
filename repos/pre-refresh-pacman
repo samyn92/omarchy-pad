@@ -1,0 +1,5 @@
+#!/bin/bash
+# Omarchy Pad (linked here by omarchy-pad-repos --link-hook): `omarchy refresh pacman`, which a channel switch runs
+# too, has just written pacman.conf from Omarchy's templates, which know nothing of Omarchy Pad's repositories. This
+# puts them back before its update runs, so it keeps Omarchy Pad's and the device's packages.
+exec /usr/bin/omarchy-pad-repos
