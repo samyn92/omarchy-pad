@@ -53,8 +53,9 @@ Server = https://samyn92.github.io/omarchy-pad/$repo/stable/$arch
 ```
 
 The key comes in `omarchy-pad-keyring` ([keyring/](keyring/)). A tablet's device packages have a repository of their
-own on the same site (the OnePlus Pad 4's: `[iceland]`). `bin/publish REPO CHANNEL [PKGDIR]` signs and stages a
-repository, `--push` publishes it (the `gh-pages` branch).
+own, on a site of their own, so the core stays device-neutral: the OnePlus Pad 4's `[iceland]` is
+[omarchy-pad-iceland](https://github.com/samyn92/omarchy-pad-iceland). `bin/publish REPO CHANNEL [PKGDIR]` signs and
+stages a repository, `--push` publishes it (the site's `gh-pages` branch).
 
 ## Licence
 

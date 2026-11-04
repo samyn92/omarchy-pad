@@ -1,11 +1,12 @@
 #!/bin/bash
-# Publishes packages as a signed pacman repository on the GitHub Pages site of samyn92/omarchy-pad (its gh-pages
-# branch), where a tablet's pacman finds them as
+# Publishes packages as a signed pacman repository on a GitHub Pages site (its gh-pages branch): omarchy-pad on
+# samyn92/omarchy-pad's, a device's repository on its own (samyn92/omarchy-pad-REPO: the core stays device-neutral, and
+# a device's kernel and firmware stay out of it). A tablet's pacman finds them as
 #
 #   [REPO]
-#   Server = https://samyn92.github.io/omarchy-pad/$repo/CHANNEL/$arch
+#   Server = https://samyn92.github.io/SITE/$repo/CHANNEL/$arch     SITE: omarchy-pad, or omarchy-pad-REPO
 #
-#   bin/publish REPO CHANNEL [PKGDIR]     stage it: the site in ~/.cache/omarchy-pad-publish/site, committed, not pushed
+#   bin/publish REPO CHANNEL [PKGDIR]     stage it: the site in ~/.cache/omarchy-pad-publish/SITE, committed, not pushed
 #   bin/publish --push REPO CHANNEL ...   and push it
 #
 # REPO: omarchy-pad (this repository's packages; without PKGDIR they are built with bin/packages) or a device's
@@ -27,8 +28,10 @@ pkgdir=${3:-}
 key=A9EDDCA320FC25A5EC8B7F3790104B1A1337F4A9
 export GNUPGHOME=${OMARCHY_PAD_GNUPGHOME:-$HOME/.local/share/omarchy-pad-signing/gnupg}
 gpg --list-secret-keys "$key" >/dev/null 2>&1 || { echo "bin/publish: no secret key $key in $GNUPGHOME" >&2; exit 1; }
-remote=https://github.com/samyn92/omarchy-pad.git
-site=${OMARCHY_PAD_SITE:-$HOME/.cache/omarchy-pad-publish/site}
+name=omarchy-pad
+[[ $repo == omarchy-pad ]] || name=omarchy-pad-$repo
+remote=https://github.com/samyn92/$name.git
+site=${OMARCHY_PAD_SITE:-$HOME/.cache/omarchy-pad-publish/$name}
 arches=(aarch64)
 
 if [[ -z $pkgdir ]]; then
@@ -84,7 +87,7 @@ git -C "$site" -c user.name="$(git -C "$root" config user.name)" -c user.email="
 
 if ((push)); then
   git -C "$site" push -q --force origin gh-pages
-  echo "published: https://samyn92.github.io/omarchy-pad/$repo/$channel/"
+  echo "published: https://samyn92.github.io/$name/$repo/$channel/"
 else
   echo "staged in $site (bin/publish --push $repo $channel ... publishes it)"
 fi
@@ -92,5 +95,5 @@ cat <<EOF
 
 [$repo]
 SigLevel = Required DatabaseRequired
-Server = https://samyn92.github.io/omarchy-pad/\$repo/$channel/\$arch
+Server = https://samyn92.github.io/$name/\$repo/$channel/\$arch
 EOF
