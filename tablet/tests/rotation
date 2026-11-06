@@ -1,0 +1,58 @@
+#!/bin/bash
+# The tablet session's turn (apply) against a fake hyprctl: what it asks Hyprland for at each turn, locked and not,
+# so nothing here turns the real panel.
+#
+#   tests/rotation
+
+set -u
+here=$(cd "$(dirname "$0")/.." && pwd)
+work=$(mktemp -d "${TMPDIR:-/tmp}/rotation.XXXXXX")
+trap 'rm -rf "$work"' EXIT
+mkdir -p "$work/bin" "$work/state"
+export PATH="$work/bin:$PATH" WORK=$work
+
+# Logs the monitor rule each eval writes; answers "locked" from $WORK/locked and gives a panel for "-j monitors".
+cat >"$work/bin/hyprctl" <<'FAKE'
+#!/bin/bash
+case $1 in
+  eval) grep -o 'hl.monitor([^)]*)' <<<"$2" >>"$WORK/log" ;;
+  locked) cat "$WORK/locked" 2>/dev/null || echo false ;;
+  -j) echo '[{"name":"DSI-1","width":3392,"height":2400,"refreshRate":144.00000}]' ;;
+esac
+FAKE
+chmod +x "$work/bin/hyprctl"
+
+# Only the two functions, not the session around them (its flock, floatkey, stage and the sensor loop).
+# shellcheck disable=SC1090
+. <(sed -n '/^mode_for_turn()/,/^}/p;/^apply()/,/^}/p' "$here/bin/omarchy-pad-tablet-session")
+PANEL=DSI-1 SCALE=2 state=$work/state
+log() { echo "log: $*" >>"$work/log"; }
+
+failed=0
+turn() { # turn TRANSFORM EXPECTED_MODE
+  : >"$work/log"
+  apply "$1"
+  if ! grep -qF "mode = \"$2\"" "$work/log" || ! grep -qF "transform = $1" "$work/log"; then
+    echo "FAIL turn to $1: wanted mode $2, got: $(cat "$work/log")"
+    failed=1
+  fi
+}
+
+# Unlocked, every turn keeps "preferred": a soft change for Hyprland, as before.
+turn 1 preferred
+turn 0 preferred
+
+# Locked, the mode is written the other way at each turn, so that Hyprland sees a new mode and resizes the lock
+# screen along with the panel.
+echo true >"$work/locked"
+turn 1 "3392x2400@144.00000"
+turn 0 preferred
+turn 3 "3392x2400@144.00000"
+
+# Unlocked again, back to "preferred" (one more full change for Hyprland, then soft turns).
+echo false >"$work/locked"
+turn 2 preferred
+turn 1 preferred
+
+((failed)) || echo "rotation: all turns as expected"
+exit "$failed"

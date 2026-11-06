@@ -53,11 +53,28 @@ transform_of() { # iio-sensor-proxy orientation -> Hyprland transform
   echo "$t"
 }
 
+mode_for_turn() { # the mode to write for a turn: "preferred", or the panel's current mode written out
+  # Hyprland (0.57) gives a lock screen a new size only when the panel's mode changes; a turn alone is a soft
+  # change to it. A lock screen up at the turn kept its old shape, and in portrait the docked keyboard sat halfway
+  # up the screen (6 Nov 2026). While the session is locked, each turn writes the mode the other way from the last:
+  # the same mode for the panel, but a new one for Hyprland, which then resizes the lock screen as well.
+  local last mode
+  last=$(cat "$state/mode" 2>/dev/null) || last=preferred
+  if [[ $last == preferred && $(hyprctl locked 2>/dev/null) == true ]]; then
+    mode=$(hyprctl -j monitors 2>/dev/null |
+      jq -r --arg panel "$PANEL" '.[] | select(.name == $panel) | "\(.width)x\(.height)@\(.refreshRate)"' 2>/dev/null)
+  fi
+  echo "${mode:-preferred}"
+}
+
 apply() { # apply TRANSFORM
-  hyprctl eval "hl.monitor({ output = \"$PANEL\", mode = \"preferred\", position = \"0x0\", scale = $SCALE, transform = $1 })
+  local mode
+  mode=$(mode_for_turn)
+  hyprctl eval "hl.monitor({ output = \"$PANEL\", mode = \"$mode\", position = \"0x0\", scale = $SCALE, transform = $1 })
 hl.config({ input = { touchdevice = { output = \"$PANEL\", transform = $1 }, tablet = { output = \"$PANEL\", transform = $1 } } })" >/dev/null ||
     log "hyprctl eval failed for transform $1"
   echo "$1" >"$state/transform"
+  echo "$mode" >"$state/mode"
 }
 
 # floatkey and stage read the touch screen themselves, through the access logind gives the user at the screen

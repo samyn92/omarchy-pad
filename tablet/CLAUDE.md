@@ -13,7 +13,10 @@ before the session starts, so no one has to run anything after installing.
 
 `bin/omarchy-pad-tablet-session` (one per login, behind a flock):
 - follows the accelerometer and rotates the panel, the touch screen and the
-  pen together;
+  pen together; while the session is locked, each turn writes the panel's mode
+  the other way (`preferred`, or the mode spelled out), because Hyprland 0.57
+  resizes the lock screen only on a mode change, and a turn alone left it in
+  its old shape (`tests/rotation` checks it against a fake hyprctl);
 - starts `floatkey --hidden` (falling back to wvkbd) and `stage`.
 - holds a `handle-power-key` inhibitor for the session: the session handles the
   power button, so a device layer that watches the key leaves it alone.
