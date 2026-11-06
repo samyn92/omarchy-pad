@@ -570,12 +570,46 @@ private slots:
         QIcon::setThemeSearchPaths({dir.path()});
         QIcon::setThemeName("hicolor");
 
-        IconProvider provider;
+        IconProvider provider({dir.path()});
         QVERIFY(!isRed(provider.requestPixmap("installed?hicolor/0", nullptr, QSize(48, 48))));
         icon("installed", Qt::red);
         updateCache();
         QVERIFY(!isRed(provider.requestPixmap("installed?hicolor/0", nullptr, QSize(48, 48))));
         QVERIFY(isRed(provider.requestPixmap("installed?hicolor/1", nullptr, QSize(48, 48))));
+
+        QIcon::setThemeSearchPaths(paths);
+        QIcon::setThemeName(name);
+    }
+
+    // Omarchy's web app installer puts the icon in ~/.local/share/icons/hicolor,
+    // which the first web app makes: a folder Qt didn't search at the start.
+    void anIconFolderMadeLaterIsSearchedWithTheNextKey()
+    {
+        QTemporaryDir dir;
+        const QString system = dir.path() + "/system", user = dir.path() + "/user";
+        QDir(system).mkpath("hicolor/48x48/apps");
+        write(system + "/hicolor/index.theme", "[Icon Theme]\nName=Hicolor\nDirectories=48x48/apps\n\n"
+                                               "[48x48/apps]\nSize=48\nContext=Applications\nType=Fixed\n");
+        const QStringList paths = QIcon::themeSearchPaths();
+        const QString name = QIcon::themeName();
+        QIcon::setThemeSearchPaths({system});
+        QIcon::setThemeName("hicolor");
+
+        IconProvider provider({user, system});
+        auto found = [&provider](const QString &id) {
+            const QPixmap pixmap = provider.requestPixmap(id, nullptr, QSize(48, 48));
+            return !pixmap.isNull() && pixmap.toImage().pixelColor(24, 24) == QColor(Qt::red);
+        };
+        QVERIFY(!found("webapp?hicolor/0"));
+        QDir(user).mkpath("hicolor/256x256/apps");
+        QImage image(256, 256, QImage::Format_ARGB32);
+        image.fill(Qt::red);
+        QVERIFY(image.save(user + "/hicolor/256x256/apps/webapp.png"));
+        write(system + "/hicolor/index.theme", "[Icon Theme]\nName=Hicolor\nDirectories=48x48/apps,256x256/apps\n\n"
+                                               "[48x48/apps]\nSize=48\nContext=Applications\nType=Fixed\n\n"
+                                               "[256x256/apps]\nSize=256\nContext=Applications\nType=Fixed\n");
+        QVERIFY(found("webapp?hicolor/1"));
+        QCOMPARE(QIcon::themeSearchPaths().first(), user);
 
         QIcon::setThemeSearchPaths(paths);
         QIcon::setThemeName(name);

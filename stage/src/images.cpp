@@ -1,12 +1,35 @@
 #include "images.h"
 
+#include <QDir>
 #include <QFileInfo>
 #include <QIcon>
 #include <QMutex>
+#include <QStandardPaths>
 
 #include "gpupicture.h"
 
-IconProvider::IconProvider() : QQuickImageProvider(QQuickImageProvider::Pixmap) {}
+static QStringList xdgIconFolders()
+{
+    QStringList folders{QDir::homePath() + "/.icons"};
+    for (const QString &base : QStandardPaths::standardLocations(QStandardPaths::GenericDataLocation))
+        folders << base + "/icons";
+    return folders;
+}
+
+IconProvider::IconProvider(const QStringList &iconFolders)
+    : QQuickImageProvider(QQuickImageProvider::Pixmap),
+      m_iconFolders(iconFolders.isEmpty() ? xdgIconFolders() : iconFolders)
+{
+}
+
+QStringList IconProvider::withNewFolders(const QStringList &searchPaths, const QStringList &candidates)
+{
+    QStringList added;
+    for (const QString &folder : candidates)
+        if (!searchPaths.contains(folder) && !added.contains(folder) && QFileInfo(folder).isDir())
+            added << folder;
+    return added + searchPaths;
+}
 
 QPixmap IconProvider::requestPixmap(const QString &id, QSize *size, const QSize &requestedSize)
 {
@@ -24,7 +47,9 @@ QPixmap IconProvider::requestPixmap(const QString &id, QSize *size, const QSize 
         // the one it keeps: an icon installed after that is not in it, and
         // isn't looked for. Setting the search paths again drops the themes
         // read, so the next lookup reads them, and the new cache, afresh.
-        QIcon::setThemeSearchPaths(QIcon::themeSearchPaths());
+        // Qt's paths are also only the folders there were at the start, and
+        // Omarchy's first web app makes ~/.local/share/icons: new ones join.
+        QIcon::setThemeSearchPaths(withNewFolders(QIcon::themeSearchPaths(), m_iconFolders));
         lastKey = key;
     }
     QIcon icon = QFileInfo(name).isAbsolute() ? QIcon(name) : QIcon::fromTheme(name);

@@ -11,8 +11,17 @@ class GpuPicture;
 // "image://icon/<name>": an app's icon from the icon theme (or a path).
 class IconProvider : public QQuickImageProvider {
 public:
-    IconProvider();
+    // `iconFolders` are where icon themes may be, in order of preference;
+    // empty means the XDG ones (~/.icons, then icons in each data directory).
+    explicit IconProvider(const QStringList &iconFolders = {});
     QPixmap requestPixmap(const QString &id, QSize *size, const QSize &requestedSize) override;
+
+    // `searchPaths` with the folders of `candidates` that exist now and it
+    // lacks put in front, in their order.
+    static QStringList withNewFolders(const QStringList &searchPaths, const QStringList &candidates);
+
+private:
+    QStringList m_iconFolders;
 };
 
 // "image://snapshot/<id>": pictures of windows taken as a gesture starts,
