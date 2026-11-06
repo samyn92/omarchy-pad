@@ -38,6 +38,43 @@ log() {
 [[ $SCALE =~ ^[0-9]+(\.[0-9]+)?$ ]] || { log "SCALE must be a number such as 2 or 1.6, not '$SCALE'"; exit 2; }
 [[ $PANEL =~ ^[A-Za-z0-9_-]+$ ]] || { log "PANEL must be an output name such as DSI-1, not '$PANEL'"; exit 2; }
 
+# Chromium-based browsers draw extension popups (Bitwarden's, say) as subsurfaces of the window and never enable
+# text input for the fields in them, so the on-screen keyboard never opens there. With this feature off they are drawn
+# in the window and their fields work as a page's do. Every login, for each such browser's flags file the user has,
+# and for an installed browser that has none yet (Helium: Omarchy writes flags files only for the browsers it installs):
+# a browser installed later gets it at the next login, and an Omarchy install or migration that rewrites the file
+# (cp -f) loses it only until then.
+browser_feature=OzoneBubblesUsePlatformWidgets
+config=${XDG_CONFIG_HOME:-$HOME/.config}
+# launcher=the flags file its wrapper reads
+declare -A browser_flags=(
+  [chromium]=chromium-flags.conf
+  [google-chrome-stable]=chrome-flags.conf
+  [brave]=brave-flags.conf
+  [brave-origin]=brave-origin-flags.conf
+  [microsoft-edge-stable]=microsoft-edge-stable-flags.conf
+  [helium-browser]=helium-browser-flags.conf
+)
+for launcher in "${!browser_flags[@]}"; do
+  flags=$config/${browser_flags[$launcher]}
+  if command -v "$launcher" >/dev/null && [[ ! -e $flags && ! -L $flags ]]; then
+    mkdir -p "$config"
+    : >"$flags"
+  fi
+done
+shopt -s nullglob
+for flags in "$config"/{chromium,chrome,google-chrome,google-chrome-*,brave,brave-*,vivaldi,vivaldi-*,microsoft-edge-*,thorium,helium,helium-browser}-flags.conf; do
+  [[ -f $flags && ! -L $flags ]] || continue
+  grep -q "$browser_feature" "$flags" && continue
+  if grep -q '^--disable-features=' "$flags"; then
+    sed -i "s/^--disable-features=.*/&,$browser_feature/" "$flags"
+  else
+    printf -- '--disable-features=%s\n' "$browser_feature" >>"$flags"
+  fi
+  log "Turned off $browser_feature in $flags, for the keyboard in extension popups"
+done
+shopt -u nullglob
+
 # Omarchy writes the user's Hyprland config at the first login; until it is there, there is nothing to load into.
 [[ -f $conf ]] || { log "No $conf yet; the tablet session is set up at the next login"; exit 0; }
 

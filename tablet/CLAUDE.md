@@ -7,7 +7,16 @@ The tablet session for Omarchy's Hyprland, packaged as `omarchy-pad-tablet`
 - writes `~/.config/hypr/omarchy_pad_tablet.lua` from `hypr/omarchy_pad_tablet.lua`
   with the panel and scale, and writes it again when the template changes;
 - adds a `require` to `hyprland.lua`, the first time only (a user who takes it
-  out keeps it out), and turns the old `iceland_tablet` line into this one.
+  out keeps it out), and turns the old `iceland_tablet` line into this one;
+- adds `--disable-features=OzoneBubblesUsePlatformWidgets` to every
+  Chromium-family `*-flags.conf` the user has (Chromium, Brave, Chrome,
+  Vivaldi, Edge, Helium...), at every login, and makes the flags file for an
+  installed browser that has none (Helium: Omarchy only writes them for the
+  browsers its menu installs). Without it these browsers draw extension
+  popups (Bitwarden) as subsurfaces and never enable text input for their
+  fields, so floatkey never hears of them; a page's fields were never affected.
+  Every login, because Omarchy migrations rewrite these files (`cp -f`).
+  `tests/browser-flags` checks it.
 `omarchy-pad-tablet-setup.service` runs it with `--first-login` at every login,
 before the session starts, so no one has to run anything after installing.
 

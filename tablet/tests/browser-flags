@@ -1,0 +1,39 @@
+#!/bin/bash
+# The setup's browser step against a fake config folder: each Chromium-family flags file gets the feature turned off
+# once, merged into a --disable-features line it already has, and other files are left alone.
+#
+#   tests/browser-flags
+
+set -u
+here=$(cd "$(dirname "$0")/.." && pwd)
+work=$(mktemp -d "${TMPDIR:-/tmp}/browser-flags.XXXXXX")
+trap 'rm -rf "$work"' EXIT
+fail=0
+
+printf -- '--ozone-platform=wayland\n' >"$work/brave-origin-flags.conf"
+printf -- '--a\n--disable-features=Foo\n' >"$work/chromium-flags.conf"
+printf -- '--x\n' >"$work/code-flags.conf"
+# Helium is installed but has no flags file; Chrome is not installed.
+mkdir -p "$work/bin"
+printf '#!/bin/sh\n' >"$work/bin/helium-browser"
+chmod +x "$work/bin/helium-browser"
+# Only these on PATH, so the browsers installed where the test runs do not count.
+for tool in grep sed mkdir; do ln -s "$(command -v $tool)" "$work/bin/$tool"; done
+
+# Only the browser step, not the Hyprland part around it.
+step=$(sed -n '/^browser_feature=/,/^shopt -u nullglob/p' "$here/bin/omarchy-pad-tablet-setup")
+log() { :; }
+for _ in 1 2; do
+  # shellcheck disable=SC1090
+  PATH=$work/bin XDG_CONFIG_HOME=$work . <(echo "$step")
+done
+[[ ! -e $work/chrome-flags.conf ]] || { echo "FAIL chrome-flags.conf made for a browser that is not installed"; fail=1; }
+
+check() {
+  if [[ $(<"$work/$1") == "$2" ]]; then echo "ok   $1"; else echo "FAIL $1:"; cat "$work/$1"; fail=1; fi
+}
+check brave-origin-flags.conf $'--ozone-platform=wayland\n--disable-features=OzoneBubblesUsePlatformWidgets'
+check chromium-flags.conf $'--a\n--disable-features=Foo,OzoneBubblesUsePlatformWidgets'
+check code-flags.conf '--x'
+check helium-browser-flags.conf '--disable-features=OzoneBubblesUsePlatformWidgets'
+exit $fail

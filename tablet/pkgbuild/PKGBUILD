@@ -3,7 +3,7 @@
 # from the device layer's defaults in /usr/share/omarchy-pad/tablet.conf.d/. See ../CLAUDE.md.
 pkgname=omarchy-pad-tablet
 pkgver=0.2
-pkgrel=4
+pkgrel=5
 pkgdesc="Omarchy Pad: the tablet session for Omarchy's Hyprland: auto-rotation, the on-screen keyboard, gestures and the power button"
 arch=(any)
 license=(MIT)
