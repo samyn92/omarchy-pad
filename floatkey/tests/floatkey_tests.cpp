@@ -229,6 +229,41 @@ private slots:
         QVERIFY(stroke.shift);
         QVERIFY(keymap.stroke('@', &stroke));
         QCOMPARE(stroke.key, uint32_t(KEY_2));
+        QCOMPARE(stroke.mods, 0u);
+    }
+
+    void keymapTypesAltGrCharactersOnTheirOwnKeys()
+    {
+        // On a German layout @ is AltGr+Q. It goes out like that, on a keycode
+        // every app knows: Chromium and Electron drop most spare keycodes.
+        Keymap keymap({"de"});
+        QVERIFY(!keymap.reserve({'@', 0x20AC, '{', '|', '~'}));   // nothing to add: @ € { | ~
+
+        xkb_context *context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+        xkb_keymap *compiled = xkb_keymap_new_from_string(context, keymap.text().constData(),
+                                                          XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
+        QVERIFY(compiled);
+        const QList<QPair<uint, uint32_t>> expected{{'@', KEY_Q}, {0x20AC, KEY_E}, {'{', KEY_7}, {'|', KEY_102ND}};
+        for (const auto &[codepoint, key] : expected) {
+            Keymap::Stroke stroke;
+            QVERIFY(keymap.stroke(codepoint, &stroke));
+            QCOMPARE(stroke.key, key);
+            QVERIFY(stroke.mods != 0);
+            QCOMPARE(stroke.mods & (keymap.ctrlMask() | keymap.altMask() | keymap.superMask()), 0u);
+            xkb_state *state = xkb_state_new(compiled);
+            xkb_state_update_mask(state, stroke.mods | (stroke.shift ? keymap.shiftMask() : 0), 0, 0, 0, 0, 0);
+            QCOMPARE(xkb_state_key_get_utf32(state, stroke.key + 8), codepoint);
+            xkb_state_unref(state);
+        }
+        // Plain and shifted characters keep their keys and need no AltGr.
+        Keymap::Stroke stroke;
+        QVERIFY(keymap.stroke('q', &stroke));
+        QCOMPARE(stroke.mods, 0u);
+        QVERIFY(keymap.stroke('Q', &stroke));
+        QVERIFY(stroke.shift);
+        QCOMPARE(stroke.mods, 0u);
+        xkb_keymap_unref(compiled);
+        xkb_context_unref(context);
     }
 
     void keymapFollowsTheSystemLayout()
@@ -289,8 +324,7 @@ private slots:
             // Either the character's own key in the German layout (ä, ö, ü),
             // or a key that means nothing to the system at all.
             xkb_state *state = xkb_state_new(system);
-            if (stroke.shift)
-                xkb_state_update_mask(state, 1, 0, 0, 0, 0, 0);
+            xkb_state_update_mask(state, stroke.mods | (stroke.shift ? 1 : 0), 0, 0, 0, 0, 0);
             const bool ownKey = xkb_state_key_get_utf32(state, code) == codepoint;
             xkb_state_unref(state);
             if (ownKey)

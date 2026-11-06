@@ -201,7 +201,7 @@ void VirtualKeyboard::drain()
             }
             Keymap::Stroke stroke;
             if (m_keymap.stroke(next.codepoint, &stroke))
-                send(stroke.key, next.mods | (stroke.shift ? m_keymap.shiftMask() : 0));
+                send(stroke.key, next.mods | stroke.mods | (stroke.shift ? m_keymap.shiftMask() : 0));
         } else {
             send(next.key, next.mods);
         }

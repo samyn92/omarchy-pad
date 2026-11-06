@@ -3,8 +3,8 @@
 The on-screen keyboard: a Qt Quick layer-shell overlay, plus a fcitx5 addon
 (`fcitx5/`) that tells it when a text field takes or loses focus.
 
-- **Version:** kept in two places: `pkgver` in `pkgbuild/PKGBUILD` and
-  `setApplicationVersion` in `src/main.cpp`. Bump both together.
+- **Version:** kept in three places: `pkgver` in `pkgbuild/PKGBUILD`, the `--version` line and
+  `setApplicationVersion` in `src/main.cpp`. Bump all three together.
 - **Running a build in place:** `build/floatkey quit`, wait for the process to
   go, then `setsid -f build/floatkey --hidden >/dev/null 2>&1 </dev/null`. Use
   `/usr/bin/floatkey` to go back to the installed one. `floatkey status` and

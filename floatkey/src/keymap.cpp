@@ -209,28 +209,43 @@ bool Keymap::compile()
 
     // The base layout never changes, so read it once: every character the
     // first two levels of a key produce, lower keycodes first so the main
-    // block wins over the keypad.
+    // block wins over the keypad; then, for what those leave out, the AltGr
+    // levels. Those go out with AltGr held on the real key rather than on a
+    // spare keycode, because Chromium and Electron apps drop keycodes that
+    // aren't in their own table, and most spare ones aren't: @ never reached
+    // the Claude desktop app's email field on a German layout (6 Nov 2026).
     if (m_base.isEmpty()) {
         QSet<uint32_t> slotCodes;
         for (const Slot &slot : std::as_const(m_slots))
             slotCodes.insert(slot.xkbKeycode);
+        // A level is usable when nothing but shift and the level's own
+        // modifiers (AltGr, behind Mod5 or similar) selects it: never caps
+        // or num lock, and nothing a shortcut uses.
+        const xkb_mod_mask_t avoid = m_ctrl | m_alt | m_super | mask(XKB_MOD_NAME_CAPS) | mask(XKB_MOD_NAME_NUM);
         const xkb_keycode_t min = xkb_keymap_min_keycode(keymap), max = xkb_keymap_max_keycode(keymap);
-        for (xkb_keycode_t code = min; code <= max; ++code) {
-            if (slotCodes.contains(code))
-                continue;
-            const xkb_level_index_t levels = qMin<xkb_level_index_t>(2, xkb_keymap_num_levels_for_key(keymap, code, 0));
-            for (xkb_level_index_t level = 0; level < levels; ++level) {
-                const xkb_keysym_t *syms = nullptr;
-                if (xkb_keymap_key_get_syms_by_level(keymap, code, 0, level, &syms) != 1)
+        for (xkb_level_index_t first : {0u, 2u}) {
+            for (xkb_keycode_t code = min; code <= max; ++code) {
+                if (slotCodes.contains(code))
                     continue;
-                const uint codepoint = xkb_keysym_to_utf32(syms[0]);
-                if (codepoint < 0x20 || codepoint == 0x7f || m_base.contains(codepoint))
-                    continue;
-                xkb_mod_mask_t masks[4];
-                const size_t count = xkb_keymap_key_get_mods_for_level(keymap, code, 0, level, masks, 4);
-                for (size_t i = 0; i < count; ++i) {
-                    if (masks[i] == 0 || masks[i] == m_shift) {
-                        m_base.insert(codepoint, Stroke{code - 8, masks[i] == m_shift});
+                const xkb_level_index_t levels = qMin<xkb_level_index_t>(first + 2, xkb_keymap_num_levels_for_key(keymap, code, 0));
+                for (xkb_level_index_t level = first; level < levels; ++level) {
+                    const xkb_keysym_t *syms = nullptr;
+                    if (xkb_keymap_key_get_syms_by_level(keymap, code, 0, level, &syms) != 1)
+                        continue;
+                    const uint codepoint = xkb_keysym_to_utf32(syms[0]);
+                    if (codepoint < 0x20 || codepoint == 0x7f || m_base.contains(codepoint))
+                        continue;
+                    xkb_mod_mask_t masks[8];
+                    const size_t count = xkb_keymap_key_get_mods_for_level(keymap, code, 0, level, masks, 8);
+                    for (size_t i = 0; i < count; ++i) {
+                        if (masks[i] & avoid)
+                            continue;
+                        // Levels 1 and 2 only as before: plain or shift alone.
+                        if (first == 0 && masks[i] != 0 && masks[i] != m_shift)
+                            continue;
+                        if (first == 2 && (masks[i] & ~m_shift) == 0)
+                            continue;
+                        m_base.insert(codepoint, Stroke{code - 8, (masks[i] & m_shift) != 0, masks[i] & ~m_shift});
                         break;
                     }
                 }

@@ -172,8 +172,12 @@ up.
 
 Keys reach the focused app through the Wayland virtual keyboard protocol, with
 a keymap based on your own layout. That keeps shortcuts and Hyprland bindings
-on the keys they expect. Every other character (umlauts, accents, emoji) goes
-on a keycode your keymap leaves empty, so no binding can ever fire by mistake.
+on the keys they expect. What your layout has on AltGr goes out as AltGr and
+that key, as on a real keyboard (@ is AltGr+Q on a German layout), so
+Chromium and Electron apps receive it too. Every other character (accents
+your layout lacks, emoji) goes on a keycode your keymap leaves empty, so no
+binding can ever fire by mistake. Chromium and Electron apps drop most of
+those keycodes, so in them only characters your layout has can be typed.
 A character not yet in the keymap brings a fresh virtual keyboard with a new
 keymap, because Hyprland and input methods such as fcitx5 only pick up a
 keymap when a keyboard first becomes active.

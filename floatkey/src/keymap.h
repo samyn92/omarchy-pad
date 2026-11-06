@@ -11,8 +11,10 @@ struct xkb_context;
 struct xkb_keymap;
 
 // The XKB keymap floatkey types with. The user's own layout carries what its
-// first two levels can, so shortcuts land on the keys applications and the
-// compositor expect. Keycodes that the user's own
+// keys can, so shortcuts land on the keys applications and the compositor
+// expect: the first two levels, then AltGr and AltGr with shift for what
+// those leave out (@ on a German layout is AltGr+Q, as on a real keyboard).
+// Keycodes that the user's own
 // keymap leaves empty carry two more characters each, plain and with shift
 // (umlauts, accents, emoji): they are handed out on demand, and when they run
 // out the one used longest ago is reused, so any character can be typed
@@ -22,6 +24,7 @@ public:
     struct Stroke {
         uint32_t key = 0;   // evdev keycode, as zwp_virtual_keyboard_v1.key takes it
         bool shift = false;
+        uint32_t mods = 0;  // any other modifiers its level needs (AltGr's), as a mask
     };
 
     // systemLayouts are the compositor's own layouts (Hyprland's
