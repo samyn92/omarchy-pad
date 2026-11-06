@@ -42,7 +42,7 @@ Item {
     }
 
     function iconUrl(name) {
-        return name ? "image://icon/" + name + "?" + apps.iconTheme : ""
+        return name ? "image://icon/" + name + "?" + apps.iconKey : ""
     }
 
     // Where an app let go at `p` would go, and where to show it.

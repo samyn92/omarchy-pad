@@ -124,10 +124,11 @@ Window {
         return apps.icon(appClass) || (appClass || "").toLowerCase()
     }
 
-    // An icon by name (or path), from the icon theme in use: the theme is in
-    // the URL, so one Omarchy's theme switches to loads anew.
+    // An icon by name (or path), from the icon theme in use: the theme and a
+    // count of installs are in the URL, so a theme switch or an app installed
+    // loads the icons anew.
     function iconUrl(name) {
-        return name ? "image://icon/" + name + "?" + apps.iconTheme : ""
+        return name ? "image://icon/" + name + "?" + apps.iconKey : ""
     }
 
     function allReady(windows) {

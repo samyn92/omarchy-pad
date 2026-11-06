@@ -4,7 +4,9 @@
 #include <QFile>
 #include <QPainter>
 #include <QPointingDevice>
+#include <QProcess>
 #include <QQmlApplicationEngine>
+#include <QStandardPaths>
 #include <QQmlContext>
 #include <QQuickItem>
 #include <QQuickWindow>
@@ -537,6 +539,46 @@ private slots:
         QCOMPARE(Apps::installedIconTheme("Yaru-gray"), QString("Yaru"));
         QCOMPARE(Apps::installedIconTheme("Nothing-like-it"), QString("hicolor"));
         QIcon::setThemeSearchPaths(before);
+    }
+
+    // pacman puts an app's icon in hicolor and writes a new icon-theme.cache;
+    // Qt keeps the cache it read first, so only a new icon key finds it.
+    void anIconInstalledLaterShowsWithTheNextKey()
+    {
+        if (QStandardPaths::findExecutable("gtk-update-icon-cache").isEmpty())
+            QSKIP("needs gtk-update-icon-cache");
+        QTemporaryDir dir;
+        const QString theme = dir.path() + "/hicolor";
+        QDir(theme).mkpath("48x48/apps");
+        write(theme + "/index.theme", "[Icon Theme]\nName=Hicolor\nDirectories=48x48/apps\n\n"
+                                      "[48x48/apps]\nSize=48\nContext=Applications\nType=Fixed\n");
+        auto icon = [&theme](const QString &name, Qt::GlobalColor color) {
+            QImage image(48, 48, QImage::Format_ARGB32);
+            image.fill(color);
+            QVERIFY(image.save(theme + "/48x48/apps/" + name + ".png"));
+        };
+        auto updateCache = [&theme] {
+            QCOMPARE(QProcess::execute("gtk-update-icon-cache", {"-q", "-f", "-t", theme}), 0);
+        };
+        auto isRed = [](const QPixmap &pixmap) {
+            return !pixmap.isNull() && pixmap.toImage().pixelColor(24, 24) == QColor(Qt::red);
+        };
+        icon("before", Qt::blue);
+        updateCache();
+        const QStringList paths = QIcon::themeSearchPaths();
+        const QString name = QIcon::themeName();
+        QIcon::setThemeSearchPaths({dir.path()});
+        QIcon::setThemeName("hicolor");
+
+        IconProvider provider;
+        QVERIFY(!isRed(provider.requestPixmap("installed?hicolor/0", nullptr, QSize(48, 48))));
+        icon("installed", Qt::red);
+        updateCache();
+        QVERIFY(!isRed(provider.requestPixmap("installed?hicolor/0", nullptr, QSize(48, 48))));
+        QVERIFY(isRed(provider.requestPixmap("installed?hicolor/1", nullptr, QSize(48, 48))));
+
+        QIcon::setThemeSearchPaths(paths);
+        QIcon::setThemeName(name);
     }
 
     void bordersReadLikeHyprlands()

@@ -16,6 +16,11 @@ class Apps : public QAbstractListModel {
     // it isn't installed. It changes with Omarchy's theme; icon URLs carry it,
     // so a change loads them anew.
     Q_PROPERTY(QString iconTheme READ iconTheme NOTIFY iconThemeChanged)
+    // What icon URLs carry after the "?": the theme, and a count of the
+    // installs and removals seen since. A new key makes the icon provider drop
+    // what Qt has read of the themes (an app installed since stage started
+    // has its icon in no copy Qt holds), and QML load every icon anew.
+    Q_PROPERTY(QString iconKey READ iconKey NOTIFY iconThemeChanged)
 
 public:
     enum Role { NameRole = Qt::UserRole + 1, IconRole, IdRole };
@@ -38,6 +43,7 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
     QString iconTheme() const { return m_iconTheme; }
+    QString iconKey() const { return m_iconTheme + '/' + QString::number(m_iconRevision); }
     // Takes the desktop's icon theme, and follows it from then on.
     void followIconTheme();
     // The installed theme closest to `wanted`: itself, then its name cut back
@@ -59,6 +65,10 @@ signals:
 private:
     void reload();
     void useIconTheme(const QString &wanted);
+    // Watches the folders icons are installed to: the theme's and hicolor's
+    // in each search path, and the unthemed fallbacks such as pixmaps.
+    void watchIconFolders();
+    void iconsChanged();
 
     QStringList m_directories;
     QString m_language;
@@ -66,5 +76,8 @@ private:
     QFileSystemWatcher m_watcher;
     QTimer m_debounce;
     QString m_iconTheme;
+    int m_iconRevision = 0;
+    QFileSystemWatcher m_iconWatcher;
+    QTimer m_iconDebounce;
     QProcess *m_iconMonitor = nullptr;
 };

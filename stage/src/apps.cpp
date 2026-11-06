@@ -30,6 +30,12 @@ Apps::Apps(const QStringList &directories, const QString &language, QObject *par
     m_debounce.setInterval(300);
     connect(&m_debounce, &QTimer::timeout, this, &Apps::reload);
     connect(&m_watcher, &QFileSystemWatcher::directoryChanged, this, [this] { m_debounce.start(); });
+    // pacman's icon cache hook runs after the files are in, so an install
+    // can change the icon folders after the apps' reload has been done.
+    m_iconDebounce.setSingleShot(true);
+    m_iconDebounce.setInterval(300);
+    connect(&m_iconDebounce, &QTimer::timeout, this, &Apps::iconsChanged);
+    connect(&m_iconWatcher, &QFileSystemWatcher::directoryChanged, this, [this] { m_iconDebounce.start(); });
     reload();
 }
 
@@ -157,6 +163,38 @@ void Apps::reload()
     beginResetModel();
     m_apps = apps;
     endResetModel();
+    // The apps changed, and with them, likely, the icons there are.
+    if (!m_iconTheme.isEmpty())
+        iconsChanged();
+}
+
+void Apps::watchIconFolders()
+{
+    const auto watched = m_iconWatcher.directories();
+    if (!watched.isEmpty())
+        m_iconWatcher.removePaths(watched);
+    QStringList folders;
+    for (const QString &base : QIcon::themeSearchPaths()) {
+        if (base.startsWith(':'))
+            continue;
+        folders << base + '/' + m_iconTheme << base + "/hicolor";
+    }
+    for (const QString &base : QIcon::fallbackSearchPaths())
+        if (!base.startsWith(':'))
+            folders << base;
+    folders.removeDuplicates();
+    for (const QString &folder : std::as_const(folders))
+        if (QFileInfo(folder).isDir())
+            m_iconWatcher.addPath(folder);
+}
+
+void Apps::iconsChanged()
+{
+    ++m_iconRevision;
+    // An install can make an icon folder that wasn't there to watch before
+    // (hicolor in ~/.local/share/icons, say).
+    watchIconFolders();
+    emit iconThemeChanged();
 }
 
 // Qt shows no icons at all for a theme it can't find, not even the ones
@@ -190,6 +228,7 @@ void Apps::useIconTheme(const QString &wanted)
         return;
     m_iconTheme = name;
     QIcon::setThemeName(name);
+    watchIconFolders();
     emit iconThemeChanged();
 }
 

@@ -2,6 +2,7 @@
 
 #include <QFileInfo>
 #include <QIcon>
+#include <QMutex>
 
 #include "gpupicture.h"
 
@@ -10,8 +11,22 @@ IconProvider::IconProvider() : QQuickImageProvider(QQuickImageProvider::Pixmap) 
 QPixmap IconProvider::requestPixmap(const QString &id, QSize *size, const QSize &requestedSize)
 {
     const QSize wanted = requestedSize.isValid() ? requestedSize : QSize(128, 128);
-    // What follows a "?" only tells the icon themes apart.
-    const QString name = id.section('?', 0, 0);
+    // What follows a "?" is Apps::iconKey: the theme, and how many times the
+    // installed apps or icons changed.
+    const QString name = id.section('?', 0, 0), key = id.section('?', 1);
+    // Icons are asked for on the GUI thread and on QML's image thread both;
+    // one at a time, so the themes aren't dropped under a lookup.
+    static QMutex mutex;
+    static QString lastKey;
+    QMutexLocker lock(&mutex);
+    if (key != lastKey) {
+        // Qt reads each theme once, and the icon-theme.cache it maps then is
+        // the one it keeps: an icon installed after that is not in it, and
+        // isn't looked for. Setting the search paths again drops the themes
+        // read, so the next lookup reads them, and the new cache, afresh.
+        QIcon::setThemeSearchPaths(QIcon::themeSearchPaths());
+        lastKey = key;
+    }
     QIcon icon = QFileInfo(name).isAbsolute() ? QIcon(name) : QIcon::fromTheme(name);
     if (icon.isNull())
         icon = QIcon::fromTheme("application-x-executable");

@@ -56,10 +56,11 @@ an app installed later goes into the row of its kind, or Other, and a row
 emptied goes away.
 
 The icons are the icon theme's that Omarchy's theme picks, followed when the
-theme changes. When it names one that isn't installed (Omarchy's Vantablack
-and White name a Yaru-gray that Yaru doesn't have), the nearest installed one
-stands in: Yaru-gray's is Yaru, and hicolor, where every app keeps its own
-icon, after that.
+theme changes. An app installed while stage runs gets its own icon as soon
+as it's in, with no restart. When the theme names one that isn't installed
+(Omarchy's Vantablack and White name a Yaru-gray that Yaru doesn't have), the
+nearest installed one stands in: Yaru-gray's is Yaru, and hicolor, where
+every app keeps its own icon, after that.
 
 Two and three fingers come straight from the touch screen (stage opens the
 devices udev tags as touch screens with libinput, so the user has to be in the
