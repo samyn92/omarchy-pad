@@ -54,6 +54,15 @@ script acts on the screen state as it was at the press.
 - with Volume Down, a full-screen screenshot; Volume Down alone, the volume.
 `tests/power-button` runs it against fake commands.
 
+`bt-agent.service.d/omarchy-pad.conf`, a drop-in for Omarchy's Bluetooth
+pairing agent (`bt-agent.service`, from omarchy-settings): Omarchy's unit
+skips itself for the whole login unless `bluetooth.service` is already active
+when the session starts, and on the Pad 4 bluetoothd comes up a few seconds
+later (it waits for the device layer's `iceland-bdaddr.service`). With no
+agent, a device that asks to pair (a Logitech Lift) connected but never
+paired. The drop-in only asks that Bluetooth is enabled, and waits (up to
+60 s) for `org.bluez` on the system bus before the agent registers.
+
 Settings (`lib/tablet-conf`): PANEL, SCALE, ROTATE_FLIP, from the device
 layer's `/usr/share/omarchy-pad/tablet.conf.d/*.conf`, then
 `/etc/omarchy-pad/tablet.conf`, then `~/.config/omarchy-pad/tablet.conf`. With

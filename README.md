@@ -8,7 +8,7 @@ anything with a touch screen in principle.
 | [floatkey](floatkey/) | The on-screen keyboard: docked, floating, or in a corner; comes up when a text field takes focus and stays away while a hardware keyboard is attached |
 | [stage](stage/) | All the touch gestures: drag in from the right or bottom edge to make room beside a window and pick an app for it, pull the scratchpad console down from the top, pull a window down with two fingers to close it, or hold two fingers on it to carry it beside another window or to another workspace, three fingers sideways for workspaces |
 | [lock](lock/) | Omarchy's lock screen with floatkey's keyboard, for unlocking with no keyboard attached (prototype) |
-| [tablet](tablet/) | The tablet session that ties it together: auto-rotation, starting floatkey and stage |
+| [tablet](tablet/) | The tablet session that ties it together: auto-rotation, starting floatkey and stage, pairing Bluetooth devices |
 | [shell](shell/) | Omarchy shell plugins for touch: the tablet bar, pull-down drawers, a picker you can swipe |
 
 Omarchy Pad is meant for any touch tablet. What one tablet's hardware needs
