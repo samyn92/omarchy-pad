@@ -1820,88 +1820,74 @@ Window {
         }
     }
 
-    // A long press (stage's handlePress and armPress): a ring fills under the finger, stays full while it is armed, and opens out
-    // and goes with the right click as the finger lifts. Shown only from showMs on, so a tap never flashes it.
+    // A long press (stage's handlePress and armPress). Nothing shows while the finger waits: a ring filling from every
+    // touch read as the screen charging up, and it filled even where no click would come (the apps with their own
+    // menu, the desktop, the keyboard), since stage only knows that once the press is armed. So, as on an iPad, the
+    // press shows itself only when it has taken: a soft disc pops in around the finger, armed and saying "lift for the
+    // menu", stays while the finger does, and opens out and goes with the right click as it lifts.
     Item {
         id: press
         objectName: "longPress"
-        readonly property int showMs: 150
-        property real progress: 0   // 0 to 1, the ring filling
-        property real pop: 0        // the ring opening out as it clicks
-        property bool live: false
-        // Wide enough to show around a fingertip (about 1 cm, 55 px at the Pad 4's scale), not under it.
-        width: 136
-        height: 136
+        property real pop: 0        // 0 to 1, the disc arriving as it arms
+        property real spread: 0     // 0 to 1, the disc opening out as it clicks
+        property bool armed: false
+        // Just wider than a fingertip (about 1 cm, 55 px at the Pad 4's scale), so its rim shows around it.
+        width: 96
+        height: 96
         z: 1001
         visible: opacity > 0
         opacity: 0
 
         function start(at, ms) {
-            fill.stop(); popping.stop(); hiding.stop()
+            arriving.stop(); clicking.stop(); hiding.stop()
             x = at.x - width / 2; y = at.y - height / 2
-            progress = 0; pop = 0; opacity = 0; live = true
-            fill.duration = Math.max(1, ms - showMs)
-            fill.restart()
+            armed = false; pop = 0; spread = 0; opacity = 0
         }
         function cancel() {
-            live = false
-            fill.stop()
+            armed = false
+            arriving.stop()
             if (opacity > 0) hiding.restart()
         }
-        // Full and held, until the finger lifts (the click) or moves (called off).
-        function arm() {
-            fill.stop()
-            progress = 1
-            opacity = 1
+        function arm(at) {
+            hiding.stop()
+            x = at.x - width / 2; y = at.y - height / 2
+            armed = true; spread = 0
+            arriving.restart()
         }
         function fire() {
-            live = false
-            fill.stop()
-            progress = 1
-            popping.restart()
+            armed = false
+            arriving.stop()
+            clicking.restart()
         }
 
-        SequentialAnimation {
-            id: fill
-            property int duration: 350
-            PauseAnimation { duration: press.showMs }
-            ParallelAnimation {
-                NumberAnimation { target: press; property: "opacity"; to: 1; duration: 90 }
-                NumberAnimation { target: press; property: "progress"; from: 0; to: 1; duration: fill.duration; easing.type: Easing.InOutQuad }
-            }
+        ParallelAnimation {
+            id: arriving
+            NumberAnimation { target: press; property: "pop"; from: 0; to: 1; duration: 260; easing.type: Easing.OutBack; easing.overshoot: 2.2 }
+            NumberAnimation { target: press; property: "opacity"; to: 1; duration: 120 }
         }
         ParallelAnimation {
-            id: popping
-            NumberAnimation { target: press; property: "pop"; from: 0; to: 1; duration: 220; easing.type: Easing.OutCubic }
-            NumberAnimation { target: press; property: "opacity"; to: 0; duration: 220 }
+            id: clicking
+            NumberAnimation { target: press; property: "spread"; from: 0; to: 1; duration: 200; easing.type: Easing.OutCubic }
+            NumberAnimation { target: press; property: "opacity"; to: 0; duration: 200 }
         }
         NumberAnimation { id: hiding; target: press; property: "opacity"; to: 0; duration: 120 }
 
-        Canvas {
-            id: ring
-            anchors.fill: parent
-            scale: 1 + press.pop * 0.35
-            onPaint: {
-                const g = getContext("2d")
-                g.reset()
-                const c = width / 2, r = width / 2 - 8
-                g.lineWidth = 6
-                g.strokeStyle = Qt.rgba(win.glowColor.r, win.glowColor.g, win.glowColor.b, 0.25)
-                g.beginPath(); g.arc(c, c, r, 0, 2 * Math.PI); g.stroke()
-                g.strokeStyle = win.glowColor
-                g.lineCap = "round"
-                g.beginPath(); g.arc(c, c, r, -Math.PI / 2, -Math.PI / 2 + 2 * Math.PI * press.progress); g.stroke()
-            }
-            Connections {
-                target: press
-                function onProgressChanged() { ring.requestPaint() }
-            }
+        Rectangle {
+            anchors.centerIn: parent
+            width: parent.width
+            height: width
+            radius: width / 2
+            scale: (0.55 + 0.45 * press.pop) * (1 + 0.3 * press.spread)
+            color: Qt.rgba(win.glowColor.r, win.glowColor.g, win.glowColor.b, 0.22)
+            border.width: 2
+            border.color: Qt.rgba(win.glowColor.r, win.glowColor.g, win.glowColor.b, 0.7)
+            antialiasing: true
         }
 
         Connections {
             target: stage
             function onPressStarted(at, ms) { press.start(at, ms) }
-            function onPressArmed(at) { press.arm() }
+            function onPressArmed(at) { press.arm(at) }
             function onPressCanceled() { press.cancel() }
             function onPressFired(at) { press.fire() }
         }

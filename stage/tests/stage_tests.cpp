@@ -963,28 +963,35 @@ private slots:
         QVERIFY(!p.on());
     }
 
-    void theRingFillsAroundTheFingerAndGoesWithTheClick()
+    void aLongPressShowsOnlyOnceItHasTakenAndGoesWithTheClick()
     {
         Harness h;
-        auto *ring = h.window->findChild<QQuickItem *>("longPress");
-        QVERIFY(ring);
+        auto *cue = h.window->findChild<QQuickItem *>("longPress");
+        QVERIFY(cue);
         emit h.fake.pressStarted(QPointF(400, 300), 500);
-        QTest::qWait(80);
-        QCOMPARE(ring->opacity(), 0.0);   // a tap never flashes it
-        QCOMPARE(ring->x() + ring->width() / 2, 400.0);
-        QVERIFY(ring->width() >= 120);   // around a fingertip, not under it
-        QTRY_VERIFY_WITH_TIMEOUT(ring->property("progress").toReal() > 0.99, 1000);
-        QCOMPARE(ring->opacity(), 1.0);
+        QTest::qWait(400);
+        QCOMPARE(cue->opacity(), 0.0);   // nothing while the finger waits, so a held touch never charges up
         emit h.fake.pressArmed(QPointF(400, 300));
-        QTest::qWait(200);
-        QCOMPARE(ring->opacity(), 1.0);   // held full while the finger stays
+        QTRY_COMPARE_WITH_TIMEOUT(cue->opacity(), 1.0, 1000);
+        QCOMPARE(cue->x() + cue->width() / 2, 400.0);
+        QVERIFY(cue->width() >= 80);   // around a fingertip, not under it
+        QTest::qWait(300);
+        QCOMPARE(cue->opacity(), 1.0);   // stays while the finger does
         emit h.fake.pressFired(QPointF(400, 300));
-        QTRY_COMPARE_WITH_TIMEOUT(ring->opacity(), 0.0, 1000);
+        QTRY_COMPARE_WITH_TIMEOUT(cue->opacity(), 0.0, 1000);
 
+        // Called off before it took (an app with its own menu, the keyboard, a move): it never showed.
         emit h.fake.pressStarted(QPointF(800, 500), 500);
-        QTRY_VERIFY_WITH_TIMEOUT(ring->opacity() > 0.5, 1000);
+        QTest::qWait(200);
         emit h.fake.pressCanceled();
-        QTRY_COMPARE_WITH_TIMEOUT(ring->opacity(), 0.0, 1000);
+        QCOMPARE(cue->opacity(), 0.0);
+
+        // Armed, then the finger moves: it goes.
+        emit h.fake.pressStarted(QPointF(800, 500), 500);
+        emit h.fake.pressArmed(QPointF(800, 500));
+        QTRY_COMPARE_WITH_TIMEOUT(cue->opacity(), 1.0, 1000);
+        emit h.fake.pressCanceled();
+        QTRY_COMPARE_WITH_TIMEOUT(cue->opacity(), 0.0, 1000);
     }
 
     // ---- the gestures, on the real QML ----

@@ -228,8 +228,8 @@ signals:
     void slideCanceled();
     void workspaceShown(const QString &name);
     // One finger held still on a window: it began at `at` (the overlay shows
-    // a ring there from a moment on); after LongPressMs it is armed
-    // (`pressArmed`, the ring full), and when it lifts it right-clicks there
+    // nothing yet); after LongPressMs it is armed if it will click there
+    // (`pressArmed`, a disc pops in), and when it lifts it right-clicks there
     // (`pressFired`). Moving, another finger, or lifting before it is armed
     // calls it off (`pressCanceled`).
     void pressStarted(const QPointF &at, int ms);
