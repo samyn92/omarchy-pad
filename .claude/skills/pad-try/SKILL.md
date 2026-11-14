@@ -1,6 +1,6 @@
 ---
 name: pad-try
-description: Run a fresh build of floatkey or stage in place on the tablet (no install), with logging, then go back to the installed one; or try Hyprland config and lock changes in a nested Hyprland. Use when checking a change in the real desktop before installing.
+description: Run a fresh build of floatkey, stage or the camera app in place on the tablet (no install), with logging, then go back to the installed one; or try Hyprland config and lock changes in a nested Hyprland. Use when checking a change in the real desktop before installing.
 ---
 
 # Trying a build without installing
@@ -29,6 +29,14 @@ tests, and the apps stage launches would inherit that.
   `/usr/bin/floatkey --hidden` (or `/usr/bin/stage`) and no logging. Do this
   even if the user didn't ask: an in-place build left running looks like the
   installed version.
+
+For the camera app, there is nothing installed to stop first:
+`cd camera && bin/build`, then `QT_LOGGING_RULES='camera.debug=true'
+QT_FORCE_STDERR_LOGGING=1 setsid -f ./build/omarchy-pad-camera
+>"$SCRATCH/camera.log" 2>&1 </dev/null`. It holds the camera until closed:
+close it with `pkill -x omarchy-pad-cam` when done (not `pkill -f`, which
+matches your own shell). Photos the user takes go to the real
+`~/Pictures/Camera`.
 
 ## Hyprland config, layer rules, the lock: nested
 

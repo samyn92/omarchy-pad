@@ -1,6 +1,6 @@
 ---
 name: pad-install
-description: Install an Omarchy Pad project (floatkey, stage, lock, or all) on the tablet and restart what changed. Use when the user says to install, ship to the tablet, or try the installed build. Needs sudo, which the user types themselves.
+description: Install an Omarchy Pad project (floatkey, stage, camera, lock, or all) on the tablet and restart what changed. Use when the user says to install, ship to the tablet, or try the installed build. Needs sudo, which the user types themselves.
 ---
 
 # Installing on the tablet
@@ -26,6 +26,7 @@ repo root and run one of these:
 |---|---|
 | floatkey | `floatkey/bin/install` |
 | stage | `stage/bin/install` |
+| camera | `camera/bin/install` |
 | both | `bin/install` |
 | lock plugin (no sudo; switches the real shell to it) | `lock/bin/install` |
 
@@ -52,6 +53,8 @@ Once the user says it finished, check the tab for errors
   ```
 - **lock:** nothing to restart. It takes effect the next time the screen
   locks. Don't lock to check it.
+- **camera:** nothing to restart; it is an app. If one is open, it runs the
+  old build until closed. `omarchy-pad-camera --version`.
 
 Why `QT_IM_MODULE=fcitx`: this project's Claude settings set
 `QT_IM_MODULE=none` for the tests. A desktop process started from here would

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Camera
+Comment=Take photos with the tablet's cameras
+Exec=omarchy-pad-camera
+Icon=omarchy-pad-camera
+Terminal=false
+Categories=Graphics;Photography;
+Keywords=photo;picture;selfie;
+StartupWMClass=omarchy-pad-camera

@@ -1,0 +1,31 @@
+# omarchy-pad-camera: Omarchy Pad's camera app, for any tablet whose cameras libcamera drives. See ../CLAUDE.md.
+pkgname=omarchy-pad-camera
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Omarchy Pad: take photos with the tablet cameras, by touch'
+arch=('x86_64' 'aarch64')
+license=('MIT')
+depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'libcamera' 'libcamera-ipa' 'libexif' 'libglvnd' 'xdg-utils')
+makedepends=('gcc' 'make' 'libdrm')
+source=()
+sha256sums=()
+
+# Kept in step with VERSION in camera.pro.
+pkgver() {
+  sed -n 's/^VERSION = //p' "$startdir/../camera.pro"
+}
+
+build() {
+  cd "$startdir/.."
+  # From scratch, so the commit --version names is the one being packaged.
+  rm -rf build
+  ./bin/build
+}
+
+package() {
+  cd "$startdir/.."
+  install -Dm755 build/omarchy-pad-camera "$pkgdir/usr/bin/omarchy-pad-camera"
+  install -Dm644 omarchy-pad-camera.desktop "$pkgdir/usr/share/applications/omarchy-pad-camera.desktop"
+  install -Dm644 omarchy-pad-camera.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/omarchy-pad-camera.svg"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

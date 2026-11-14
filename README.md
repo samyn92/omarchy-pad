@@ -10,6 +10,7 @@ anything with a touch screen in principle.
 | [lock](lock/) | Omarchy's lock screen with floatkey's keyboard, for unlocking with no keyboard attached (prototype) |
 | [tablet](tablet/) | The tablet session that ties it together: auto-rotation, starting floatkey and stage, pairing Bluetooth devices |
 | [shell](shell/) | Omarchy shell plugins for touch: the tablet bar, pull-down drawers, a picker you can swipe |
+| [camera](camera/) | The camera app: photos with the back and front cameras, tap to focus |
 
 Omarchy Pad is meant for any touch tablet. What one tablet's hardware needs
 (its kernel, firmware, sound, charging, the panel's scale) comes from that
