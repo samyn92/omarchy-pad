@@ -129,6 +129,8 @@ Item {
             id: drag
             target: null
             dragThreshold: 2
+            // A finger on the arrows slides to aim them, not to move the keyboard.
+            enabled: !arrowArea.pressed
             onActiveChanged: active ? panel.dragStarted() : panel.dragFinished()
             onActiveTranslationChanged: if (active) panel.dragMoved(activeTranslation.x, activeTranslation.y)
         }
@@ -178,7 +180,122 @@ Item {
             }
         }
 
+        // The arrows, beside the hide button: the small board has no arrow keys, and a shell needs Up for its
+        // history more than anything. A tap is Up; held and slid, the finger picks a direction like a little
+        // joystick, and the key repeats while it stays there, as delete does. Back to the middle stops it.
         Item {
+            id: arrows
+            objectName: "floatingArrows"
+            visible: !panel.orbOnly
+            anchors.right: hideButton.left
+            width: 40
+            height: parent.height
+            // "", or up, down, left, right while the finger points one way.
+            property string direction: ""
+            property bool sent: false
+            readonly property int reach: 14   // how far the finger goes before it points
+            readonly property var keys: ({up: "Up", down: "Down", left: "Left", right: "Right"})
+
+            function sendArrow(dir) {
+                view.press(keys[dir])
+                sent = true
+            }
+            function aim(dx, dy) {
+                const dir = Math.hypot(dx, dy) < reach ? ""
+                          : Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left")
+                          : (dy > 0 ? "down" : "up")
+                if (dir === direction)
+                    return
+                direction = dir
+                if (dir) {
+                    sendArrow(dir)
+                    arrowRepeat.begin()
+                } else {
+                    arrowRepeat.stop()
+                }
+            }
+
+            KeyIcon {
+                anchors.centerIn: parent
+                width: 20
+                height: 20
+                name: arrowArea.pressed && arrows.direction ? arrows.direction : "arrows"
+                color: arrowArea.pressed ? panel.style.accent : panel.style.faint
+            }
+            MouseArea {
+                id: arrowArea
+                anchors.fill: parent
+                preventStealing: true
+                property point start
+                onPressed: (mouse) => {
+                    start = Qt.point(mouse.x, mouse.y)
+                    arrows.direction = ""
+                    arrows.sent = false
+                }
+                onPositionChanged: (mouse) => arrows.aim(mouse.x - start.x, mouse.y - start.y)
+                onReleased: {
+                    arrowRepeat.stop()
+                    // A tap that never pointed anywhere is Up.
+                    if (!arrows.sent)
+                        arrows.sendArrow("up")
+                    arrows.direction = ""
+                }
+                onCanceled: {
+                    arrowRepeat.stop()
+                    arrows.direction = ""
+                }
+            }
+            Timer {
+                id: arrowRepeat
+                property int count: 0
+                repeat: true
+                function begin() {
+                    count = 0
+                    interval = 450
+                    restart()
+                }
+                onTriggered: {
+                    if (!arrows.direction) {
+                        stop()
+                        return
+                    }
+                    arrows.sendArrow(arrows.direction)
+                    ++count
+                    interval = count > 15 ? 35 : 70
+                }
+            }
+
+            // While held, the four ways above the button, the one pointed at lit.
+            Rectangle {
+                objectName: "arrowsCross"
+                visible: arrowArea.pressed
+                width: 96
+                height: 96
+                radius: 22
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: parent.top
+                anchors.bottomMargin: 4
+                color: panel.style.key
+                border.width: 1
+                border.color: panel.style.edge
+                Repeater {
+                    model: [{d: "up", x: 0, y: -1}, {d: "down", x: 0, y: 1}, {d: "left", x: -1, y: 0}, {d: "right", x: 1, y: 0}]
+                    KeyIcon {
+                        required property var modelData
+                        width: 24
+                        height: 24
+                        x: parent.width / 2 - width / 2 + modelData.x * 28
+                        y: parent.height / 2 - height / 2 + modelData.y * 28
+                        name: modelData.d
+                        stroke: arrows.direction === modelData.d ? 2.4 : 1.7
+                        color: arrows.direction === modelData.d ? panel.style.accent : panel.style.label
+                    }
+                }
+            }
+        }
+
+        Item {
+            id: hideButton
             visible: !panel.orbOnly
             anchors.right: parent.right
             anchors.rightMargin: 6

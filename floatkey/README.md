@@ -66,6 +66,7 @@ placement, and where you left it floating and where you left the orb.
 | Tap ctrl, alt or super | Applies to the next key (ctrl, then c is Ctrl+C); double-tap to lock. super, with Omarchy's logo, then space opens the Omarchy menu. |
 | Tap option | The next key types what AltGr gives it on a hardware keyboard, and the keys show it: `@` on q, `€` on e, `{` on 7 with a German layout. Double-tap to lock. |
 | Hold delete or an arrow | Repeats, faster after a while. The full keyboard's arrows are an inverted T, up in the shift row. |
+| The arrow button (floating keyboard, beside hide) | Tap for Up, for a shell's last command. Hold and slide up, down, left or right for that arrow; it repeats while you stay there, and back to the middle stops it. |
 | 123, #+= | Numbers and symbols on the small keyboard; press 123 and slide to a key to type one and come straight back. |
 | 😀 / 🌐 | Emoji, or the next layout when there is more than one. On the full keyboard, hold the mic key (or the globe) for emoji. |
 

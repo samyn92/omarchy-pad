@@ -1041,6 +1041,43 @@ private slots:
         QVERIFY(h.keyboard.log.isEmpty());
     }
 
+    void theFloatingArrowButtonTapsUpAndSlidesForTheOthers()
+    {
+        Harness h("floating");
+        QObject *arrows = h.window->findChild<QObject *>("floatingArrows");
+        QVERIFY(arrows);
+        QVERIFY(arrows->property("visible").toBool());
+        const QPoint centre = h.evaluate(arrows, "mapToItem(null, width / 2, height / 2)").toPointF().toPoint();
+
+        // A tap is Up.
+        h.tap(centre);
+        QCOMPARE(h.keyboard.log, QStringList{"key:Up:0"});
+        h.keyboard.log.clear();
+
+        // Held and slid left: Left at once, and again while it stays.
+        h.press(0, centre);
+        QObject *cross = h.window->findChild<QObject *>("arrowsCross");
+        QVERIFY(cross->property("visible").toBool());
+        h.slide(0, centre, centre + QPoint(-8, 0), 4);
+        QVERIFY(h.keyboard.log.isEmpty());   // not far enough yet
+        h.slide(0, centre + QPoint(-8, 0), centre + QPoint(-30, 2), 4);
+        QCOMPARE(h.keyboard.log, QStringList{"key:Left:0"});
+        QTRY_VERIFY_WITH_TIMEOUT(h.keyboard.log.size() >= 3, 1500);
+        // Down instead, then back to the middle stops it.
+        h.slide(0, centre + QPoint(-30, 2), centre + QPoint(0, 30), 4);
+        QCOMPARE(h.keyboard.log.last(), QString("key:Down:0"));
+        h.slide(0, centre + QPoint(0, 30), centre, 4);
+        const qsizetype sent = h.keyboard.log.size();
+        QTest::qWait(600);
+        QCOMPARE(h.keyboard.log.size(), sent);
+        // Lifting after it pointed somewhere adds no Up.
+        h.release(0, centre);
+        QCOMPARE(h.keyboard.log.size(), sent);
+        QVERIFY(!h.keyboard.log.contains("key:Up:0"));
+        QVERIFY(!cross->property("visible").toBool());
+        QCOMPARE(h.controller.mode(), QString("floating"));   // it never dragged the keyboard
+    }
+
     void dockedMicKeyDictatesAndEscapeLetsGo()
     {
         Harness h;
